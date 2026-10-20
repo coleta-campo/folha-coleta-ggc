@@ -110,6 +110,14 @@ servidor*. Não há código a digitar.
 - Se a conexão cair, toque de novo e só o que faltou é mandado.
 - Arquivo de mesmo nome é substituído; o anterior vai à lixeira do Drive.
 
+**Fase de teste:** o receptor está numa conta Google pessoal. Todas as equipes, de
+qualquer unidade, enviam para a mesma pasta, com um único código da coordenação.
+
+**Pendência:** a adoção pede um repositório comum e institucional do IBGE, na solução
+Microsoft 365 (SharePoint ou OneDrive institucional). A folha não depende do Google:
+basta um receptor no ambiente Microsoft que siga o mesmo protocolo e grave pelo envio
+retomável da API Microsoft Graph. A definição é com a DTI.
+
 **Cuidados**
 
 - A pasta deve ficar em conta ou drive compartilhado **institucional**, com acesso

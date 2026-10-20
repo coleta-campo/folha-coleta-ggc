@@ -763,7 +763,8 @@ você cabe o que nenhum arquivo registra.</p>
     planejador já vem pronta para enviar: basta tocar em <b>Testar a ligação</b> e em
     <b>Enviar ao servidor</b>. O código abaixo só é preciso numa folha que não veio do
     planejador.</p>
-    <label class="c" for="srv_codigo">Código da equipe (cole aqui ou leia o QR)</label>
+    <p class="leg" id="srv_auto"></p>
+    <label class="c" for="srv_codigo">Código de envio da equipe (preenchido pela folha da equipe; ou cole, ou leia o QR)</label>
     <input type="text" id="srv_codigo" placeholder="GGC:…" autocomplete="off" spellcheck="false">
     <div class="acoes"><button type="button" class="btn sec peq" id="b_srv_qr">Ler o QR do código</button></div>
     <details class="ajuda"><summary>Endereço e chave, um a um</summary>
@@ -7974,7 +7975,9 @@ function monta(){
   try { const pe = $('#ppp_email'); if (pe && document.activeElement !== pe) pe.value = (F.config && F.config.email_ppp) || ''; } catch (e){}
   try { const sv = (F.config && F.config.servidor) || {}, su = $('#srv_url'), sc = $('#srv_chave');
         if (su && document.activeElement !== su) su.value = sv.url || '';
-        if (sc && document.activeElement !== sc) sc.value = sv.chave || ''; } catch (e){}
+        if (sc && document.activeElement !== sc) sc.value = sv.chave || '';
+        const scd = $('#srv_codigo'); if (scd && document.activeElement !== scd) scd.value = _codigoDe(sv);
+        pintaSrvAuto(); } catch (e){}
   const bc = $('#blocos_campanha'); bc.innerHTML = '';
   secoesDe('campanha').forEach(s => bc.appendChild(bloco(s, F.campanha.itens, 'campanha')));
   const bd = $('#blocos_dia'); bd.innerHTML = '';
@@ -9332,16 +9335,32 @@ async function enviaArquivo(caminho, dados, m){
    equipe gerada pelo planejador já vem com ele. Aceita também "endereço /exec | chave". */
 function _codigoReceptor(t){
   t = String(t || '').trim();
-  let m = t.match(/^GGC:([\w-]{20,}):([0-9a-f]{16,})$/i);
-  if (m) return {url: 'https://script.google.com/macros/s/' + m[1] + '/exec', chave: m[2]};
+  let m = t.match(/^GGC:([\w-]{20,}):([0-9a-f]{16,})(?::(LC(?:\d{1,6}|X{1,6})):(Equipe_\d{2}))?$/i);
+  if (m) return {url: 'https://script.google.com/macros/s/' + m[1] + '/exec', chave: m[2], lc: m[3] ? m[3].toUpperCase() : '', equipe: m[4] || ''};
   m = t.match(/(https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec)\s*[|;,\s]\s*([\w-]{16,})/);
   return m ? {url: m[1], chave: m[2]} : null;
 }
+/* o código de envio da equipe, para mostrar: GGC:<implantação>:<chave>[:<LC>:<Equipe_NN>] */
+function _codigoDe(s){
+  const m = String((s && s.url) || '').match(/\/macros\/s\/([\w-]+)\/exec/);
+  if (!m || !s.chave) return '';
+  return 'GGC:' + m[1] + ':' + s.chave + (s.lc && s.equipe ? ':' + s.lc + ':' + s.equipe : '');
+}
+function pintaSrvAuto(){
+  const e = $('#srv_auto'), s = (F.config && F.config.servidor) || {}; if (!e) return;
+  const ok = _urlReceptorOk(s.url) && (s.chave || '').length >= 16;
+  e.innerHTML = ok ? '<b style="color:#047857">Envio configurado</b>' + (s.equipe ? ': ' + esc(s.lc) + ' · ' + esc(s.equipe) : '')
+    + (F.config.kit ? ', pela folha da equipe' : '') + '. Basta tocar em <b>Testar a ligação</b> e em <b>Enviar ao servidor</b>.'
+    : 'Envio ainda não configurado: a folha da equipe gerada pelo planejador já traz o código. Sem ela, cole o código ou leia o QR.';
+}
 function aplicaCodigoReceptor(t){
   const c = _codigoReceptor(t); if (!c) return false;
-  const s = _srv(); s.url = c.url; s.chave = c.chave; delete s.lc; delete s.equipe; grava();
+  const s = _srv(); s.url = c.url; s.chave = c.chave;
+  if (c.equipe){ s.lc = c.lc; s.equipe = c.equipe; } else { delete s.lc; delete s.equipe; }
+  grava();
   const u = $('#srv_url'), k = $('#srv_chave'), cd = $('#srv_codigo');
-  if (u) u.value = c.url; if (k) k.value = c.chave; if (cd) cd.value = '';
+  if (u) u.value = c.url; if (k) k.value = c.chave; if (cd) cd.value = _codigoDe(s);
+  pintaSrvAuto();
   _srvRes('Código da equipe lido: receptor e chave preenchidos. Toque em <b>Testar a ligação</b>.');
   marca('código da equipe lido');
   return true;
@@ -10844,6 +10863,10 @@ function pintaKits(){
         + ['', 'Veículo IBGE', 'Veículo locado', 'Veículo particular'].map(o => '<option' + (d.vtipo === o ? ' selected' : '') + '>' + o + '</option>').join('')
         + '</select></div><div><label class="c">Placa</label><input type="text" data-kitc="' + i + '" data-k="vplaca" data-maiusc maxlength="8" placeholder="ex.: OZA9269" value="' + v('vplaca', '') + '"></div></div>'
         + '<label class="c">Marca / modelo</label><input type="text" data-kitc="' + i + '" data-k="vmodelo" data-maiusc placeholder="ex.: MITSUBISHI/L200" value="' + v('vmodelo', '') + '">'
+        + '<label class="c">Código de envio ao Drive (gerado pelo sistema)</label>'
+        + '<div style="display:flex;gap:6px;align-items:center"><input type="text" id="kit_cod' + i + '" readonly spellcheck="false" style="flex:1;font-family:monospace;font-size:12px">'
+        + '<button type="button" class="btn sec peq" data-kitcopia="' + i + '">Copiar</button></div>'
+        + '<p class="leg" id="kit_codleg' + i + '" style="margin-top:2px"></p>'
         + '<p class="leg" id="kit_av' + i + '" style="margin-top:2px"></p>'
         + '<div class="acoes"><button type="button" class="btn peq" data-kit="' + i + '">Gerar a folha da ' + esc(e.nome) + '</button></div></div>';
     });
@@ -10859,7 +10882,11 @@ function pintaKits(){
     });
     if (c.dataset.k === 'vplaca') c.addEventListener('input', () => confereKitEquipe(+c.dataset.kitc));
   });
-  pc.equipes.forEach((e, i) => confereKitEquipe(i));
+  pc.equipes.forEach((e, i) => { confereKitEquipe(i); pintaCodigoEquipe(i); });
+  el.querySelectorAll('[data-kitcopia]').forEach(b => b.addEventListener('click', () => {
+    const v = ($('#kit_cod' + b.dataset.kitcopia) || {}).value; if (!v) return;
+    (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(() => marca('código copiado'), () => marca('copie o código à mão'));
+  }));
   ligaCoord();
   el.querySelectorAll('[data-kit]').forEach(b => b.addEventListener('click', () =>
     geraKit(+b.dataset.kit).catch(err => marca('folha da equipe não saiu: ' + err.message))));
@@ -10904,6 +10931,18 @@ async function _servidorDaEquipe(i){
   const c = _coord(); if (!c) return undefined;
   const lc = String(F.campanha.ptcon_lc || ''), equipe = 'Equipe_' + _n2(i + 1);
   return {url: c.url, lc: lc, equipe: equipe, chave: await _hmacHex(c.seg, lc + '|' + equipe)};
+}
+async function pintaCodigoEquipe(i){
+  const inp = $('#kit_cod' + i), leg = $('#kit_codleg' + i); if (!inp) return;
+  const lc = String(F.campanha.ptcon_lc || ''), eq = 'Equipe_' + _n2(i + 1);
+  let cod = '', t;
+  if (!_coord()) t = 'Sem receptor configurado neste computador (quadro Envio ao Drive, acima): a folha sai sem envio.';
+  else if (!LC_OK.test(lc)) t = '<span style="color:#B91C1C">Aguardando o código LC da campanha: o código de envio é gerado a partir dele.</span>';
+  else { try { cod = _codigoDe(await _servidorDaEquipe(i)); } catch (e){ t = 'não foi possível gerar: ' + esc(e.message); }
+         if (cod) t = 'Vai dentro da folha da equipe (' + esc(lc) + ' · ' + eq + '); no celular não há o que digitar. '
+           + 'Use o Copiar só se precisar mandar o código à parte.'; }
+  inp.value = cod; inp.placeholder = cod ? '' : '—'; if (leg) leg.innerHTML = t;
+  const bt = document.querySelector('[data-kitcopia="' + i + '"]'); if (bt) bt.disabled = !cod;
 }
 function _htmlCoord(){
   const c = _coord(), lc = String(F.campanha.ptcon_lc || '');

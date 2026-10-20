@@ -5728,6 +5728,18 @@ function lerAngulo(t, eixo){
   const r = sinal * v, lim = eixo === 'lat' ? 90 : 180;
   return isFinite(r) && Math.abs(r) <= lim ? Math.round(r * 1e9) / 1e9 : null;
 }
+/* Coordenadas a partir do que se cola: "lat, lon", GMS, ou um link do Google Maps
+   (!3d…!4d… é o lugar escolhido; @lat,lon é o centro da tela). Link encurtado
+   (maps.app.goo.gl) não traz coordenadas: aí é preciso copiá-las no próprio Maps. */
+function coordDeTexto(t){
+  t = String(t || '').trim(); if (!t) return null;
+  let m = t.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/);
+  if (!m) m = t.match(/[?&](?:q|query|ll|destination)=(-?\d+(?:\.\d+)?)(?:,|%2C)\s*(-?\d+(?:\.\d+)?)/i);
+  if (!m) m = t.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+  if (m){ const c = {lat: +m[1], lon: +m[2]}; return Math.abs(c.lat) <= 90 && Math.abs(c.lon) <= 180 ? c : null; }
+  if (/^https?:/i.test(t)) return null;
+  return lerCoordenadas(t);
+}
 /* "lat, lon" em graus decimais (como o Google Maps copia), ou GMS com S/W. */
 function lerCoordenadas(t){
   const g = String(t).replace(/,(?=\d)/g, '.');
@@ -6087,6 +6099,48 @@ function montaDias(G, H, x, ordem, dH){
   }
   return dias;
 }
+/* Ajuda a obter as coordenadas do hotel: pesquisa no Google Maps, link colado, ou a
+   posição deste aparelho. No computador a posição vem da rede (Wi-Fi ou IP), não de GNSS:
+   serve quando se planeja já no hotel, e a precisão informada pelo navegador é mostrada. */
+function ligaCamposHotel(){
+  const hi = $('#pc_hotel'), av = $('#pc_hotel_aviso'); if (!hi) return;
+  const diz = (h, cor) => { if (av) av.innerHTML = cor ? '<span style="color:' + cor + '">' + h + '</span>' : h; };
+  const normaliza = () => {
+    const t = hi.value.trim(); if (!t) return;
+    const c = coordDeTexto(t);
+    if (c){
+      diz(/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(t) ? 'Coordenadas do hotel: ' + c.lat.toFixed(6) + ', ' + c.lon.toFixed(6) + '.'
+        : 'Coordenadas tiradas do que foi colado: ' + c.lat.toFixed(6) + ', ' + c.lon.toFixed(6) + '.');
+      hi.value = c.lat.toFixed(6) + ', ' + c.lon.toFixed(6);
+    } else if (/maps\.app\.goo\.gl|goo\.gl\/maps/i.test(t)) diz('Link encurtado não traz as coordenadas: no Google Maps, clique com o botão direito sobre o hotel e copie os números da primeira linha.', '#B45309');
+    else if (/^https?:/i.test(t)) diz('Esse link não traz coordenadas — copie-as no Google Maps (botão direito sobre o hotel).', '#B45309');
+  };
+  hi.addEventListener('change', normaliza);
+  hi.addEventListener('paste', () => setTimeout(normaliza, 0));
+  $('#b_hotel_maps').addEventListener('click', () => {
+    const t = hi.value.trim(), c = coordDeTexto(t);
+    const U = unidadesPendentes(), med = U.length ? medianaGeo(U) : null;
+    const url = c ? 'https://www.google.com/maps/search/?api=1&query=' + c.lat.toFixed(6) + '%2C' + c.lon.toFixed(6)
+      : t ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(t)
+      : med ? 'https://www.google.com/maps/search/hot%C3%A9is/@' + med.lat.toFixed(5) + ',' + med.lon.toFixed(5) + ',13z'
+      : 'https://www.google.com/maps/search/hot%C3%A9is';
+    window.open(url, '_blank', 'noopener');
+    diz('No Google Maps, clique com o botão direito sobre o hotel e clique nas coordenadas (primeira linha do menu) para copiá-las; volte aqui e cole.');
+  });
+  $('#b_hotel_aqui').addEventListener('click', () => {
+    if (!navigator.geolocation) return diz('Este navegador não informa a posição.', '#B91C1C');
+    diz('Procurando a posição deste aparelho…');
+    navigator.geolocation.getCurrentPosition(p => {
+      const c = p.coords, acc = Math.round(c.accuracy);
+      hi.value = c.latitude.toFixed(6) + ', ' + c.longitude.toFixed(6);
+      const pc = /Android|iPhone|iPad/.test(navigator.userAgent);
+      diz('Posição deste aparelho, ± ' + acc + ' m' + (pc ? '' : ' (no computador ela vem da rede Wi-Fi ou do endereço de internet, não de GNSS)')
+        + (acc > 150 ? ' — imprecisa: confira no Google Maps antes de planejar.' : '.'), acc > 150 ? '#B45309' : null);
+    }, e => diz(e.code === 1 ? 'A posição foi negada: libere a localização para esta página (ícone à esquerda do endereço) ou use o Google Maps.'
+                 : 'Sem posição agora (' + (e.message || 'erro') + ') — use o Google Maps.', '#B91C1C'),
+       {enableHighAccuracy: true, timeout: 20000, maximumAge: 0});
+  });
+}
 async function planejaCampanha(){
   const v = s => ($(s) || {}).value;
   const x = Math.max(1, Math.min(15, parseInt(v('#pc_n'), 10) || 5));
@@ -6104,8 +6158,8 @@ async function planejaCampanha(){
   const txt = String(v('#pc_hotel') || '').trim();
   let H = null;
   if (txt){
-    H = lerCoordenadas(txt);
-    if (!H) return marca('plano da campanha: não entendi as coordenadas do hotel — use latitude, longitude em graus');
+    H = coordDeTexto(txt);
+    if (!H) return marca('plano da campanha: não entendi o hotel — cole as coordenadas (lat, lon) ou o link do Google Maps');
   }
   const semHotel = !H;
   if (!H) H = med;
@@ -6419,7 +6473,11 @@ function pintaPlanoCampanha(){
     + 'que você indicar. Cada dia começa pelo círculo pendente mais distante do hotel (equipe descansada) e leva os mais '
     + 'próximos dele — ou o contrário. B, C e D seguem o círculo da A. Planejar de novo considera só o que falta.</p>'
     + '<div class="lin"><label for="pc_hotel">Hotel</label><input type="text" id="pc_hotel" style="flex:1;min-width:10em" '
-    + 'placeholder="lat, lon do hotel; vazio = mediana dos pontos" value="' + esc(pc && pc.hotel.txt || '') + '"></div>'
+    + 'placeholder="coordenadas ou link do Google Maps; vazio = mediana dos pontos" value="' + esc(pc && pc.hotel.txt || '') + '"></div>'
+    + '<div class="lin"><button type="button" class="btn sec peq" id="b_hotel_maps">Achar no Google Maps</button>'
+    + '<button type="button" class="btn sec peq" id="b_hotel_aqui">Usar a minha localização</button></div>'
+    + '<p class="leg" id="pc_hotel_aviso" style="margin-top:2px">No Google Maps, clique com o botão direito sobre o hotel: a primeira linha do menu '
+    + 'são as coordenadas — clique nelas para copiar e cole aqui. Também serve colar o link da página do hotel.</p>'
     + '<div class="lin"><label for="pc_n">Pontos por dia</label><input type="number" id="pc_n" min="1" max="15" value="' + val('porDia', 5) + '">'
     + '<label for="pc_eq">Equipes</label><input type="number" id="pc_eq" min="1" max="4" value="' + eqN + '"></div>'
     + '<div class="lin"><label for="pc_ocup">Ocupação (min/ponto)</label><input type="number" id="pc_ocup" min="5" max="240" value="' + val('ocup', 40) + '">'
@@ -6453,6 +6511,7 @@ function pintaPlanoCampanha(){
   }
   el.innerHTML = h;
   $('#b_pc').addEventListener('click', () => planejaCampanha().catch(e => marca('plano da campanha: ' + e.message)));
+  ligaCamposHotel();
   if (pc){
     $('#b_pc_tira').addEventListener('click', () => {
       if (!confirm('Esquecer o plano da campanha?')) return;

@@ -390,6 +390,7 @@ você cabe o que nenhum arquivo registra.</p>
       <div><label class="c" for="c_eqp">Equipe no PTCON</label>
         <input type="text" id="c_eqp" data-campo="campanha.ptcon_equipe" placeholder="ex.: CE1" maxlength="16"></div>
     </div>
+    <p class="leg" id="c_lc_aviso" style="margin-top:2px"></p>
     <label class="c" for="c_proj">Projeto no PTCON</label>
     <input type="text" id="c_proj" data-campo="campanha.ptcon_projeto" placeholder="ex.: AVALIA-RN-1">
     <p class="leg">Usados no <b>pacote PTCON</b> (aba Fechar): o código LC dá nome à
@@ -4209,12 +4210,13 @@ function pintaCampos(){
     if (v != null) el.value = v;
   });
   try { sincronizaMun(); } catch (e){}
+  try { confereLC(); } catch (e){}
 }
 document.addEventListener('input', e => {
   const c = e.target.dataset.campo; if (!c) return;
   poe(F, c, e.target.value);
   if (c === 'dia.data') F.dia.data_auto = false;   // digitou: manda quem digitou
-  if (c === 'campanha.ptcon_lc'){ renomeiaPontos(); clearTimeout(window._tRen); window._tRen = setTimeout(pintaPontos, 800); }
+  if (c === 'campanha.ptcon_lc'){ confereLC(); renomeiaPontos(); clearTimeout(window._tRen); window._tRen = setTimeout(pintaPontos, 800); }
   grava();
 });
 document.addEventListener('change', e => {
@@ -10134,6 +10136,16 @@ async function _jpegDeDataURL(u){
   const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height);
   return c.toDataURL('image/jpeg', 0.85);
 }
+/* Código da campanha no PTCON: LC seguido de números (LC426). Em teste, LC900 ou LCXXX.
+   Outro formato quebra o nome dos pontos (LC426:0037), a pasta do pacote e o envio ao servidor. */
+const LC_OK = /^LC(\d{1,6}|X{1,6})$/;
+function confereLC(){
+  const el = $('#c_lc'), av = $('#c_lc_aviso'); if (!el || !av) return;
+  const v = String(F.campanha.ptcon_lc || '').trim().toUpperCase();
+  av.innerHTML = !v || LC_OK.test(v) ? ''
+    : '<span style="color:#B91C1C">“' + esc(v) + '” fora do padrão: use LC seguido só de números (ex.: LC429). Em teste, LC900 ou LCXXX. '
+      + 'Com este código os pontos não recebem o nome do PTCON, e o pacote e o envio ao servidor não saem.</span>';
+}
 async function exportaLC(op){
   await atualizaTemposCampo();
   let lc = ptconNome(F.campanha.ptcon_lc);
@@ -10145,6 +10157,7 @@ async function exportaLC(op){
     F.campanha.ptcon_lc = lc; grava();
     const el = $('#c_lc'); if (el) el.value = lc;
   }
+  if (!LC_OK.test(lc)) return marca('código da campanha "' + lc + '" fora do padrão — use LC seguido de números (ex.: LC429; em teste, LC900), na aba Campanha');
   const iEq = F.config && F.config.equipePlano != null ? +F.config.equipePlano : 0;
   const equipeN = _n2(iEq + 1), raiz = lc + '/', eqd = raiz + 'Equipe_' + equipeN + '/';
   const DIAS = (F.dias || []).concat([F.dia]).filter(d => d && (d.pontos || []).length);

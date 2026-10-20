@@ -5757,7 +5757,7 @@ function noTrajeto(t, P){
     resta += _dPlano(t.g[k-1][1], t.g[k-1][0], t.g[k][1], t.g[k][0]);
   return {fora: d0, resta: resta};
 }
-const COR_OPC = {0: '#0B6FA4', 1: '#0B6FA4', 2: '#C2410C', 3: '#7E22CE'};
+const COR_OPC = {0: '#0B6FA4', 1: '#0B6FA4', 2: '#C2410C', 3: '#7E22CE', 9: '#BE185D'};
 
 /* Rota de carro na hora, pelo servidor público do OSRM (dados do
    OpenStreetMap). Só com internet; é refeita quando o celular se afasta mais
@@ -5785,6 +5785,139 @@ function pedeRotaOnline(a, P){
   }).catch(e => { NAV.rotaErro = 'rota de carro indisponível agora (' + (e.name === 'AbortError'
       ? 'servidor não respondeu' : e.message) + ')'; NAV.rotaErroT = Date.now(); })
     .finally(() => { clearTimeout(tm); NAV.rotaPedindo = false; desenhaNav(); });
+}
+/* ---------- rota sem internet, calculada no aparelho ----------
+   Quando nenhum caminho do escritório tem passagem (porteira, ponte caída, rua fechada),
+   a folha calcula outro pelas ruas do OpenStreetMap guardadas com o mapa da área: grafo
+   das vias (nós nos vértices; vias que se cruzam compartilham o vértice), custo = tempo
+   pela velocidade típica da classe da via, e busca A* (HART; NILSSON; RAPHAEL, 1968),
+   evitando os pontos marcados "sem passagem" (30 m em volta). Limites: só as ruas da
+   região baixada; sentido único só nas ruas baixadas a partir desta versão. */
+const VEL_VIA = {motorway: 80, trunk: 70, primary: 60, secondary: 50, tertiary: 40, unclassified: 30,
+  residential: 25, road: 25, living_street: 15, service: 15, track: 12};
+const RAIO_BLOQ = 30;
+let _GRAFO = null;
+function _velVia(hv){ return (VEL_VIA[String(hv || '').replace(/_link$/, '')] || 20) / 3.6; }
+function _m(lat1, lon1, lat2, lon2){ const c = Math.cos((lat1 + lat2) / 2 * Math.PI / 180);
+  return 111320 * Math.hypot((lon2 - lon1) * c, lat2 - lat1); }
+function grafoVias(){
+  if (_GRAFO && _GRAFO.base === VIAS) return _GRAFO;
+  const id = new Map(), X = [], Y = [], adj = [];
+  const no = c => { const k = (+c[0]).toFixed(5) + ',' + (+c[1]).toFixed(5); let i = id.get(k);
+    if (i == null){ i = X.length; id.set(k, i); X.push(+c[0]); Y.push(+c[1]); adj.push([]); } return i; };
+  for (const v of VIAS){
+    const vel = _velVia(v.h);
+    for (let k = 1; k < v.g.length; k++){
+      const a = no(v.g[k - 1]), b = no(v.g[k]); if (a === b) continue;
+      const s = _m(Y[a], X[a], Y[b], X[b]);
+      if (v.o !== -1) adj[a].push([b, s / vel, s]);
+      if (v.o !== 1) adj[b].push([a, s / vel, s]);
+    }
+  }
+  return (_GRAFO = {base: VIAS, X: X, Y: Y, adj: adj, n: X.length});
+}
+/* distância de um ponto a um segmento, em metros (plano local) */
+function _distSeg(lat, lon, la1, lo1, la2, lo2){
+  const c = Math.cos(lat * Math.PI / 180), k = 111320;
+  const ax = (lo1 - lon) * c * k, ay = (la1 - lat) * k, bx = (lo2 - lon) * c * k, by = (la2 - lat) * k;
+  const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+  const t = L2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L2)) : 0;
+  return Math.hypot(ax + t * dx, ay + t * dy);
+}
+function bloqueios(){ return (F.campanha.bloqueios = F.campanha.bloqueios || []); }
+function trajetoBloqueado(t){
+  const B = bloqueios(); if (!B.length || !t || !t.g) return null;
+  for (const b of B) for (let k = 1; k < t.g.length; k++)
+    if (_distSeg(b.lat, b.lon, t.g[k - 1][1], t.g[k - 1][0], t.g[k][1], t.g[k][0]) <= (b.r || RAIO_BLOQ)) return b;
+  return null;
+}
+function rotaOffline(P, a){
+  const G = grafoVias();
+  if (!G.n) throw new Error('não há ruas guardadas neste aparelho (prepare o mapa offline ou abra a folha da equipe)');
+  const B = bloqueios();
+  const maisPerto = (lat, lon) => { let i = -1, d = Infinity;
+    for (let j = 0; j < G.n; j++){ const s = _m(lat, lon, G.Y[j], G.X[j]); if (s < d){ d = s; i = j; } } return {i: i, d: d}; };
+  const s = maisPerto(P.lat, P.lon), t = maisPerto(a.lat, a.lon);
+  if (s.d > 500) throw new Error('você está a ' + _metros(s.d) + ' da rua guardada mais próxima');
+  if (t.d > 3000) throw new Error('o ponto está a ' + _metros(t.d) + ' da rua guardada mais próxima');
+  const Bv = B.filter(b => _m(P.lat, P.lon, b.lat, b.lon) > (b.r || RAIO_BLOQ));   // a marca em cima de você não o prende
+  const bloq = (u, v) => Bv.some(b => _distSeg(b.lat, b.lon, G.Y[u], G.X[u], G.Y[v], G.X[v]) <= (b.r || RAIO_BLOQ));
+  const vmax = 80 / 3.6, h = j => _m(G.Y[j], G.X[j], G.Y[t.i], G.X[t.i]) / vmax;
+  const dist = new Float64Array(G.n).fill(Infinity), pai = new Int32Array(G.n).fill(-1), ok = new Uint8Array(G.n);
+  const heap = [];                                           // [f, nó]
+  const poe = (f, j) => { heap.push([f, j]); let i = heap.length - 1;
+    while (i){ const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const tira = () => { const top = heap[0], ult = heap.pop();
+    if (heap.length){ heap[0] = ult; let i = 0;
+      for (;;){ const l = 2 * i + 1, r = l + 1; let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } }
+    return top; };
+  dist[s.i] = 0; poe(h(s.i), s.i);
+  while (heap.length){
+    const [, u] = tira(); if (ok[u]) continue; ok[u] = 1;
+    if (u === t.i) break;
+    for (const [v, c] of G.adj[u]){
+      if (ok[v]) continue;
+      const nd = dist[u] + c; if (nd >= dist[v]) continue;
+      if (Bv.length && bloq(u, v)) continue;
+      dist[v] = nd; pai[v] = u; poe(nd + h(v), v);
+    }
+  }
+  if (!isFinite(dist[t.i])) throw new Error('pelas ruas guardadas não há caminho que evite os pontos sem passagem');
+  const seq = []; for (let j = t.i; j >= 0; j = pai[j]) seq.unshift(j);
+  const g = [[+P.lon.toFixed(6), +P.lat.toFixed(6)]].concat(seq.map(j => [G.X[j], G.Y[j]]));
+  let km = s.d; for (let k = 1; k < seq.length; k++) km += _m(G.Y[seq[k - 1]], G.X[seq[k - 1]], G.Y[seq[k]], G.X[seq[k]]);
+  return {o: 9, id: a.id, fonte: 'offline', km: km / 1000, min: (dist[t.i] + s.d / 1.4) / 60, g: g, t: Date.now(), evita: B.length};
+}
+function calculaRotaOffline(){
+  const a = (F.campanha.alvos || [])[NAV.i], P = NAV.pos;
+  if (!a) return;
+  if (!P) return marca('rota sem internet: esperando a posição do celular');
+  try {
+    const t0 = performance.now(), r = rotaOffline(P, a);
+    NAV.rotaOff = r; NAV.opc = 9; NAV.dz = 0;
+    if (NAV.modo !== 'carro'){ NAV.modo = 'carro'; }
+    marca('rota calculada no aparelho: ' + _numBR(r.km, 1) + ' km, ~' + Math.max(1, Math.round(r.min)) + ' min'
+      + (r.evita ? ', evitando ' + r.evita + ' ponto(s) sem passagem' : '') + ' (' + Math.round(performance.now() - t0) + ' ms)');
+  } catch (e){ NAV.rotaOff = null; marca('rota sem internet: ' + e.message); }
+  desenhaNav();
+}
+/* o obstáculo fica à frente de quem chega a ele: a marca vai 40 m adiante pelo caminho que se
+   seguia (ou pelo rumo do deslocamento), para a nova rota poder voltar por onde se veio */
+function _aFrente(P, dist){
+  const a = (F.campanha.alvos || [])[NAV.i];
+  const TL = [].concat(NAV.rotaOff && a && NAV.rotaOff.id === a.id ? [NAV.rotaOff] : [], a ? trajetosDoPonto(a) : [],
+    NAV.rotaOn && a && NAV.rotaOn.id === a.id ? [NAV.rotaOn] : []);
+  const T = TL.find(t => t.o === NAV.opc) || TL[0];
+  if (T && T.g && T.g.length > 1){
+    let k0 = 0, d0 = Infinity;
+    T.g.forEach((c, k) => { const d = _m(P.lat, P.lon, c[1], c[0]); if (d < d0){ d0 = d; k0 = k; } });
+    if (d0 <= 60){
+      let andou = 0;
+      for (let k = k0 + 1; k < T.g.length; k++){
+        const s = _m(T.g[k - 1][1], T.g[k - 1][0], T.g[k][1], T.g[k][0]);
+        if (andou + s >= dist){ const f = (dist - andou) / s;
+          return {lat: T.g[k - 1][1] + f * (T.g[k][1] - T.g[k - 1][1]), lon: T.g[k - 1][0] + f * (T.g[k][0] - T.g[k - 1][0]), como: 'pelo caminho'}; }
+        andou += s;
+      }
+    }
+  }
+  if (NAV.rumo != null){ const r = NAV.rumo * Math.PI / 180;
+    return {lat: P.lat + dist * Math.cos(r) / 111320, lon: P.lon + dist * Math.sin(r) / (111320 * Math.cos(P.lat * Math.PI / 180)), como: 'pelo rumo'}; }
+  return {lat: P.lat, lon: P.lon, como: 'aqui'};
+}
+function marcaSemPassagem(){
+  const P = NAV.pos;
+  if (!P) return marca('sem posição do celular para marcar o ponto sem passagem');
+  if (!confirm('Marcar "sem passagem" aqui (num raio de ' + RAIO_BLOQ + ' m) e calcular outro caminho, sem internet, '
+      + 'pelas ruas guardadas?\n\nA marca vale para toda a campanha e vai no registro da equipe.')) return;
+  const nota = prompt('O que impede a passagem? (opcional: porteira, ponte, alagado…)', '') || '';
+  const f = _aFrente(P, 40);
+  bloqueios().push({lat: +f.lat.toFixed(6), lon: +f.lon.toFixed(6), r: f.como === 'aqui' ? RAIO_BLOQ : 25, quando: new Date().toISOString(),
+    nota: nota.trim(), onde: f.como === 'aqui' ? 'onde a equipe estava' : '40 m à frente, ' + f.como});
+  grava();
+  calculaRotaOffline();
 }
 /* Google Maps (Maps URLs): navegação curva a curva, de carro, a partir de onde o
    celular está. Com o trajeto carregado para o ponto, o Maps recebe como pontos de
@@ -6071,6 +6204,9 @@ function pintaPlano(){
     + '<div class="lin" style="margin-top:6px"><input type="text" id="rem_id" placeholder="ponto (ex.: 0037A)" style="width:9em">'
     + '<input type="text" id="rem_motivo" placeholder="motivo" style="flex:1;min-width:8em">'
     + '<button type="button" class="btn sec peq" id="b_rem">Incluir</button></div></div>'
+    + (bloqueios().length ? '<div class="remedir"><b>Sem passagem</b> — marcados em campo na navegação; as rotas calculadas no aparelho os evitam:<ul>'
+      + bloqueios().map((b, i) => '<li>' + new Date(b.quando).toLocaleString('pt-BR').slice(0, 17) + ' · ' + b.lat.toFixed(5) + ', ' + b.lon.toFixed(5)
+        + (b.nota ? ' — ' + esc(b.nota) : '') + ' <button type="button" class="btn sec peq" data-tirabloq="' + i + '">tirar</button></li>').join('') + '</ul></div>' : '')
     + '<p class="leg" style="margin:6px 0">No hotel, com internet: escolha a partida, quantos pontos e a ordem, '
     + 'e toque em <b>Planejar</b>. Cada trecho, inclusive a volta, ganha até três caminhos de carro (OSRM; LUXEN; VETTER, 2011), '
     + 'guardados para navegar sem rede. <b>Do escritório</b> mantém a ordem do plano da campanha; <b>menor tempo</b> calcula a ordem exata '
@@ -6140,6 +6276,9 @@ function pintaPlano(){
   $('#b_rem').addEventListener('click', () => {
     marcaRemedir($('#rem_id').value, $('#rem_motivo').value.trim());
   });
+  el.querySelectorAll('[data-tirabloq]').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('Tirar esta marca de sem passagem?')) return;
+    bloqueios().splice(+b.dataset.tirabloq, 1); grava(); pintaPlano(); }));
   el.querySelectorAll('[data-tirarem]').forEach(b => b.addEventListener('click', () => {
     tiraRemedir(b.dataset.tirarem); pintaAlvos(); }));
   $('#b_plano').addEventListener('click', () => planejaDia().catch(e => marca('plano do dia: ' + e.message)));
@@ -7063,6 +7202,8 @@ function montaTelaNav(){
     + '<button type="button" class="btn sec" data-n="maps">Google Maps até o ponto</button>'
     + '<button type="button" class="btn sec" data-n="mapsbr">Google Maps até a saída da BR</button>'
     + '<button type="button" class="btn sec" data-n="traj">Trajeto</button>'
+    + '<button type="button" class="btn sec" data-n="bloq">Sem passagem aqui</button>'
+    + '<button type="button" class="btn sec" data-n="rotaoff">Outra rota, sem internet</button>'
     + '<button type="button" class="btn sec" data-n="comeca">Começar o ponto aqui</button>'
     + '<button type="button" class="btn sec" data-n="campo">Nenhuma opção serve — escolher em campo</button>'
     + '</div>';
@@ -7088,6 +7229,8 @@ function montaTelaNav(){
     NAV.opc = L[(k + 1) % L.length].o; NAV.dz = 0; desenhaNav();
   });
   q('comeca').addEventListener('click', comecaPontoAqui);
+  q('bloq').addEventListener('click', marcaSemPassagem);
+  q('rotaoff').addEventListener('click', calculaRotaOffline);
   q('campo').addEventListener('click', () => { const a = (F.campanha.alvos || [])[NAV.i];
     escolheEmCampo(a ? circuloDe(a.id) : null, NAV.pos).catch(e => marca('ponto de campo: ' + e.message)); });
   q('modo').addEventListener('click', () => {
@@ -7451,7 +7594,7 @@ async function guardaVias(gj, fonte){
       let o = 180, s = 90, l = -180, n = -90;
       for (const [x, y] of c){ if (x < o) o = x; if (x > l) l = x; if (y < s) s = y; if (y > n) n = y; }
       const pr = f.properties || {};
-      L.push({h: pr.h || pr.highway || '', n: pr.n || pr.name || '', b: [o, s, l, n],
+      L.push({h: pr.h || pr.highway || '', n: pr.n || pr.name || '', b: [o, s, l, n], o: pr.o || undefined,
               g: c.map(p => [+(+p[0]).toFixed(5), +(+p[1]).toFixed(5)])});
     }
   }
@@ -7489,14 +7632,15 @@ async function baixaViasOSM(A){
   const bb = [Math.min(...la) - m, Math.min(...lo) - m, Math.max(...la) + m, Math.max(...lo) + m]
     .map(v => v.toFixed(5)).join(',');
   const q = '[out:json][timeout:90];way["highway"~"^(motorway|trunk|primary|secondary|tertiary|'
-    + 'unclassified|residential|track|living_street|road|motorway_link|trunk_link|primary_link|'
+    + 'unclassified|residential|track|living_street|road|service|motorway_link|trunk_link|primary_link|'
     + 'secondary_link|tertiary_link)$"](' + bb + ');out geom;';
   const r = await fetch('https://overpass-api.de/api/interpreter', {method: 'POST',
     headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'data=' + encodeURIComponent(q)});
   if (!r.ok) throw new Error('Overpass respondeu ' + r.status);
   const j = await r.json();
   const gj = {features: (j.elements || []).filter(w => w.geometry).map(w => ({
-    properties: {h: (w.tags || {}).highway, n: (w.tags || {}).name},
+    properties: {h: (w.tags || {}).highway, n: (w.tags || {}).name,
+      o: /^(yes|1|true)$/.test((w.tags || {}).oneway || '') || (w.tags || {}).junction === 'roundabout' ? 1 : (w.tags || {}).oneway === '-1' ? -1 : 0},
     geometry: {type: 'LineString', coordinates: w.geometry.map(p => [p.lon, p.lat])}}))};
   await guardaVias(gj, 'OpenStreetMap (Overpass) ' + new Date().toISOString().slice(0, 10));
 }
@@ -7569,17 +7713,23 @@ function desenhaNav(){
   const carro = NAV.modo === 'carro';
   const pp = carro ? pernaDoPlano(a) : null;
   let TL = carro ? trajetosDoPonto(a) : [];
-  if (carro && !TL.length){
+  const temOff = carro && NAV.rotaOff && NAV.rotaOff.id === a.id;
+  if (carro && !TL.length && !temOff){
     pedeRotaOnline(a, P);
     if (NAV.rotaOn && NAV.rotaOn.id === a.id) TL = [NAV.rotaOn];
   }
+  if (temOff) TL = [NAV.rotaOff].concat(TL);
   const T = TL.find(t => t.o === NAV.opc) || TL[0] || null;
+  const bloqT = T && T.fonte !== 'offline' ? trajetoBloqueado(T) : null;
   const st = (T && P) ? noTrajeto(T, P) : null;
   const nomeT = t => t.fonte === 'plano'
     ? 'Plano do dia · trecho ' + t.k + ' de ' + t.n + (t.nop > 1 ? ' · caminho <b>' + t.o + '</b> de ' + t.nop : '') + ' · ' + _numBR(t.km, 1) + ' km' + (t.min != null ? ' · ~' + t.min + ' min' : '')
     : t.fonte === 'campanha'
     ? 'Plano da campanha · dia ' + t.dia + ', ponto ' + t.k + ' de ' + t.n + ' · caminho <b>' + t.o + '</b> de ' + t.nop
       + ' · ' + _numBR(t.km, 1) + ' km' + (t.min != null ? ' · ~' + t.min + ' min' : '')
+    : t.fonte === 'offline'
+    ? '<b>Rota calculada no aparelho</b>, sem internet (ruas © OpenStreetMap' + (t.evita ? ', evitando ' + t.evita + ' ponto(s) sem passagem' : '')
+      + ') · ' + _numBR(t.km, 1) + ' km · ~' + Math.max(1, Math.round(t.min)) + ' min'
     : t.fonte === 'osrm'
     ? 'Rota de carro (OSRM · dados © colaboradores do OpenStreetMap) · ' + _numBR(t.km, 1) + ' km · ~' + Math.max(1, Math.round(t.min)) + ' min'
     : 'Trajeto <b>opção ' + t.o + '</b> de ' + TL.length + ' · ' + _numBR(t.km, 1) + ' km';
@@ -7599,6 +7749,8 @@ function desenhaNav(){
       + (P.vel != null && isFinite(P.vel) ? ' · ' + (P.vel * 3.6).toFixed(1).replace('.', ',') + ' km/h' : '')
       + (oc[a.id] ? '<br><span class="feito">já ocupado (' + esc(oc[a.id].join(', ')) + ')</span>' : '')
       + (T ? '<br>' + nomeT(T)
+          + (bloqT ? '<br><b style="color:var(--mau)">Este caminho passa por um ponto marcado sem passagem'
+             + (bloqT.nota ? ' (' + esc(bloqT.nota) + ')' : '') + ': toque em "Outra rota, sem internet" ou troque o trajeto.</b>' : '')
           + (st ? (st.fora > 60 ? ' · <b style="color:var(--mau)">fora do trajeto (' + _metros(st.fora) + ')</b>'
                                : ' · faltam <b>' + _metros(st.resta) + '</b> pelo trajeto') : '') : '')
     : 'Destino: ' + gms(a.lat, 'lat') + '<br>' + gms(a.lon, 'lon')
@@ -7620,11 +7772,13 @@ function desenhaNav(){
   q('bussola').classList.toggle('on', NAV.bussola);
   q('bussola').textContent = NAV.bussola ? 'Bússola ligada' : 'Bússola';
   q('traj').style.display = TL.length > 1 ? '' : 'none';
+  q('bloq').style.display = carro && P ? '' : 'none';
+  q('rotaoff').style.display = carro && VIAS.length ? '' : 'none';
   { const Tg = _trajetoAtual(a); q('mapsbr').style.display = Tg && Tg.g && Tg.g.length > 1 && Tg.fonte !== 'plano' && Tg.fonte !== 'campanha' ? '' : 'none';
     q('maps').textContent = Tg && Tg.g && Tg.g.length > 1 ? 'Google Maps até o ponto (pelo trajeto)' : 'Google Maps até o ponto'; }
   q('modo').textContent = carro ? 'Modo: carro' : 'Modo: direção';
   q('modo').classList.toggle('on', carro);
-  q('traj').textContent = 'Trajeto ' + (T ? T.o : '') + '/' + TL.length;
+  q('traj').textContent = T && T.fonte === 'offline' ? 'Trajeto: no aparelho (' + TL.length + ')' : 'Trajeto ' + (T ? T.o : '') + '/' + TL.length;
 
   // ---------- o desenho ----------
   const cv = q('cv'), caixa = cv.parentElement;
@@ -7758,6 +7912,14 @@ function desenhaNav(){
     t.g.forEach((c, k) => { const p = tela(c[1], c[0]);
       if (k) x.lineTo(p.x, p.y); else x.moveTo(p.x, p.y); });
     x.stroke(); x.restore();
+  }
+  // pontos sem passagem: X vermelho com o raio evitado
+  for (const b of bloqueios()){
+    const p = tela(b.lat, b.lon), rpx = (b.r || RAIO_BLOQ) / (156543.03392 * Math.cos(b.lat * RAD) / Math.pow(2, z));
+    x.save(); x.strokeStyle = '#DC2626'; x.fillStyle = 'rgba(220,38,38,.15)'; x.lineWidth = 3;
+    x.beginPath(); x.arc(p.x, p.y, Math.max(8, rpx), 0, 2 * Math.PI); x.fill();
+    x.beginPath(); x.moveTo(p.x - 8, p.y - 8); x.lineTo(p.x + 8, p.y + 8); x.moveTo(p.x + 8, p.y - 8); x.lineTo(p.x - 8, p.y + 8); x.stroke();
+    x.restore();
   }
   // fim da rota até o ponto: o trecho fora da rua, a pé
   if (T && T.g.length){
@@ -11647,7 +11809,7 @@ async function atualizaPlanoKit(kit, tem){
   const velho = F.campanha, nova = JSON.parse(JSON.stringify(kit.registro.campanha || {}));
   ['ponto_receptor', 'ponto_antena', 'base', 'base_receptor', 'base_antena', 'celular', 'versoes', 'aeronave', 'anac']
     .forEach(c => { if (String(velho[c] || '').trim()) nova[c] = velho[c]; });
-  ['remedir', 'itens'].forEach(c => { if (velho[c] != null) nova[c] = velho[c]; });
+  ['remedir', 'itens', 'bloqueios'].forEach(c => { if (velho[c] != null) nova[c] = velho[c]; });
   F.campanha = Object.assign(folhaNova().campanha, nova);
   if (F.dia) delete F.dia.plano;
   F.config.kit = {id: kit.id, equipe: kit.equipe.nome, gerado: kit.gerado, atualizada: new Date().toISOString()};

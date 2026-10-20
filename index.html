@@ -428,7 +428,7 @@ você cabe o que nenhum arquivo registra.</p>
     <div id="c_veic_box">
     <h4 style="margin:12px 0 2px">Veículo da equipe</h4>
     <p class="leg" style="margin-top:0">Uma equipe, um carro: preenchido uma vez (ou já vindo na folha da equipe, gerada
-    pelo planejador), vale para toda a campanha e vai ao item 3 do relatório de campanha da equipe. O hodômetro na saída e na volta dá o km percorrido.</p>
+    pelo planejador), vale para toda a campanha e vai ao item 3 do relatório de campanha da equipe. O hodômetro se anota a cada dia, na aba O dia.</p>
     <div class="lin2">
       <div><label class="c" for="c_vtipo">Tipo</label>
         <select id="c_vtipo" data-campo="campanha.veiculo.tipo"><option value="">—</option>
@@ -438,12 +438,6 @@ você cabe o que nenhum arquivo registra.</p>
     </div>
     <label class="c" for="c_vmodelo">Marca / modelo</label>
     <input type="text" id="c_vmodelo" data-campo="campanha.veiculo.modelo" data-maiusc placeholder="ex.: MITSUBISHI/L200">
-    <div class="lin2">
-      <div><label class="c" for="c_vkm0">Hodômetro na saída (km)</label>
-        <input type="number" id="c_vkm0" data-campo="campanha.veiculo.km_saida" inputmode="numeric" min="0"></div>
-      <div><label class="c" for="c_vkm1">Hodômetro na volta (km)</label>
-        <input type="number" id="c_vkm1" data-campo="campanha.veiculo.km_volta" inputmode="numeric" min="0"></div>
-    </div>
     <p class="leg" id="c_veic_aviso" style="margin-top:2px"></p>
     </div>
     <p class="leg"><b>Declinação magnética:</b> a bússola do celular aponta o norte
@@ -478,6 +472,14 @@ você cabe o que nenhum arquivo registra.</p>
           <option>encoberto</option>
         </select></div>
     </div>
+    <h4 style="margin:12px 0 2px">Hodômetro do carro</h4>
+    <div class="lin2">
+      <div><label class="c" for="d_km0">Na saída (km)</label>
+        <input type="number" id="d_km0" data-campo="dia.km_saida" inputmode="numeric" min="0"></div>
+      <div><label class="c" for="d_km1">Na volta (km)</label>
+        <input type="number" id="d_km1" data-campo="dia.km_volta" inputmode="numeric" min="0"></div>
+    </div>
+    <p class="leg" id="d_km_aviso" style="margin-top:2px"></p>
     <label class="c" for="d_obs">Condições e observações do dia</label>
     <textarea id="d_obs" data-campo="dia.obs"></textarea>
   </div>
@@ -3332,7 +3334,7 @@ function diasDaCampanha(){
   const L = (F.dias || []).map(d => ({dia: d, aberto: false}));
   const a = F.dia;
   const temAberto = (a.voos || []).length || (a.pontos || []).length
-                    || a.data || a.local || a.obs || a.ocorrencias;
+                    || a.data || a.local || a.obs || a.ocorrencias || a.km_saida || a.km_volta;
   if (temAberto) L.push({dia: a, aberto: true});
   return L;
 }
@@ -4236,6 +4238,7 @@ function pintaCampos(){
   try { sincronizaMun(); } catch (e){}
   try { confereLC(); } catch (e){}
   try { confereVeiculo(); } catch (e){}
+  try { confereKmDia(); } catch (e){}
 }
 /* Nome da campanha, códigos do PTCON e nome das equipes: sempre em MAIÚSCULAS, como
    quer que se digite (o cursor fica no lugar). */
@@ -4264,6 +4267,7 @@ document.addEventListener('input', e => {
   poe(F, c, e.target.value);
   if (c === 'dia.data') F.dia.data_auto = false;   // digitou: manda quem digitou
   if (/^campanha\.veiculo\./.test(c)) confereVeiculo();
+  if (/^dia\.km_/.test(c)){ confereKmDia(); confereVeiculo(); }
   if (c === 'campanha.ptcon_lc' && MODO_PLAN){ clearTimeout(window._tKit); window._tKit = setTimeout(() => { try { pintaKits(); } catch (e){} }, 600); }
   if (c === 'campanha.ptcon_lc'){ confereLC(); renomeiaPontos(); clearTimeout(window._tRen); window._tRen = setTimeout(pintaPontos, 800); }
   grava();
@@ -10216,11 +10220,39 @@ function confereLC(){
 }
 /* Placa no padrão antigo (ABC-1234) ou Mercosul (ABC1D23); km pelo hodômetro, ou pela trilha. */
 const PLACA_OK = /^[A-Z]{3}-?\d[A-Z0-9]\d{2}$/;
-function kmDaCampanha(){
-  const v = F.campanha.veiculo || {}, a = parseFloat(v.km_saida), b = parseFloat(v.km_volta);
+/* km de um dia: hodômetro (saída e volta, anotados no dia) ou, sem ele, a trilha do celular */
+function kmDoDia(d){
+  const a = parseFloat(d.km_saida), b = parseFloat(d.km_volta);
   if (isFinite(a) && isFinite(b) && b >= a) return {km: b - a, fonte: 'hodômetro'};
-  const t = diasDaCampanha().reduce((s, e) => s + ((e.dia.trilha_resumo || {}).km || 0), 0);
+  const t = (d.trilha_resumo || {}).km || 0;
   return t ? {km: t, fonte: 'trilha do celular'} : null;
+}
+function kmDaCampanha(){
+  let km = 0, h = 0, t = 0;
+  diasDaCampanha().forEach(e => { const k = kmDoDia(e.dia); if (!k) return; km += k.km; k.fonte === 'hodômetro' ? h++ : t++; });
+  if (!h){                                             // registros antigos: hodômetro único da campanha
+    const v = F.campanha.veiculo || {}, a = parseFloat(v.km_saida), b = parseFloat(v.km_volta);
+    if (isFinite(a) && isFinite(b) && b >= a) return {km: b - a, fonte: 'hodômetro'};
+  }
+  if (!h && !t) return null;
+  return {km: km, fonte: !t ? 'hodômetro' : !h ? 'trilha do celular' : 'hodômetro e trilha do celular'};
+}
+/* o dia: km rodado e a volta do dia anterior como referência para a saída */
+function _kmBR(x){ return Math.round(x).toLocaleString('pt-BR'); }
+function confereKmDia(){
+  const av = $('#d_km_aviso'), i0 = $('#d_km0'); if (!av) return;
+  const d = F.dia, a = parseFloat(d.km_saida), b = parseFloat(d.km_volta), m = [];
+  const ant = [...(F.dias || [])].reverse().find(x => isFinite(parseFloat(x.km_volta)));
+  const va = ant ? parseFloat(ant.km_volta) : NaN;
+  if (i0) i0.placeholder = isFinite(va) ? 'volta do dia anterior: ' + _kmBR(va) : '';
+  if (isFinite(a) && isFinite(va) && a < va) m.push('<span style="color:#B45309">saída menor que a volta do dia anterior ('
+    + _kmBR(va) + ' km): confira</span>');
+  if (isFinite(a) && isFinite(b)){
+    if (b < a) m.push('<span style="color:#B91C1C">volta menor que a saída</span>');
+    else m.push('rodados no dia: <b>' + _kmBR(b - a) + ' km</b>');
+  } else if (isFinite(a)) m.push('anote o hodômetro na volta ao hotel');
+  else m.push('anote o hodômetro ao sair e ao voltar ao hotel: dá o km do dia e o da campanha (relatório da equipe)');
+  av.innerHTML = m.join(' · ');
 }
 function confereVeiculo(){
   const av = $('#c_veic_aviso'); if (!av) return;
@@ -10228,7 +10260,7 @@ function confereVeiculo(){
   if (p && !PLACA_OK.test(p)) m.push('<span style="color:#B45309">placa “' + esc(p) + '” fora do padrão (ABC1234, ABC-1234 ou ABC1D23)</span>');
   const a = parseFloat(v.km_saida), b = parseFloat(v.km_volta);
   if (isFinite(a) && isFinite(b) && b < a) m.push('<span style="color:#B91C1C">hodômetro da volta menor que o da saída</span>');
-  if (k) m.push('km percorrido: <b>' + _numBR(k.km, k.fonte === 'hodômetro' ? 0 : 1) + ' km</b> (' + k.fonte + ')');
+  if (k) m.push('km percorrido na campanha: <b>' + _numBR(k.km, k.fonte === 'hodômetro' ? 0 : 1) + ' km</b> (' + k.fonte + ')');
   av.innerHTML = m.join(' · ');
 }
 /* Integrantes, uma linha cada: "nome; papel; SIAPE" (o que faltar fica em branco). */
@@ -10372,7 +10404,7 @@ async function exportaLC(op){
     {h: '5 - CONTATOS MANTIDOS'}, 'Nome:', 'Endereço:', 'Tel:', 'E-mail:',
     {h: '6 – QUANTITATIVO DA PRODUÇÃO CARTOGRÁFICA PARA PONTOS DE CONTROLE'},
     'Pontos coletados = ' + reg.length, ...linhasDia,
-    ...(function(){ const k = kmDaCampanha(); return k ? ['OBS: KM Percorrido: ' + Math.round(k.km).toLocaleString('pt-BR') + ' km' + (k.fonte === 'hodômetro' ? '' : ' (pela trilha do celular)') + '.'] : []; })(),
+    ...(function(){ const k = kmDaCampanha(); return k ? ['OBS: KM Percorrido: ' + Math.round(k.km).toLocaleString('pt-BR') + ' km' + (k.fonte === 'hodômetro' ? '' : ' (' + k.fonte + ')') + '.'] : []; })(),
     'Processamento e medição dos pontos: com posicionamento estático, utilizando como tipo de processamento o PPP.',
     {h: '7 - QUANTITATIVO DA PRODUÇÃO CARTOGRÁFICA PARA REAMBULAÇÃO'}, 'Não aplicável',
     {h: '8 - Ocorrências, Dificuldades, Observações.'}, ...(F.dias || []).concat([F.dia]).map(d => d.ocorrencias).filter(Boolean),

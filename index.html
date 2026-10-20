@@ -5390,11 +5390,23 @@ async function carregaArea(){
   _IMG_AREA.clear();
   pintaAreaEstado();
 }
+/* quadro de situação: o que este aparelho já tem para usar sem rede */
+const _OK = '<b style="color:#047857">✓</b> ', _NAO = '<b style="color:#B91C1C">✗</b> ';
+function _caixaEstado(e, ok){
+  e.style.cssText = 'margin:8px 0;padding:8px 10px;border-radius:8px;border:1px solid ' + (ok ? '#A7F3D0' : '#FCA5A5')
+    + ';background:' + (ok ? '#ECFDF5' : '#FEF2F2');
+}
 function pintaAreaEstado(){
   const e = $('#area_estado'); if (!e) return;
-  const extra = (VIAS.length ? ' Ruas do OpenStreetMap: ' + VIAS.length + ' trechos.' : '')
-    + (BLOCOS_N ? ' Imagem Esri guardada: ' + BLOCOS_N + ' blocos.' : '');
-  if (!AREAS.length && extra){ e.innerHTML = 'Sem ortofoto neste aparelho.' + extra; return; }
+  if (!AREAS.length && (VIAS.length || BLOCOS_N)){
+    _caixaEstado(e, BLOCOS_N > 0);
+    e.innerHTML = '<b>Mapa para usar sem rede</b><br>'
+      + (BLOCOS_N ? _OK + 'Imagem de satélite Esri: <b>' + BLOCOS_N + ' blocos</b> guardados' : _NAO + 'Sem imagem de satélite: use <b>Preparar o mapa offline</b> com internet')
+      + '<br>' + (VIAS.length ? _OK + 'Ruas do OpenStreetMap: <b>' + VIAS.length + ' trechos</b>' : _NAO + 'Sem ruas do OpenStreetMap')
+      + '<br><span style="color:#64748B">Ortofoto própria: nenhuma (opcional; a imagem Esri já serve de fundo)</span>';
+    return;
+  }
+  e.style.cssText = '';
   if (!AREAS.length){
     e.innerHTML = 'Sem mapa da área neste aparelho: sem rede, a navegação mostra os pontos sem imagem de fundo.';
     return;
@@ -5597,10 +5609,19 @@ function pintaTrajEstado(){
   const e = $('#traj_estado'); if (!e) return;
   const n = Object.keys(TRAJ).length;
   const t = Object.values(TRAJ).reduce((s, L) => s + L.length, 0);
-  e.innerHTML = n ? 'Trajetos guardados neste aparelho: <b>' + t + '</b> para <b>' + n
-      + ' ponto(s)</b>' + (TRAJ_FONTE ? ' (' + esc(TRAJ_FONTE) + ')' : '')
-      + '. Em <b>Navegar</b>, o botão <b>Trajeto</b> troca a opção.'
-    : 'Sem trajetos: a navegação aponta em linha reta até o ponto.';
+  // trechos do plano da campanha (escritório): os desta equipe, ou todos no planejador
+  const pc = F.campanha && F.campanha.planoCampanha, iEq = modoEquipe() ? F.config.equipePlano : null;
+  let tp = 0, op = 0;
+  ((pc && pc.equipes) || []).forEach((eq, i) => { if (iEq != null && i !== +iEq) return;
+    eq.dias.forEach(d => (d.trechos || []).forEach(x => { if ((x.op || []).length){ tp++; op = Math.max(op, x.op.length); } })); });
+  const L = [];
+  if (tp) L.push(_OK + 'Trajetos do <b>plano da campanha</b>: <b>' + tp + ' trechos</b> pelas ruas' + (op > 1 ? ' (até ' + op + ' opções cada)' : '')
+    + ', feitos no escritório, do hotel aos pontos e de volta. A navegação usa esses.');
+  if (n) L.push(_OK + 'Arquivo de trajetos: <b>' + t + '</b> para <b>' + n + ' ponto(s)</b>' + (TRAJ_FONTE ? ' (' + esc(TRAJ_FONTE) + ')' : '')
+    + '. Em <b>Navegar</b>, o botão <b>Trajeto</b> troca a opção.');
+  _caixaEstado(e, L.length > 0);
+  e.innerHTML = '<b>Caminhos até os pontos</b><br>' + (L.length ? L.join('<br>')
+    : _NAO + 'Sem trajetos: a navegação aponta em linha reta até o ponto. Peça ao escritório a folha da equipe com o plano feito, ou carregue um arquivo de trajetos.');
 }
 function _lerTrajGeoJSON(txt){
   const j = JSON.parse(txt), por = {};
@@ -7331,9 +7352,16 @@ async function preparaMapaOffline(perguntar){
   const faltam = plano.lista.filter(k => !ja.has(k));
   const mb = Math.max(1, Math.round(faltam.length * 22 / 1024));
   const querVias = !VIAS.length;
-  if (perguntar !== false && !confirm('Preparar o mapa para usar sem internet?\n\n'
+  const quem = modoEquipe() ? ' da ' + (F.config.kit.equipe || 'equipe') : '';
+  if (!faltam.length && !querVias){
+    pintaAreaEstado();
+    return marca('o mapa offline já está completo neste aparelho para os ' + A.length + ' pontos planejados' + quem + ': '
+      + ja.size + ' blocos da imagem Esri e ' + VIAS.length + ' trechos de rua. Nada a baixar.');
+  }
+  if (perguntar !== false && !confirm('Preparar o mapa para usar sem internet, para os ' + A.length + ' pontos planejados' + quem + '?\n\n'
       + (querVias ? '• ruas do OpenStreetMap da área dos pontos\n' : '')
-      + '• imagem Esri: ' + faltam.length + ' blocos (cerca de ' + mb + ' MB)'
+      + (faltam.length ? '• imagem Esri (até 300 m de cada ponto e a visão geral da região): ' + faltam.length
+         + ' blocos novos (cerca de ' + mb + ' MB)' + (ja.size ? '; ' + ja.size + ' já guardados' : '') : '• imagem Esri: já completa (' + ja.size + ' blocos)')
       + (plano.semOrto < A.length ? ' — ' + (A.length - plano.semOrto)
          + ' ponto(s) já têm ortofoto e ficam só com a visão geral' : '') + '\n\n'
       + 'Fica guardado neste aparelho.')) return;
@@ -7976,6 +8004,7 @@ $('#b_area_tira').addEventListener('click', async () => {
 /* ---------- montagem ---------- */
 function monta(){
   try { pintaHotel(); } catch (e){}
+  try { pintaTrajEstado(); } catch (e){}
   try { const pe = $('#ppp_email'); if (pe && document.activeElement !== pe) pe.value = (F.config && F.config.email_ppp) || ''; } catch (e){}
   try { const sv = (F.config && F.config.servidor) || {}, su = $('#srv_url'), sc = $('#srv_chave');
         if (su && document.activeElement !== su) su.value = sv.url || '';

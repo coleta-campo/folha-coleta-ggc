@@ -10821,6 +10821,7 @@ function _tileBB(z, x, y){
 function montaPlanejador(){
   document.body.classList.add('planejador');
   delete F.campanha.veiculo;                                   // o carro é de cada equipe: vai na folha dela
+  document.querySelectorAll('#c_veic_box [data-campo]').forEach(el => { el.value = ''; });
   document.title = 'Planejador da campanha — coleta de pontos';
   $('h1').textContent = 'Planejador da campanha — coleta de pontos';
   $('.sub').innerHTML = 'No escritório: pontos planejados, trechos de acesso, mapa da área, divisão entre as '
@@ -10847,9 +10848,9 @@ function pintaKits(){
   else {
     h += '<p class="leg">Cada equipe recebe <b>um arquivo HTML</b>, já preenchido: campanha, município, integrantes, a região e os '
       + 'dias dela, os pontos, os trechos de acesso e o mapa da região. No celular: baixar pelo Chrome e abrir — não há o que carregar. '
-      + 'Material na tela: ' + A.length + ' pontos · ' + Object.keys(TRAJ).length + ' com trechos · ' + AREAS.length + ' imagem(ns) do mapa · '
-      + VIAS.length + ' trechos de rua · ' + BLOCOS_N + ' blocos de imagem.</p>';
-    h += _htmlCoord();
+      + 'Material na tela: ' + A.length + ' pontos · ' + Object.keys(TRAJ).length + ' com trechos · ' + AREAS.length + ' imagem(ns) própria(s) do mapa · '
+      + VIAS.length + ' trechos de rua · ' + BLOCOS_N + ' blocos da imagem de satélite Esri.</p>';
+    h += _htmlCoord() + _htmlFrota();
     pc.equipes.forEach((e, i) => {
       const d = e.dados || {}, n = e.dias.reduce((s, x) => s + x.ids.length, 0);
       const v = (k, def) => esc(d[k] != null ? d[k] : def);
@@ -10861,8 +10862,8 @@ function pintaKits(){
         + '<label class="c">Responsável pela carga do equipamento</label><input type="text" data-kitc="' + i + '" data-k="resp" value="' + v('resp', '') + '">'
         + '<div class="lin2"><div><label class="c">Veículo — tipo</label><select data-kitc="' + i + '" data-k="vtipo">'
         + ['', 'Veículo IBGE', 'Veículo locado', 'Veículo particular'].map(o => '<option' + (d.vtipo === o ? ' selected' : '') + '>' + o + '</option>').join('')
-        + '</select></div><div><label class="c">Placa</label><input type="text" data-kitc="' + i + '" data-k="vplaca" data-maiusc maxlength="8" placeholder="ex.: OZA9269" value="' + v('vplaca', '') + '"></div></div>'
-        + '<label class="c">Marca / modelo</label><input type="text" data-kitc="' + i + '" data-k="vmodelo" data-maiusc placeholder="ex.: MITSUBISHI/L200" value="' + v('vmodelo', '') + '">'
+        + '</select></div><div><label class="c">Placa</label><input type="text" data-kitc="' + i + '" data-k="vplaca" data-maiusc data-lista-fixa list="l_frota" autocomplete="off" maxlength="8" placeholder="ex.: OZA9269" value="' + v('vplaca', '') + '"></div></div>'
+        + '<label class="c">Marca / modelo</label><input type="text" data-kitc="' + i + '" data-k="vmodelo" data-maiusc data-lista-fixa list="l_frota_mod" autocomplete="off" placeholder="ex.: MITSUBISHI/L200" value="' + v('vmodelo', '') + '">'
         + '<label class="c">Código de envio ao Drive (gerado pelo sistema)</label>'
         + '<div style="display:flex;gap:6px;align-items:center"><input type="text" id="kit_cod' + i + '" readonly spellcheck="false" style="flex:1;font-family:monospace;font-size:12px">'
         + '<button type="button" class="btn sec peq" data-kitcopia="' + i + '">Copiar</button></div>'
@@ -10880,9 +10881,14 @@ function pintaKits(){
       const e = F.campanha.planoCampanha.equipes[+c.dataset.kitc];
       e.dados = e.dados || {}; e.dados[c.dataset.k] = c.value; grava();
     });
-    if (c.dataset.k === 'vplaca') c.addEventListener('input', () => confereKitEquipe(+c.dataset.kitc));
+    if (c.dataset.k === 'vplaca'){
+      c.addEventListener('input', () => { confereKitEquipe(+c.dataset.kitc); aplicaFrota(+c.dataset.kitc); });
+      c.addEventListener('change', () => guardaFrotaDe(+c.dataset.kitc));
+    }
+    if (/^(vtipo|vmodelo)$/.test(c.dataset.k)) c.addEventListener('change', () => guardaFrotaDe(+c.dataset.kitc));
   });
   pc.equipes.forEach((e, i) => { confereKitEquipe(i); pintaCodigoEquipe(i); });
+  _pintaListasFrota();
   el.querySelectorAll('[data-kitcopia]').forEach(b => b.addEventListener('click', () => {
     const v = ($('#kit_cod' + b.dataset.kitcopia) || {}).value; if (!v) return;
     (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(() => marca('código copiado'), () => marca('copie o código à mão'));
@@ -10972,6 +10978,39 @@ function ligaCoord(){
     try { localStorage.removeItem(CHAVE + '_coord'); } catch (e){}
     pintaKits(); });
 }
+/* ---------- veículos já usados (lembrados neste computador) ----------
+   Cada placa preenchida no planejador fica guardada com o tipo e a marca/modelo.
+   Ao digitar ou escolher uma placa conhecida, tipo e modelo se preenchem sozinhos. */
+function _frota(){ try { return JSON.parse(localStorage.getItem(CHAVE + '_frota') || '[]'); } catch (e){ return []; } }
+function _placaN(p){ return String(p || '').toUpperCase().replace(/[\s-]+/g, ''); }
+function guardaFrota(v){
+  const p = _placaN(v.placa); if (!PLACA_OK.test(p)) return;
+  const L = _frota().filter(x => _placaN(x.placa) !== p);
+  L.unshift({placa: p, tipo: v.tipo || '', modelo: String(v.modelo || '').toUpperCase(), usado: new Date().toISOString()});
+  try { localStorage.setItem(CHAVE + '_frota', JSON.stringify(L.slice(0, 60))); } catch (e){}
+  _pintaListasFrota();
+}
+function _htmlFrota(){ return '<datalist id="l_frota"></datalist><datalist id="l_frota_mod"></datalist>'; }
+function _pintaListasFrota(){
+  const L = _frota(), a = $('#l_frota'), b = $('#l_frota_mod');
+  if (a) a.innerHTML = L.map(x => '<option value="' + esc(x.placa) + '">' + esc([x.modelo, x.tipo].filter(Boolean).join(' · ')) + '</option>').join('');
+  if (b) b.innerHTML = [...new Set(L.map(x => x.modelo).filter(Boolean))].map(m => '<option value="' + esc(m) + '"></option>').join('');
+}
+function _campoKit(i, k){ return document.querySelector('[data-kitc="' + i + '"][data-k="' + k + '"]'); }
+/* placa conhecida: tipo e modelo vêm junto */
+function aplicaFrota(i){
+  const pl = _campoKit(i, 'vplaca'); if (!pl) return;
+  const v = _frota().find(x => _placaN(x.placa) === _placaN(pl.value)); if (!v) return;
+  const e = F.campanha.planoCampanha.equipes[i]; e.dados = e.dados || {};
+  [['vtipo', v.tipo], ['vmodelo', v.modelo]].forEach(([k, val]) => {
+    const c = _campoKit(i, k); if (c && val){ c.value = val; e.dados[k] = val; }
+  });
+  e.dados.vplaca = pl.value; grava();
+}
+function guardaFrotaDe(i){
+  const g = k => (_campoKit(i, k) || {}).value || '';
+  guardaFrota({placa: g('vplaca'), tipo: g('vtipo'), modelo: g('vmodelo')});
+}
 /* placa de cada equipe, conferida enquanto se digita no planejador */
 function _problemasKit(d){
   const m = [], p = String(d.vplaca || '').toUpperCase().replace(/\s+/g, '');
@@ -10982,6 +11021,14 @@ function confereKitEquipe(i){
   const av = $('#kit_av' + i); if (!av) return;
   const d = {}; document.querySelectorAll('[data-kitc="' + i + '"]').forEach(c => { d[c.dataset.k] = c.value; });
   av.innerHTML = _problemasKit(d).map(x => '<span style="color:#B91C1C">' + esc(x) + '</span>').join('<br>');
+}
+/* blocos da imagem Esri: Blob no aparelho, data:URL dentro da folha da equipe */
+function _blobURL(b){ return new Promise((ok, erro) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => erro(r.error); r.readAsDataURL(b); }); }
+function _deURL(v){
+  if (v instanceof Blob) return v;
+  const m = String(v || '').match(/^data:([^;,]+);base64,(.*)$/); if (!m) return null;   // folhas antigas traziam {} aqui
+  const s = atob(m[2]), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);
+  return new Blob([u], {type: m[1]});
 }
 async function geraKit(i){
   const pc = F.campanha.planoCampanha, e = pc.equipes[i], d = e.dados || {};
@@ -11011,7 +11058,9 @@ async function geraKit(i){
   const blocos = [];
   for (const k of (await blocoChaves().catch(() => [])) || []){
     const [z, x, y] = String(k).split('/').map(Number), t = _tileBB(z, x, y);
-    if (cruza(t.n, t.s, t.o, t.l)) blocos.push([k, await blocoPega(k)]);
+    if (!cruza(t.n, t.s, t.o, t.l)) continue;
+    const bl = await blocoPega(k);                      // Blob: vai no arquivo como data:URL
+    if (bl instanceof Blob) blocos.push([k, await _blobURL(bl)]);
   }
   let traj = null;
   try {
@@ -11020,6 +11069,7 @@ async function geraKit(i){
   } catch (err){}
   const r = JSON.parse(JSON.stringify(F));
   r.campanha.ptcon_equipe = d.ptcon || ''; r.campanha.equipe = d.membros || ''; r.campanha.responsavel = d.resp || '';
+  guardaFrota({placa: d.vplaca, tipo: d.vtipo, modelo: d.vmodelo});
   r.campanha.veiculo = {tipo: d.vtipo || '', modelo: (d.vmodelo || '').toUpperCase(), placa: (d.vplaca || '').toUpperCase().replace(/\s+/g, ''), km_saida: '', km_volta: ''};
   r.campanha.municipio = d.mun != null ? d.mun : munDaEquipe(e);
   r.campanha.partida = pc.hotel.semHotel ? '' : (pc.hotel.txt || pc.hotel.lat + ', ' + pc.hotel.lon);
@@ -11068,7 +11118,7 @@ async function aplicaKit(kitDoArquivo){
   F.dia.data = new Date().toISOString().slice(0, 10); F.dia.data_auto = true;
   try { await idbLimpa(); } catch (e){}
   try { await mapaLimpa(); for (const [k, v] of kit.mapa || []) await mapaPoeUm(k, v); } catch (e){ marca('mapa: ' + e.message); }
-  try { await blocoLimpa(); for (const [k, v] of kit.blocos || []) await blocoPoe(k, v); } catch (e){}
+  try { await blocoLimpa(); for (const [k, v] of kit.blocos || []){ const bl = _deURL(v); if (bl) await blocoPoe(k, bl); } } catch (e){}
   try { await _txTraj('readwrite', l => l.clear()); if (kit.trajetos) await _txTraj('readwrite', l => l.put(kit.trajetos, 'trajetos')); } catch (e){}
   grava(); await carregaArea(); await contaBlocos(); await carregaTrajetos(); monta();
   const n = (kit.registro.campanha.alvos || []).length;

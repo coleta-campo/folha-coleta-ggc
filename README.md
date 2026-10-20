@@ -53,6 +53,11 @@ pelo Drive, Teams ou WhatsApp.
 celular. Com a folha vazia, aparece **Abrir a folha da equipe**: a equipe escolhe o
 `.html` recebido, e pontos, mapa e código do receptor passam para o aparelho.
 
+**Replanejamento:** o escritório gera de novo a folha da equipe e a envia. No celular,
+no alto da folha: *Abrir a folha nova da equipe*. Sendo a mesma campanha e a mesma
+equipe, trocam os pontos planejados, o plano, as rotas, o mapa e a viatura; a coleta já
+feita (pontos, fotos, trilhas, hodômetro) fica no aparelho.
+
 O planejador e a folha guardam os dados separados: abrir um não mexe no outro.
 
 ## 4. No celular

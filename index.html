@@ -4622,7 +4622,7 @@ $('#f_abrir').addEventListener('change', async e => {
   let j;
   if (/\.html?$/i.test(f.name) || f.type === 'text/html'){
     marca('lendo a folha da equipe…');
-    try { const k = kitDeHTML(await f.text()); if (await aplicaKit(k)){ aplicaModo(); pintaAlvos(); } }
+    try { const k = kitDeHTML(await f.text()); if (await aplicaKit(k)){ aplicaModo(); pintaAlvos(); pintaConviteKit(); } }
     catch (err){ marca(err.message); }
     return;
   }
@@ -10815,14 +10815,25 @@ const KIT_EL = document.getElementById('kit_dados');
 /* folha vazia, fora do planejador: convite para abrir a folha da equipe recebida */
 function pintaConviteKit(){
   let el = $('#kit_convite');
-  const mostra = !MODO_PLAN && !KIT_EL && !modoEquipe() && !(F.campanha.alvos || []).length && !(F.dia.pontos || []).length;
-  if (!mostra){ if (el) el.remove(); return; }
-  if (el) return;
+  const vazia = !MODO_PLAN && !KIT_EL && !modoEquipe() && !(F.campanha.alvos || []).length && !(F.dia.pontos || []).length;
+  const ativa = !MODO_PLAN && modoEquipe();
+  if (el) el.remove();
+  if (!vazia && !ativa) return;
   el = document.createElement('div'); el.id = 'kit_convite'; el.className = 'naoimprime';
-  el.style.cssText = 'margin:10px 0;padding:12px 14px;border:2px solid #0A2E52;border-radius:10px;background:#EEF4FA';
-  el.innerHTML = '<b>Recebeu a folha da sua equipe?</b> É um arquivo .html enviado pela coordenação. Abra-o aqui: '
-    + 'os pontos, o mapa da área e o código do receptor passam para este aparelho.'
-    + '<div class="acoes"><button type="button" class="btn peq" id="b_kit_abre">Abrir a folha da equipe</button></div>';
+  if (vazia){
+    el.style.cssText = 'margin:10px 0;padding:12px 14px;border:2px solid #0A2E52;border-radius:10px;background:#EEF4FA';
+    el.innerHTML = '<b>Recebeu a folha da sua equipe?</b> É um arquivo .html enviado pela coordenação. Abra-o aqui: '
+      + 'os pontos, o mapa da área e o código do receptor passam para este aparelho.'
+      + '<div class="acoes"><button type="button" class="btn peq" id="b_kit_abre">Abrir a folha da equipe</button></div>';
+  } else {
+    const k = F.config.kit, g = k.gerado ? new Date(k.gerado) : null;
+    el.style.cssText = 'margin:10px 0;padding:8px 12px;border:1px solid #CBD5E1;border-radius:10px;background:#F8FAFC;font-size:.92em';
+    el.innerHTML = 'Folha da <b>' + esc(k.equipe || '') + '</b>' + (g ? ', gerada em ' + g.toLocaleDateString('pt-BR')
+      + ' às ' + g.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}) : '')
+      + (k.atualizada ? ' (plano atualizado neste aparelho)' : '') + '. <b>Chegou uma folha nova da coordenação '
+      + '(replanejamento)?</b> Abra-a aqui: troca o plano, as rotas e o mapa; a coleta já feita fica.'
+      + '<div class="acoes"><button type="button" class="btn sec peq" id="b_kit_abre">Abrir a folha nova da equipe</button></div>';
+  }
   const ab = document.querySelector('.abas');
   if (ab) ab.parentNode.insertBefore(el, ab); else document.body.insertBefore(el, document.body.firstChild);
   $('#b_kit_abre').addEventListener('click', () => $('#f_abrir').click());
@@ -11150,6 +11161,36 @@ async function geraKit(i){
 /* A folha da equipe chega de dois jeitos: aberta direto (o kit vem embutido no próprio
    HTML) ou, na versão publicada na web, escolhida como arquivo em "Abrir a folha da
    equipe" — o kit é lido do HTML recebido e gravado neste endereço. */
+/* Folha nova da mesma equipe e campanha (replanejamento): entram os pontos planejados,
+   o plano, as rotas, o mapa, a viatura e o envio; ficam os dias e pontos já coletados,
+   as fotos, as trilhas, o hodômetro e o equipamento anotado no aparelho. O plano do dia
+   montado no celular sobre o plano antigo é descartado (refaz-se pelo novo). */
+async function atualizaPlanoKit(kit, tem){
+  const g = new Date(kit.gerado), quando = g.toLocaleDateString('pt-BR') + ' às ' + g.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+  const nDias = (F.dias || []).length, nPts = (F.dias || []).reduce((s, d) => s + (d.pontos || []).length, 0) + (F.dia.pontos || []).length;
+  if (!confirm('Atualizar o plano da ' + kit.equipe.nome + ' com a folha gerada em ' + quando + '?\n\n'
+      + 'Trocam: pontos planejados, ordem dos dias, rotas, mapa e viatura.\n'
+      + 'Ficam: ' + (tem ? nPts + ' ponto(s) coletado(s) em ' + (nDias + ((F.dia.pontos || []).length ? 1 : 0)) + ' dia(s), fotos, trilhas e hodômetro'
+        : 'o que já foi anotado neste aparelho') + '.\n\nAtualizar agora?')) return false;
+  marca('atualizando o plano da ' + kit.equipe.nome + '…');
+  const velho = F.campanha, nova = JSON.parse(JSON.stringify(kit.registro.campanha || {}));
+  ['ponto_receptor', 'ponto_antena', 'base', 'base_receptor', 'base_antena', 'celular', 'versoes', 'aeronave', 'anac']
+    .forEach(c => { if (String(velho[c] || '').trim()) nova[c] = velho[c]; });
+  ['remedir', 'itens'].forEach(c => { if (velho[c] != null) nova[c] = velho[c]; });
+  F.campanha = Object.assign(folhaNova().campanha, nova);
+  if (F.dia) delete F.dia.plano;
+  F.config.kit = {id: kit.id, equipe: kit.equipe.nome, gerado: kit.gerado, atualizada: new Date().toISOString()};
+  F.config.equipePlano = kit.equipe.i;
+  if (kit.servidor && kit.servidor.url) F.config.servidor = {url: kit.servidor.url, chave: kit.servidor.chave || '',
+    lc: kit.servidor.lc || '', equipe: kit.servidor.equipe || '', ultimoEnvio: (F.config.servidor || {}).ultimoEnvio};
+  try { await mapaLimpa(); for (const [k, v] of kit.mapa || []) await mapaPoeUm(k, v); } catch (e){ marca('mapa: ' + e.message); }
+  try { await blocoLimpa(); for (const [k, v] of kit.blocos || []){ const bl = _deURL(v); if (bl) await blocoPoe(k, bl); } } catch (e){}
+  try { await _txTraj('readwrite', l => l.clear()); if (kit.trajetos) await _txTraj('readwrite', l => l.put(kit.trajetos, 'trajetos')); } catch (e){}
+  grava(); await carregaArea(); await contaBlocos(); await carregaTrajetos(); monta();
+  const n = (F.campanha.alvos || []).length;
+  setTimeout(() => marca('plano da ' + kit.equipe.nome + ' atualizado: ' + n + ' pontos planejados; a coleta deste aparelho foi mantida'), 700);
+  return true;
+}
 function kitDeHTML(txt){
   const m = String(txt).match(/<script type="application\/json" id="kit_dados">([\s\S]*?)<\/script>/);
   if (!m) throw new Error('esse HTML não é uma folha de equipe gerada pelo planejador');
@@ -11166,6 +11207,10 @@ async function aplicaKit(kitDoArquivo){
     return false;
   }
   const tem = (F.dias || []).length || (F.dia.pontos || []).length;
+  // replanejamento: folha nova da MESMA equipe e da MESMA campanha — troca o plano, guarda a coleta
+  const kc = kit.registro.campanha || {};
+  if (modoEquipe() && F.config.equipePlano === kit.equipe.i && String(kc.ptcon_lc || '') === String(F.campanha.ptcon_lc || '')
+      && String(kc.nome || '') === String(F.campanha.nome || '')) return atualizaPlanoKit(kit, tem);
   if (tem && !confirm('Este aparelho tem dados de campo de outra folha (' + (F.campanha.nome || 'sem nome') + '). Abrir a folha da '
       + kit.equipe.nome + ' substitui tudo. Se ainda não fez, cancele e faça antes a Cópia completa.\n\nSubstituir agora?')) return false;
   marca('preparando a folha da ' + kit.equipe.nome + '…');

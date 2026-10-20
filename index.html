@@ -5745,7 +5745,11 @@ function trechoCampanha(a){
 /* Caminhos de carro até o ponto, na ordem de preferência: o plano do dia refeito no
    celular; o plano da campanha (gabinete), com até 3 opções; o arquivo de trajetos. */
 function trajetosDoPonto(a){
-  const pp = pernaDoPlano(a); if (pp) return [pp];
+  const pp = pernaDoPlano(a);
+  if (pp){
+    const x = F.dia.plano.paradas[pp.k - 1];
+    return x.op ? x.op.map(o => Object.assign({}, pp, {o: o.o, km: o.km, min: o.min, g: o.g, nop: x.op.length})) : [pp];
+  }
   const tc = trechoCampanha(a);
   if (tc) return tc.t.op.map(o => ({o: o.o, fonte: 'campanha', km: o.km, min: o.min, g: o.g,
     dia: tc.dia, k: tc.k, n: tc.n, de: tc.t.de, nop: tc.t.op.length}));
@@ -5842,11 +5846,79 @@ function pernaDoPlano(a){
   return x.g && x.g.length > 1 ? {o: 1, fonte: 'plano', k: k + 1, n: p.paradas.length,
                                    km: x.km, min: x.min, g: x.g} : null;
 }
+/* ---------- plano do dia (no celular) ----------
+   Mesmo método do escritório, sobre o que falta: partida (hotel, pelo Google Maps ou pela
+   posição do aparelho), os pontos do dia e três ordens possíveis — a do plano da campanha
+   (escritório), ou o menor tempo total partida → pontos → partida, exato (HELD; KARP, 1962),
+   começando pela ponta mais distante ou pela mais próxima. Cada trecho, inclusive a volta,
+   com até três caminhos de carro (OSRM; LUXEN; VETTER, 2011), guardados para navegar sem
+   rede. A equipe pode depois subir, descer, tirar ou incluir pontos; as rotas se refazem. */
+const ORDEM_DIA = {
+  escritorio: 'Do escritório (plano da campanha)',
+  longe: 'Menor tempo: do mais distante ao mais próximo',
+  perto: 'Menor tempo: do mais próximo ao mais distante'};
+function _llTxt(c){ return c.lat.toFixed(6) + ', ' + c.lon.toFixed(6); }
+/* trechos partida → pontos → partida; com rede, até 3 caminhos por trecho pelo OSRM */
+async function _rotasDia(P, seq){
+  const rede = navigator.onLine, pt = paramTempo(), avisos = [];
+  const nos = [Object.assign({id: 'partida'}, P)].concat(seq).concat([Object.assign({id: 'partida'}, P)]);
+  const pernas = [];
+  for (let j = 0; j + 1 < nos.length; j++){
+    const a = nos[j], b = nos[j + 1];
+    let km = null, min = null, g = null, ur = null, op = null;
+    if (rede){
+      try {
+        marca('plano do dia: rotas, trecho ' + (j + 1) + ' de ' + (nos.length - 1) + '…');
+        const r = await _osrm('route/v1/driving/' + a.lon.toFixed(6) + ',' + a.lat.toFixed(6) + ';' + b.lon.toFixed(6) + ',' + b.lat.toFixed(6)
+          + '?alternatives=3&overview=full&geometries=geojson&steps=true');
+        const ro = r.routes[0];
+        km = ro.distance / 1000; ur = _pernasUR(ro)[0]; min = _minTrecho(pt, ur);
+        g = ro.geometry.coordinates.map(c => [+c[0].toFixed(6), +c[1].toFixed(6)]);
+        op = (r.routes || []).slice(0, 3).map((x, o) => ({o: o + 1, km: Math.round(x.distance) / 1000,
+          min: Math.round(_minTrecho(pt, _pernasUR(x)[0])), g: x.geometry.coordinates.map(c => [+c[0].toFixed(6), +c[1].toFixed(6)])}));
+        await _espera(1100);
+      } catch (e){ avisos.push('trecho ' + (j + 1) + ' sem rota (' + (e.name === 'AbortError' ? 'servidor não respondeu' : e.message) + ')'); }
+    }
+    if (km == null) km = geodInversa(a.lat, a.lon, b.lat, b.lon).s / 1000;
+    pernas.push({id: b.id, de: a.id, km: Math.round(km * 100) / 100, min: min == null ? null : Math.round(min), g: g, ur: ur || undefined,
+                 op: op && op.length > 1 ? op : undefined});
+  }
+  const volta = pernas.pop();
+  return {paradas: pernas, volta: volta, avisos: avisos, rede: rede};
+}
+/* inserção mais barata (linha reta) de um ponto num circuito partida → ... → partida */
+function _insereBarato(P, seq, a){
+  const d = (x, y) => geodInversa(x.lat, x.lon, y.lat, y.lon).s;
+  let melhor = 0, custo = Infinity;
+  for (let k = 0; k <= seq.length; k++){
+    const ant = k ? seq[k - 1] : P, prox = k < seq.length ? seq[k] : P;
+    const c = d(ant, a) + d(a, prox) - d(ant, prox);
+    if (c < custo){ custo = c; melhor = k; }
+  }
+  seq.splice(melhor, 0, a); return seq;
+}
+async function _partidaDoDia(){
+  const txt = (($('#plano_partida') || {}).value || '').trim();
+  if (txt){
+    const P = coordDeTexto(txt);
+    if (!P) throw new Error('partida: não entendi as coordenadas — cole lat, lon (ex.: -5.83125, -35.21011) ou um link do Google Maps com coordenadas');
+    F.campanha.partida = _llTxt(P); grava(); return P;
+  }
+  marca('plano do dia: procurando a posição do aparelho…');
+  const P = await posicaoAgora(15);
+  if (!P) throw new Error('sem posição do aparelho — libere a localização, use a minha posição ou cole as coordenadas da partida');
+  return P;
+}
 async function planejaDia(){
   const n0 = Math.max(1, Math.min(15, parseInt(($('#plano_n') || {}).value, 10) || 5));
   const A = F.campanha.alvos || [];
   const EQ = equipeDoPlano();
+  let ordem = (($('#plano_ordem') || {}).value) || F.campanha.planoDiaOrdem || (EQ ? 'escritorio' : 'longe');
+  if (!EQ && ordem === 'escritorio') ordem = 'longe';
+  F.campanha.planoDiaOrdem = ordem;
   let obrig = listaRemedir().map(r => A.find(a => a.id === r.id)).filter(Boolean);
+  let cand;
+  const P = await _partidaDoDia();
   if (EQ){
     // com o plano da campanha: só a região desta equipe, na ordem dos dias
     const ordemK = EQ.dias.flatMap(d => d.ks);
@@ -5855,70 +5927,60 @@ async function planejaDia(){
       .sort((x, y) => ordemK.indexOf(_chaveUn(x)) - ordemK.indexOf(_chaveUn(y)));
     if (!pendE.length && !obrig.length)
       return marca('plano do dia: a região da ' + EQ.nome + ' está completa — para ajudar outra equipe, escolha "— escolha —" em "Este aparelho é da"');
-    var candPlano = obrig.concat(pendE.slice(0, Math.max(0, n0 - obrig.length)));
-  }
-  const n = Math.max(n0, obrig.length);
-  const pend = pendentesA().filter(a => !obrig.includes(a));
-  let cand = EQ ? candPlano : obrig.concat(pend);
-  if (!cand.length) return marca('nada a planejar: todos os círculos atendidos e nenhum ponto a remedir');
-  let P = null;
-  const txt = (($('#plano_partida') || {}).value || '').trim();
-  if (txt){
-    P = lerCoordenadas(txt);
-    if (!P) return marca('partida: não entendi as coordenadas — use latitude, longitude em graus (ex.: -5.83125, -35.21011)');
-    F.campanha.partida = txt; grava();
+    cand = pendE.slice(0, Math.max(0, n0 - obrig.length));
   } else {
-    marca('plano do dia: procurando a posição do aparelho…');
-    P = await posicaoAgora(15);
-    if (!P) return marca('plano do dia: sem posição do aparelho — libere a localização ou digite as coordenadas da partida');
+    const d = a => geodInversa(P.lat, P.lon, a.lat, a.lon).s;
+    cand = pendentesA().filter(a => !obrig.includes(a)).sort((x, y) => d(x) - d(y)).slice(0, Math.max(0, n0 - obrig.length));
   }
-  const rede = navigator.onLine;
-  const par = [], avisos = [];
-  let cur = {lat: P.lat, lon: P.lon, id: 'partida'};
-  for (let k = 0; k < n && cand.length; k++){
-    // as remedições entram com certeza: quando as vagas restantes são só para elas, só elas concorrem
-    const faltamObrig = cand.filter(c => obrig.includes(c));
-    const pool = faltamObrig.length >= n - k ? faltamObrig : cand;
-    // pré-seleção pela linha reta; a escolha final pela distância de carro
-    pool.sort((x, y) => geodInversa(cur.lat, cur.lon, x.lat, x.lon).s - geodInversa(cur.lat, cur.lon, y.lat, y.lon).s);
-    let prox = pool[0], km = null, min = null, g = null, ur = null;
-    if (rede){
-      const pre = pool.slice(0, 12);
+  if (!cand.length && !obrig.length) return marca('nada a planejar: todos os círculos atendidos e nenhum ponto a remedir');
+  let seq, fonteOrdem;
+  if (ordem === 'escritorio'){
+    seq = cand.slice(); obrig.forEach(a => _insereBarato(P, seq, a)); fonteOrdem = 'escritório';
+  } else {
+    const L = obrig.concat(cand), nos = [P].concat(L);
+    let M = null;
+    if (navigator.onLine && L.length > 1){
       try {
-        marca('plano do dia: escolhendo o ' + (k + 1) + 'º ponto pelas ruas…');
-        const coords = [cur].concat(pre).map(c => c.lon.toFixed(6) + ',' + c.lat.toFixed(6)).join(';');
-        const t = await _osrm('table/v1/driving/' + coords + '?sources=0&annotations=distance,duration');
-        let mj = -1;
-        for (let j = 1; j < t.distances[0].length; j++){
-          const d = t.distances[0][j];
-          if (d != null && (mj < 0 || d < t.distances[0][mj])) mj = j;
-        }
-        if (mj > 0) prox = pre[mj - 1];
+        marca('plano do dia: tempos de carro entre os pontos…');
+        const t = await _osrm('table/v1/driving/' + nos.map(c => c.lon.toFixed(6) + ',' + c.lat.toFixed(6)).join(';') + '?annotations=duration');
+        M = t.durations.map(r => r.map(v => v == null ? 1e9 : v)); fonteOrdem = 'tempos de carro (OSRM)';
         await _espera(1100);
-        const r = await _osrm('route/v1/driving/' + cur.lon.toFixed(6) + ',' + cur.lat.toFixed(6) + ';'
-          + prox.lon.toFixed(6) + ',' + prox.lat.toFixed(6) + '?overview=full&geometries=geojson&steps=true');
-        const ro = r.routes[0];
-        km = ro.distance / 1000; ur = _pernasUR(ro)[0]; min = _minTrecho(paramTempo(), ur);
-        g = ro.geometry.coordinates.map(c => [+c[0].toFixed(6), +c[1].toFixed(6)]);
-        await _espera(1100);
-      } catch (e){
-        avisos.push('trecho ' + (k + 1) + ' sem rota (' + (e.name === 'AbortError' ? 'servidor não respondeu' : e.message) + ')');
-      }
+      } catch (e){ M = null; }
     }
-    if (km == null) km = geodInversa(cur.lat, cur.lon, prox.lat, prox.lon).s / 1000;
-    par.push({id: prox.id, de: cur.id, km: Math.round(km * 100) / 100, min: min == null ? null : Math.round(min), g: g, ur: ur || undefined,
-              remedir: obrig.includes(prox) || undefined});
-    cand = cand.filter(c => c !== prox);
-    cur = prox;
+    if (!M){ M = nos.map(a => nos.map(b => geodInversa(a.lat, a.lon, b.lat, b.lon).s)); fonteOrdem = 'linha reta (sem internet)'; }
+    seq = ordemDoDia(M, ordem).map(i => L[i - 1]);
   }
+  const r = await _rotasDia(P, seq);
+  r.paradas.forEach(x => { if (obrig.some(a => a.id === x.id)) x.remedir = true; });
   F.dia.plano = {criado: new Date().toISOString(), origem: {lat: +P.lat.toFixed(6), lon: +P.lon.toFixed(6)},
-                 equipe: EQ ? EQ.nome : undefined,
-                 fonte: rede ? 'OSRM — dados © colaboradores do OpenStreetMap' : 'linha reta (sem internet)',
-                 paradas: par, avisos: avisos};
+                 equipe: EQ ? EQ.nome : undefined, ordem: ordem, fonteOrdem: fonteOrdem, ajustado: false,
+                 fonte: r.rede ? 'OSRM, até 3 caminhos por trecho — dados © colaboradores do OpenStreetMap' : 'linha reta (sem internet)',
+                 paradas: r.paradas, volta: r.volta, avisos: r.avisos};
   grava(); pintaPlano();
-  const nr = par.filter(x => x.remedir).length;
-  marca('plano do dia: ' + par.length + ' ponto(s)' + (nr ? ' (' + nr + ' a remedir)' : '') + ', ' + _numBR(par.reduce((s, x) => s + x.km, 0), 1) + ' km'
-        + (avisos.length ? ' — ' + avisos.join('; ') : '') + (rede ? '' : ' — sem internet: ordem em linha reta, sem rotas'));
+  const nr = r.paradas.filter(x => x.remedir).length;
+  marca('plano do dia: ' + r.paradas.length + ' ponto(s)' + (nr ? ' (' + nr + ' a remedir)' : '') + ', '
+    + _numBR(r.paradas.reduce((s, x) => s + x.km, 0) + (r.volta ? r.volta.km : 0), 1) + ' km com a volta'
+    + (r.avisos.length ? ' — ' + r.avisos.join('; ') : '') + (r.rede ? '' : ' — sem internet: ordem em linha reta, sem rotas'));
+}
+/* ajuste da equipe: subir, descer, tirar ou incluir um ponto; as rotas se refazem */
+async function ajustaPlanoDia(acao, id){
+  const p = F.dia && F.dia.plano; if (!p) return;
+  const A = F.campanha.alvos || [], P = p.origem;
+  let seq = p.paradas.map(x => A.find(a => a.id === x.id)).filter(Boolean);
+  const k = seq.findIndex(a => a.id === id);
+  if (acao === 'sobe' && k > 0) [seq[k - 1], seq[k]] = [seq[k], seq[k - 1]];
+  else if (acao === 'desce' && k >= 0 && k < seq.length - 1) [seq[k + 1], seq[k]] = [seq[k], seq[k + 1]];
+  else if (acao === 'tira' && k >= 0) seq.splice(k, 1);
+  else if (acao === 'inclui'){ const a = A.find(z => z.id === id); if (!a || k >= 0) return; _insereBarato(P, seq, a); }
+  else return;
+  if (!seq.length){ delete F.dia.plano; grava(); pintaPlano(); return marca('plano do dia: sem pontos'); }
+  const rem = new Set(p.paradas.filter(x => x.remedir).map(x => x.id));
+  const r = await _rotasDia(P, seq);
+  r.paradas.forEach(x => { if (rem.has(x.id) || listaRemedir().some(z => z.id === x.id)) x.remedir = true; });
+  Object.assign(p, {paradas: r.paradas, volta: r.volta, avisos: r.avisos, ajustado: true, ajustadoEm: new Date().toISOString(),
+    fonte: r.rede ? 'OSRM, até 3 caminhos por trecho — dados © colaboradores do OpenStreetMap' : 'linha reta (sem internet)'});
+  grava(); pintaPlano();
+  marca('plano do dia ajustado: ' + r.paradas.length + ' ponto(s)' + (r.rede ? '' : ' — sem internet: trechos em linha reta'));
 }
 function pintaPlano(){
   const el = $('#plano_dia'); if (!el) return;
@@ -5949,18 +6011,24 @@ function pintaPlano(){
     + '<div class="lin" style="margin-top:6px"><input type="text" id="rem_id" placeholder="ponto (ex.: 0037A)" style="width:9em">'
     + '<input type="text" id="rem_motivo" placeholder="motivo" style="flex:1;min-width:8em">'
     + '<button type="button" class="btn sec peq" id="b_rem">Incluir</button></div></div>'
-    + '<p class="leg" style="margin:6px 0">No hotel, com internet: a partir de onde o '
-    + 'celular está, a opção <b>A</b> pendente mais próxima pelas ruas, depois a mais próxima dela, e assim por '
-    + 'diante. As rotas ficam guardadas para navegar sem rede. No notebook (sem GPS), digite a partida '
-    + '(lat, lon do hotel, copiadas do Google Maps) e passe ao celular pela <b>Cópia completa</b>.</p>'
-    + '<div class="lin" style="margin-bottom:6px"><label for="plano_partida">Partida</label>'
-    + '<input type="text" id="plano_partida" style="flex:1;min-width:10em" placeholder="vazio = posição do aparelho; ou lat, lon do hotel" value="'
-    + esc(F.campanha.partida || '') + '"></div>'
-    + '<div class="lin"><label for="plano_n">Pontos no dia</label><input type="number" id="plano_n" min="1" max="15" value="'
+    + '<p class="leg" style="margin:6px 0">No hotel, com internet: escolha a partida, quantos pontos e a ordem, '
+    + 'e toque em <b>Planejar</b>. Cada trecho, inclusive a volta, ganha até três caminhos de carro (OSRM; LUXEN; VETTER, 2011), '
+    + 'guardados para navegar sem rede. <b>Do escritório</b> mantém a ordem do plano da campanha; <b>menor tempo</b> calcula a ordem exata '
+    + 'de menor tempo total partida → pontos → partida (HELD; KARP, 1962). Depois dá para subir, descer, tirar ou incluir pontos.</p>'
+    + '<label class="c" for="plano_partida">Partida (o hotel)</label>'
+    + '<input type="text" id="plano_partida" placeholder="vazio = posição do aparelho; ou lat, lon / link do Google Maps" value="'
+    + esc(F.campanha.partida || '') + '">'
+    + '<div class="acoes"><button type="button" class="btn sec peq" id="b_part_maps">Buscar no Google Maps</button>'
+    + '<button type="button" class="btn sec peq" id="b_part_aqui">Usar a minha posição (GPS)</button></div>'
+    + '<p class="leg" id="plano_part_aviso" style="margin-top:2px"></p>'
+    + '<label class="c" for="plano_ordem">Ordem dos pontos</label><select id="plano_ordem">'
+    + Object.entries(ORDEM_DIA).filter(([k]) => EQd || k !== 'escritorio').map(([k, t]) => '<option value="' + k + '"'
+      + (k === (F.campanha.planoDiaOrdem || (EQd ? 'escritorio' : 'longe')) ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>'
+    + '<div class="lin" style="margin-top:6px"><label for="plano_n">Pontos no dia</label><input type="number" id="plano_n" min="1" max="15" value="'
     + ((p && p.paradas.length) || (F.campanha.planoCampanha ? F.campanha.planoCampanha.porDia : 5)) + '"><button type="button" class="btn peq" id="b_plano">Planejar</button>'
     + (p ? '<button type="button" class="btn sec peq" id="b_plano_tira">Esquecer o plano</button>' : '') + '</div>';
   if (p){
-    const tot = p.paradas.reduce((s, x) => s + x.km, 0), tmin = p.paradas.reduce((s, x) => s + (x.min || 0), 0);
+    const tot = p.paradas.reduce((s, x) => s + x.km, 0), tmin = p.paradas.reduce((s, x) => s + (x.min || 0), 0) + ((p.volta && p.volta.min) || 0);
     // chegada prevista: saída, velocidades, ocupação e almoço do plano da campanha (ou os padrões)
     const pt = paramTempo(), cheg = [];
     let t = _minDe(pt.saida), alm = null;
@@ -5968,18 +6036,36 @@ function pintaPlano(){
       t += x.min || 0; cheg.push(x.min != null ? t : null); t += pt.ocup;
       if (alm == null && t >= 690 && k < p.paradas.length - 1){ alm = t; t += pt.almoco; }
     });
-    if (EQd) h += '<p class="leg" style="margin:6px 0 0">Plano da campanha: <b>' + esc(EQd.nome) + '</b> — pontos da região desta equipe, na ordem dos dias.</p>';
+    const met = p.ordem === 'escritorio' ? 'a do plano da campanha feito no escritório, com os pontos que faltam'
+      + (p.paradas.some(x => x.remedir) ? ' (remedições encaixadas onde menos alongam o caminho)' : '')
+      : p.ordem ? 'o menor tempo total partida → pontos → partida, exato (HELD; KARP, 1962), por ' + esc(p.fonteOrdem || 'tempos de carro')
+        + ', começando pelo ponto ' + (p.ordem === 'perto' ? 'mais próximo' : 'mais distante') + ' da partida'
+      : 'a do ponto pendente mais próximo, um após o outro (plano antigo)';
+    h += '<p class="leg" style="margin:6px 0 0">' + (EQd ? 'Região da <b>' + esc(EQd.nome) + '</b>. ' : '') + '<b>Ordem:</b> ' + met + '.'
+      + (p.ajustado ? ' <b>Ajustada pela equipe</b>' + (p.ajustadoEm ? ' em ' + new Date(p.ajustadoEm).toLocaleString('pt-BR').slice(0, 17) : '') + '.' : '') + '</p>';
     h += '<ol>' + p.paradas.map((x, k) => {
       const i = A.findIndex(a => a.id === x.id);
       return '<li><b>' + esc(x.id) + '</b>' + (cheg[k] != null && cheg.every(c => c != null) ? ' <small>chegada ~' + _hora(cheg[k]) + '</small>' : '') + (x.remedir ? '<span class="tag">remedir</span>' : '') + ' — ' + _numBR(x.km, 1) + ' km' + (x.min != null ? ' · ~' + x.min + ' min' : '')
-        + ' desde ' + (k === 0 ? 'a partida' : esc(x.de)) + (x.g ? '' : ' <small>(sem rota guardada)</small>')
+        + ' desde ' + (k === 0 ? 'a partida' : esc(x.de)) + (x.g ? (x.op ? ' <small>(' + x.op.length + ' caminhos)</small>' : '') : ' <small>(sem rota guardada)</small>')
         + (oc[x.id] ? ' · <span class="feito">ocupado</span>' : '')
-        + (i >= 0 ? '<div class="acoes"><button type="button" class="btn sec peq" data-navega="' + i + '">Navegar</button></div>' : '')
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 8px">' + (i >= 0 ? '<button type="button" class="btn sec peq" data-navega="' + i + '">Navegar</button>' : '')
+        + '<button type="button" class="btn sec peq" data-pdia="sobe" data-pid="' + esc(x.id) + '"' + (k ? '' : ' disabled') + ' title="subir">↑</button>'
+        + '<button type="button" class="btn sec peq" data-pdia="desce" data-pid="' + esc(x.id) + '"' + (k < p.paradas.length - 1 ? '' : ' disabled') + ' title="descer">↓</button>'
+        + '<button type="button" class="btn sec peq" data-pdia="tira" data-pid="' + esc(x.id) + '" title="tirar do dia">tirar</button></div>'
         + '</li>';
-    }).join('') + '</ol><p class="leg" style="margin:0">Total ' + _numBR(tot, 1) + ' km'
+    }).join('') + '</ol>'
+      + (p.volta ? '<p class="leg" style="margin:0 0 4px">Volta à partida: ' + _numBR(p.volta.km, 1) + ' km' + (p.volta.min != null ? ' · ~' + p.volta.min + ' min' : '')
+        + ' desde ' + esc(p.volta.de) + '.</p>' : '');
+    const fora = pendentesA().filter(a => !p.paradas.some(x => x.id === a.id) && daMinhaEquipe(a));
+    if (fora.length) h += '<div class="lin" style="margin:4px 0"><select id="plano_inclui" style="flex:1;min-width:9em"><option value="">incluir um ponto pendente…</option>'
+      + fora.map(a => '<option>' + esc(a.id) + '</option>').join('') + '</select><button type="button" class="btn sec peq" id="b_plano_inclui">Incluir</button></div>';
+    h += '<p class="leg" style="margin:0">Total ' + _numBR(tot + (p.volta ? p.volta.km : 0), 1) + ' km com a volta'
       + (tmin ? ' · ~' + _hm(tmin) + ' de carro (' + pt.velUrb + ' km/h urbano, ' + pt.velRod + ' km/h rodovia), saída ' + pt.saida
                + ', ' + pt.ocup + ' min por ponto' + (alm != null ? ', almoço ' + _hora(alm) : '') : '') + ' · planejado em '
-      + new Date(p.criado).toLocaleString('pt-BR').slice(0, 17) + ' · rotas: ' + esc(p.fonte) + '.</p>';
+      + new Date(p.criado).toLocaleString('pt-BR').slice(0, 17) + ' · rotas: ' + esc(p.fonte) + '.</p>'
+      + (p.ordem && p.ordem !== 'escritorio' || /OSRM/.test(p.fonte || '') ? '<p class="leg" style="margin:4px 0 0;font-size:.85em;color:#64748B">'
+        + (p.ordem && p.ordem !== 'escritorio' ? 'HELD, M.; KARP, R. M. A dynamic programming approach to sequencing problems. <i>Journal of the Society for Industrial and Applied Mathematics</i>, v. 10, n. 1, p. 196-210, 1962.<br>' : '')
+        + 'LUXEN, D.; VETTER, C. Real-time routing with OpenStreetMap data. <i>In</i>: ACM SIGSPATIAL INTERNATIONAL CONFERENCE ON ADVANCES IN GEOGRAPHIC INFORMATION SYSTEMS, 19., 2011, Chicago. <b>Proceedings</b> [...]. New York: ACM, 2011. p. 513-516.</p>' : '');
   }
   if (p && p.paradas.some(x => oc[x.id] && !x.remedir))
     h += '<p class="leg" style="margin:4px 0 0">Parte do plano já foi ocupada: <b>Planejar</b> refaz '
@@ -5997,6 +6083,13 @@ function pintaPlano(){
   el.querySelectorAll('[data-tirarem]').forEach(b => b.addEventListener('click', () => {
     tiraRemedir(b.dataset.tirarem); pintaAlvos(); }));
   $('#b_plano').addEventListener('click', () => planejaDia().catch(e => marca('plano do dia: ' + e.message)));
+  ligaCampoCoord('#plano_partida', '#plano_part_aviso', '#b_part_maps', '#b_part_aqui', 'a partida (o hotel)');
+  const pp0 = $('#plano_partida'); if (pp0) pp0.addEventListener('change', () => { F.campanha.partida = pp0.value.trim(); grava(); });
+  const po = $('#plano_ordem'); if (po) po.addEventListener('change', () => { F.campanha.planoDiaOrdem = po.value; grava(); });
+  el.querySelectorAll('[data-pdia]').forEach(b => b.addEventListener('click', () =>
+    ajustaPlanoDia(b.dataset.pdia, b.dataset.pid).catch(e => marca('plano do dia: ' + e.message))));
+  const bi = $('#b_plano_inclui'); if (bi) bi.addEventListener('click', () => { const v = $('#plano_inclui').value;
+    if (v) ajustaPlanoDia('inclui', v).catch(e => marca('plano do dia: ' + e.message)); });
   if (p) $('#b_plano_tira').addEventListener('click', () => {
     if (!confirm('Esquecer o plano do dia?')) return;
     delete F.dia.plano; grava(); pintaPlano(); });
@@ -6212,22 +6305,24 @@ function montaDias(G, H, x, ordem, dH){
 /* Ajuda a obter as coordenadas do hotel: pesquisa no Google Maps, link colado, ou a
    posição deste aparelho. No computador a posição vem da rede (Wi-Fi ou IP), não de GNSS:
    serve quando se planeja já no hotel, e a precisão informada pelo navegador é mostrada. */
-function ligaCamposHotel(){
-  const hi = $('#pc_hotel'), av = $('#pc_hotel_aviso'); if (!hi) return;
+function ligaCamposHotel(){ ligaCampoCoord('#pc_hotel', '#pc_hotel_aviso', '#b_hotel_maps', '#b_hotel_aqui', 'o hotel'); }
+function ligaCampoCoord(sInp, sAv, sMaps, sAqui, oQue){
+  const hi = $(sInp), av = $(sAv); if (!hi) return;
   const diz = (h, cor) => { if (av) av.innerHTML = cor ? '<span style="color:' + cor + '">' + h + '</span>' : h; };
   const normaliza = () => {
     const t = hi.value.trim(); if (!t) return;
     const c = coordDeTexto(t);
     if (c){
-      diz(/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(t) ? 'Coordenadas do hotel: ' + c.lat.toFixed(6) + ', ' + c.lon.toFixed(6) + '.'
+      diz(/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(t) ? 'Coordenadas de ' + oQue + ': ' + c.lat.toFixed(6) + ', ' + c.lon.toFixed(6) + '.'
         : 'Coordenadas tiradas do que foi colado: ' + c.lat.toFixed(6) + ', ' + c.lon.toFixed(6) + '.');
       hi.value = c.lat.toFixed(6) + ', ' + c.lon.toFixed(6);
-    } else if (/maps\.app\.goo\.gl|goo\.gl\/maps/i.test(t)) diz('Link encurtado não traz as coordenadas: no Google Maps, clique com o botão direito sobre o hotel e copie os números da primeira linha.', '#B45309');
-    else if (/^https?:/i.test(t)) diz('Esse link não traz coordenadas — copie-as no Google Maps (botão direito sobre o hotel).', '#B45309');
+    } else if (/maps\.app\.goo\.gl|goo\.gl\/maps/i.test(t)) diz('Link encurtado não traz as coordenadas: no Google Maps, toque e segure (no celular) ou clique com o botão direito (no computador) sobre ' + oQue + ' e copie os números.', '#B45309');
+    else if (/^https?:/i.test(t)) diz('Esse link não traz coordenadas — copie-as no Google Maps (tocando e segurando sobre ' + oQue + ').', '#B45309');
   };
   hi.addEventListener('change', normaliza);
   hi.addEventListener('paste', () => setTimeout(normaliza, 0));
-  $('#b_hotel_maps').addEventListener('click', () => {
+  const bm = $(sMaps), ba = $(sAqui);
+  if (bm) bm.addEventListener('click', () => {
     const t = hi.value.trim(), c = coordDeTexto(t);
     const U = unidadesPendentes(), med = U.length ? medianaGeo(U) : null;
     const url = c ? 'https://www.google.com/maps/search/?api=1&query=' + c.lat.toFixed(6) + '%2C' + c.lon.toFixed(6)
@@ -6235,14 +6330,17 @@ function ligaCamposHotel(){
       : med ? 'https://www.google.com/maps/search/hot%C3%A9is/@' + med.lat.toFixed(5) + ',' + med.lon.toFixed(5) + ',13z'
       : 'https://www.google.com/maps/search/hot%C3%A9is';
     window.open(url, '_blank', 'noopener');
-    diz('No Google Maps, clique com o botão direito sobre o hotel e clique nas coordenadas (primeira linha do menu) para copiá-las; volte aqui e cole.');
+    diz(/Android|iPhone|iPad/.test(navigator.userAgent)
+      ? 'No Google Maps, toque e segure sobre ' + oQue + ': as coordenadas aparecem na busca; copie-as, volte aqui e cole.'
+      : 'No Google Maps, clique com o botão direito sobre ' + oQue + ' e clique nas coordenadas (primeira linha do menu) para copiá-las; volte aqui e cole.');
   });
-  $('#b_hotel_aqui').addEventListener('click', () => {
+  if (ba) ba.addEventListener('click', () => {
     if (!navigator.geolocation) return diz('Este navegador não informa a posição.', '#B91C1C');
     diz('Procurando a posição deste aparelho…');
     navigator.geolocation.getCurrentPosition(p => {
       const c = p.coords, acc = Math.round(c.accuracy);
       hi.value = c.latitude.toFixed(6) + ', ' + c.longitude.toFixed(6);
+      try { hi.dispatchEvent(new Event('change')); } catch (e){}
       const pc = /Android|iPhone|iPad/.test(navigator.userAgent);
       diz('Posição deste aparelho, ± ' + acc + ' m' + (pc ? '' : ' (no computador ela vem da rede Wi-Fi ou do endereço de internet, não de GNSS)')
         + (acc > 150 ? ' — imprecisa: confira no Google Maps antes de planejar.' : '.'), acc > 150 ? '#B45309' : null);
@@ -7418,7 +7516,7 @@ function desenhaNav(){
   const T = TL.find(t => t.o === NAV.opc) || TL[0] || null;
   const st = (T && P) ? noTrajeto(T, P) : null;
   const nomeT = t => t.fonte === 'plano'
-    ? 'Plano do dia · trecho ' + t.k + ' de ' + t.n + ' · ' + _numBR(t.km, 1) + ' km' + (t.min != null ? ' · ~' + t.min + ' min' : '')
+    ? 'Plano do dia · trecho ' + t.k + ' de ' + t.n + (t.nop > 1 ? ' · caminho <b>' + t.o + '</b> de ' + t.nop : '') + ' · ' + _numBR(t.km, 1) + ' km' + (t.min != null ? ' · ~' + t.min + ' min' : '')
     : t.fonte === 'campanha'
     ? 'Plano da campanha · dia ' + t.dia + ', ponto ' + t.k + ' de ' + t.n + ' · caminho <b>' + t.o + '</b> de ' + t.nop
       + ' · ' + _numBR(t.km, 1) + ' km' + (t.min != null ? ' · ~' + t.min + ' min' : '')

@@ -395,7 +395,7 @@ você cabe o que nenhum arquivo registra.</p>
       <div><label class="c" for="c_uf">UF</label>
         <select id="c_uf" data-campo="campanha.uf"><option value="">— escolha a UF —</option><option value="AC">AC — Acre</option><option value="AL">AL — Alagoas</option><option value="AM">AM — Amazonas</option><option value="AP">AP — Amapá</option><option value="BA">BA — Bahia</option><option value="CE">CE — Ceará</option><option value="DF">DF — Distrito Federal</option><option value="ES">ES — Espírito Santo</option><option value="GO">GO — Goiás</option><option value="MA">MA — Maranhão</option><option value="MG">MG — Minas Gerais</option><option value="MS">MS — Mato Grosso do Sul</option><option value="MT">MT — Mato Grosso</option><option value="PA">PA — Pará</option><option value="PB">PB — Paraíba</option><option value="PE">PE — Pernambuco</option><option value="PI">PI — Piauí</option><option value="PR">PR — Paraná</option><option value="RJ">RJ — Rio de Janeiro</option><option value="RN">RN — Rio Grande do Norte</option><option value="RO">RO — Rondônia</option><option value="RR">RR — Roraima</option><option value="RS">RS — Rio Grande do Sul</option><option value="SC">SC — Santa Catarina</option><option value="SE">SE — Sergipe</option><option value="SP">SP — São Paulo</option><option value="TO">TO — Tocantins</option></select></div>
       <div><label class="c" for="c_mun">Município</label>
-        <input type="text" id="c_mun" data-campo="campanha.municipio" list="l_mun" autocomplete="off" placeholder="digite para filtrar">
+        <input type="text" id="c_mun" data-campo="campanha.municipio" list="l_mun" data-lista-fixa autocomplete="off" placeholder="digite para filtrar">
         <span class="leg" id="c_mun_cod"></span></div>
     </div>
     <datalist id="l_mun"></datalist>
@@ -1348,6 +1348,7 @@ function memLista(n){
 function memLiga(raiz){
   (raiz || document).querySelectorAll('input').forEach(el => {
     if ((el.type || 'text') !== 'text') return;
+    if (el.dataset.listaFixa != null) return;       // campo com lista própria (ex.: municípios do IBGE)
     const n = memNome(el);
     if (!n) return;
     if ((MEM[n] || []).length) el.setAttribute('list', memLista(n));
@@ -1359,7 +1360,7 @@ function memEsquece(){
   MEM = {};
   try { localStorage.removeItem(MEM_CHAVE); } catch (e){}
   document.querySelectorAll('#listas datalist').forEach(d => d.remove());
-  document.querySelectorAll('input[list]').forEach(e => e.removeAttribute('list'));
+  document.querySelectorAll('input[list]:not([data-lista-fixa])').forEach(e => e.removeAttribute('list'));
 }
 
 function memConta(){
@@ -10498,7 +10499,7 @@ function pintaKits(){
       h += '<div class="kit" style="border-left:4px solid ' + e.cor + '"><h4 style="color:' + e.cor + '">' + esc(e.nome) + ' — '
         + n + ' círculo(s), ' + e.dias.length + ' dia(s)</h4>'
         + '<div class="lin2"><div><label class="c">Equipe no PTCON</label><input type="text" data-kitc="' + i + '" data-k="ptcon" maxlength="16" placeholder="ex.: CE1" value="' + v('ptcon', '') + '"></div>'
-        + '<div><label class="c">Município</label><input type="text" data-kitc="' + i + '" data-k="mun" list="l_mun" autocomplete="off" value="' + v('mun', munDaEquipe(e)) + '"></div></div>'
+        + '<div><label class="c">Município</label><input type="text" data-kitc="' + i + '" data-k="mun" list="l_mun" data-lista-fixa autocomplete="off" value="' + v('mun', munDaEquipe(e)) + '"></div></div>'
         + '<label class="c">Integrantes — um por linha: nome; papel; SIAPE</label><textarea data-kitc="' + i + '" data-k="membros">' + v('membros', '') + '</textarea>'
         + '<label class="c">Responsável pela carga do equipamento</label><input type="text" data-kitc="' + i + '" data-k="resp" value="' + v('resp', '') + '">'
         + '<label class="c">Código da equipe no receptor do Drive (GGC:…; opcional)</label><input type="text" data-kitc="' + i + '" data-k="srv" spellcheck="false" autocomplete="off" value="' + v('srv', '') + '">'

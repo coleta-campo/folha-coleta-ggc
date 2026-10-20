@@ -11623,7 +11623,8 @@ async function atualizaPlanoKit(kit, tem){
     lc: kit.servidor.lc || '', equipe: kit.servidor.equipe || '', ultimoEnvio: (F.config.servidor || {}).ultimoEnvio};
   try { await mapaLimpa(); for (const [k, v] of kit.mapa || []) await mapaPoeUm(k, v); } catch (e){ marca('mapa: ' + e.message); }
   try { await blocoLimpa(); for (const [k, v] of kit.blocos || []){ const bl = _deURL(v); if (bl) await blocoPoe(k, bl); } } catch (e){}
-  try { await _txTraj('readwrite', l => l.clear()); if (kit.trajetos) await _txTraj('readwrite', l => l.put(kit.trajetos, 'trajetos')); } catch (e){}
+  // só a chave 'trajetos' muda: o mesmo armazém guarda as TRILHAS gravadas nos dias, que ficam
+  try { await _txTraj('readwrite', l => kit.trajetos ? l.put(kit.trajetos, 'trajetos') : l.delete('trajetos')); } catch (e){}
   grava(); await carregaArea(); await contaBlocos(); await carregaTrajetos(); monta();
   const n = (F.campanha.alvos || []).length;
   setTimeout(() => marca('plano da ' + kit.equipe.nome + ' atualizado: ' + n + ' pontos planejados; a coleta deste aparelho foi mantida'), 700);

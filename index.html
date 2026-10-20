@@ -2856,7 +2856,9 @@ function cartaoPonto(p, k){
     + (function(){ const c = coordPonto(p);
         return '<p class="leg" data-coordlin' + (c && !['rinex', 'ppp'].includes(c.fonte) ? ' style="color:#B91C1C"' : '') + '><b>Coordenada:</b> '
           + (c ? gms(c.lat, 'lat') + '   ' + gms(c.lon, 'lon') + ' — ' + esc(c.rotulo) : 'ainda nenhuma') + '</p>'; })()
-    + '<div class="acoes naoimprime"><button type="button" class="btn sec peq" data-coordcel>Coordenada pela posição do celular</button>'
+    + '<div class="acoes naoimprime"><button type="button" class="btn sec peq" data-coordcel>'
+    + (p.coord_cel ? 'Medir de novo pelo celular' : 'Coordenada pela posição do celular') + '</button>'
+    + (p.coord_cel ? '<button type="button" class="btn sec peq" data-coordcel-tira>Apagar a coordenada do celular</button>' : '')
     + '<button type="button" class="btn sec peq" '
     + 'data-munbusca>Município pela coordenada (precisa de rede)</button></div>'
     + campoGnss(p, 'p')
@@ -3045,6 +3047,8 @@ function cartaoPonto(p, k){
   });
   d.querySelector('[data-coordcel]').addEventListener('click', () =>
     coordenadaDoCelular(p, d).catch(e => marca('posição: ' + e.message)));
+  const bct = d.querySelector('[data-coordcel-tira]');
+  if (bct) bct.addEventListener('click', () => apagaCoordCelular(p));
   d.querySelector('[data-munbusca]').addEventListener('click', async () => {
     const b = d.querySelector('[data-munbusca]'), antes = b.textContent;
     b.textContent = 'consultando o IBGE…'; b.disabled = true;
@@ -7924,6 +7928,23 @@ function mediaPosicaoCelular(seg){
           hacc: BH.some(x => x.hacc != null) ? BH.filter(x => x.hacc != null).reduce((s, x) => s + x.hacc, 0) / BH.filter(x => x.hacc != null).length : null});
     }, (seg || 10) * 1000);
   });
+}
+/* Medida do celular errada (dentro do carro, sob telhado, multicaminho): apaga e o ponto
+   volta à coordenada seguinte na ordem — RINEX/PPP, se já lidos; senão a do planejamento
+   (gabinete) ou a da chegada ao ponto escolhido em campo. */
+function apagaCoordCelular(p){
+  if (!p.coord_cel) return;
+  const q = Object.assign({}, p); delete q.coord_cel;
+  const c = coordPonto(q), cc = p.coord_cel;
+  const d = c ? geodInversa(cc.lat, cc.lon, c.lat, c.lon).s : null;
+  if (!confirm('Apagar a coordenada medida pelo celular (± ' + Math.round(cc.acc || 0) + ' m, ' + (cc.n || 1) + ' leitura(s))?\n\n'
+      + (c ? 'O ponto volta a: ' + c.rotulo + (d != null ? ' — a ' + _metros(d) + ' da medida apagada' : '') + '.'
+           : 'O ponto fica sem coordenada até a leitura do RINEX ou uma nova medida.')
+      + '\n\nDepois é possível medir de novo pelo celular, ao ar livre, sobre o ponto.')) return;
+  delete p.coord_cel;
+  if (p.relatorio && p.relatorio_coord !== 'ppp' && p.relatorio_coord !== 'rinex'){ p.relatorio = ''; delete p.relatorio_coord; }
+  grava(); pintaPontos(); try { pintaAlvos(); } catch (e){}
+  marca('coordenada do celular apagada — vale ' + (c ? c.rotulo.split(' (')[0].split(' —')[0] : 'nenhuma, até o RINEX'));
 }
 async function coordenadaDoCelular(p, d){
   const b = d.querySelector('[data-coordcel]'), antes = b.textContent;

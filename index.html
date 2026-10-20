@@ -6037,6 +6037,37 @@ function divideEquipes(U, H, N, x, modo){
   }
   return monta(melhor.r, melhor.tam);
 }
+/* Ordem de visita de um dia: o menor tempo total hotel → pontos → hotel, exato por
+   programação dinâmica (HELD; KARP, 1962) sobre a matriz M (0 = hotel; tempos de carro
+   do OSRM, ou distâncias em linha reta sem rede). Dos dois sentidos do circuito, fica o
+   que atende à opção: 'longe' começa pela ponta mais distante do hotel e termina na mais
+   próxima (último trecho curto, de volta ao hotel); 'perto', o contrário.
+   Devolve os índices 1..n na ordem de visita. */
+function ordemDoDia(M, ordem){
+  const n = M.length - 1;
+  if (n <= 1) return n ? [1] : [];
+  const N = 1 << n, INF = 1e18;
+  const dp = new Float64Array(N * n).fill(INF), pai = new Int8Array(N * n).fill(-1);
+  for (let j = 0; j < n; j++) dp[(1 << j) * n + j] = M[0][j + 1];
+  for (let m = 1; m < N; m++) for (let j = 0; j < n; j++){
+    const v = dp[m * n + j]; if (!(m & (1 << j)) || v >= INF) continue;
+    for (let k = 0; k < n; k++){
+      if (m & (1 << k)) continue;
+      const m2 = m | (1 << k), c = v + M[j + 1][k + 1];
+      if (c < dp[m2 * n + k]){ dp[m2 * n + k] = c; pai[m2 * n + k] = j; }
+    }
+  }
+  let melhor = INF, fim = 0;
+  for (let j = 0; j < n; j++){ const c = dp[(N - 1) * n + j] + M[j + 1][0]; if (c < melhor){ melhor = c; fim = j; } }
+  const seq = []; let m = N - 1, j = fim;
+  while (j >= 0){ seq.unshift(j + 1); const p = pai[m * n + j]; m &= ~(1 << j); j = p; }
+  const custo = s => M[0][s[0]] + s.slice(1).reduce((t, v, i) => t + M[s[i]][v], 0) + M[s[s.length - 1]][0];
+  const inv = seq.slice().reverse();
+  const ok = s => ordem === 'perto' ? M[0][s[0]] <= M[0][s[s.length - 1]] : M[0][s[0]] >= M[0][s[s.length - 1]];
+  if (ok(seq) && !ok(inv)) return seq;
+  if (ok(inv) && !ok(seq)) return inv;
+  return custo(inv) < custo(seq) ? inv : seq;
+}
 function montaDias(G, H, x, ordem, dH){
   const P = _plano(H), XY = new Map(G.map(u => [u.k, P.xy(u)]));
   const d2 = (a, b) => { const p = XY.get(a.k), q = XY.get(b.k); return Math.hypot(p[0] - q[0], p[1] - q[1]); };
@@ -6047,16 +6078,12 @@ function montaDias(G, H, x, ordem, dH){
     const ab = R[0];
     const dia = [ab].concat(R.slice(1).sort((a, b) => d2(ab, a) - d2(ab, b)).slice(0, x - 1));
     R = R.filter(u => !dia.includes(u));
-    // ordem de visita: 'longe' começa pelo ponto do dia mais distante do hotel (pelas ruas,
-    // quando há a tabela do OSRM) e volta em direção a ele; 'perto' começa pelo mais próximo.
-    // Depois, o mais próximo do último. Com internet, a ordem é refeita pelos tempos de carro.
-    const resto = dia.slice().sort((a, b) => ordem === 'perto' ? dH[a.k] - dH[b.k] : dH[b.k] - dH[a.k]);
-    let cur = resto.shift(); const vis = [cur];
-    while (resto.length){
-      resto.sort((a, b) => d2(cur, a) - d2(cur, b));
-      cur = resto.shift(); vis.push(cur);
-    }
-    dias.push(vis);
+    // ordem de visita: menor percurso hotel → pontos → hotel (em linha reta aqui; com
+    // internet é refeita pelos tempos de carro), no sentido pedido pela opção
+    XY.set('_h', [0, 0]);
+    const nos = [{k: '_h'}].concat(dia);
+    const M = nos.map(a => nos.map(b => d2(a, b)));
+    dias.push(ordemDoDia(M, ordem).map(i => dia[i - 1]));
   }
   return dias;
 }
@@ -6125,13 +6152,10 @@ async function planejaCampanha(){
       const ks = {}; d.ids.forEach((id, j) => { ks[id] = d.ks[j]; });
       try {
         if (pts.length > 2){
-          marca('plano da campanha: dia ' + n + ' de ' + tot + ' — ordem pelos tempos de carro…');
+          marca('plano da campanha: dia ' + n + ' de ' + tot + ' — ordem pelo menor tempo de carro…');
           const c = [H].concat(pts).map(p => p.lon.toFixed(6) + ',' + p.lat.toFixed(6)).join(';');
           const t = await _osrm('table/v1/driving/' + c + '?annotations=duration,distance');
-          const T = t.durations, Dh = t.distances[0];
-          const resto = pts.map((p, j) => j + 1).sort((a, b) => ordem === 'perto' ? Dh[a] - Dh[b] : Dh[b] - Dh[a]);
-          let cur = resto.shift(); const seq = [cur];
-          while (resto.length){ resto.sort((a, b) => T[cur][a] - T[cur][b]); cur = resto.shift(); seq.push(cur); }
+          const seq = ordemDoDia(t.durations.map(r => r.map(v => v == null ? 1e9 : v)), ordem);
           pts = seq.map(j => pts[j - 1]);
           d.ids = pts.map(p => p.id); d.ks = d.ids.map(id => ks[id]);
           await _espera(1100);
@@ -6471,15 +6495,17 @@ function montaImpressaoPlano(){
       : 'entre as divisões em que nenhuma equipe passa do menor número possível de dias, a de menor soma das aberturas angulares. ')
     + 'As divisas passam no meio dos vazios. '
     + 'Dias: o círculo mais distante do hotel ' + (pc.ordem === 'perto' ? '(na ordem inversa, o mais próximo) ' : '')
-    + 'abre o dia e leva os mais próximos dele; dentro do dia, a visita começa pelo ponto mais distante do hotel '
-    + (pc.ordem === 'perto' ? '(na ordem inversa, pelo mais próximo) ' : '') + 'e segue sempre para o mais próximo pelo tempo de carro '
-    + '(heurística do vizinho mais próximo; ROSENKRANTZ; STEARNS; LEWIS, 1977). Cada trecho do dia (hotel → 1º ponto, ponto → ponto, '
+    + 'abre o dia e leva os mais próximos dele; dentro do dia, a ordem de visita é a de menor tempo total de carro do hotel, pelos pontos, '
+    + 'de volta ao hotel, calculada de forma exata por programação dinâmica (HELD; KARP, 1962) sobre os tempos entre os pontos; '
+    + 'dos dois sentidos desse circuito, fica o que ' + (pc.ordem === 'perto' ? 'começa pela ponta mais próxima do hotel e termina na mais distante. '
+      : 'começa pela ponta mais distante do hotel e termina na mais próxima, com o último trecho curto, de volta ao hotel. ')
+    + 'Cada trecho do dia (hotel → 1º ponto, ponto → ponto, '
     + 'último → hotel) tem até três caminhos de carro calculados pelo OSRM (LUXEN; VETTER, 2011), que seguem na folha da equipe para a navegação sem rede. '
     + 'Mediana geométrica pelo algoritmo de Weiszfeld (1937).</p>'
-    + '<p class="ocor">LUXEN, D.; VETTER, C. Real-time routing with OpenStreetMap data. <i>In</i>: ACM SIGSPATIAL INTERNATIONAL CONFERENCE '
+    + '<p class="ocor">HELD, M.; KARP, R. M. A dynamic programming approach to sequencing problems. <i>Journal of the Society for Industrial and '
+    + 'Applied Mathematics</i>, v. 10, n. 1, p. 196-210, 1962.<br>'
+    + 'LUXEN, D.; VETTER, C. Real-time routing with OpenStreetMap data. <i>In</i>: ACM SIGSPATIAL INTERNATIONAL CONFERENCE '
     + 'ON ADVANCES IN GEOGRAPHIC INFORMATION SYSTEMS, 19., 2011, Chicago. <b>Proceedings</b> [...]. New York: ACM, 2011. p. 513-516.<br>'
-    + 'ROSENKRANTZ, D. J.; STEARNS, R. E.; LEWIS, P. M. An analysis of several heuristics for the traveling salesman problem. '
-    + '<i>SIAM Journal on Computing</i>, v. 6, n. 3, p. 563-581, 1977.<br>'
     + 'WEISZFELD, E. Sur le point pour lequel la somme des distances de n points donnés est minimum. '
     + '<i>Tôhoku Mathematical Journal</i>, v. 43, p. 355-386, 1937.<br>'
     + 'BRASIL. Decreto nº 5.992, de 19 de dezembro de 2006. Dispõe sobre a concessão de diárias no âmbito da administração federal direta, '

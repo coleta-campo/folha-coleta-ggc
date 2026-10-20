@@ -6466,11 +6466,13 @@ function tabelaPlano(pc, so){
     h += '<h5 style="color:' + e.cor + '">' + esc(e.nome) + ' — ' + n + ' círculo(s), ' + e.dias.length + ' dia(s)'
       + ' · <span style="color:#15803D">✓ ' + feitosE + ' de ' + n + ' coletados</span>'
       + (andE ? ' · <span style="color:#B45309">◐ ' + andE + ' em coleta</span>' : '')
-      + (kmT ? ', ' + _numBR(kmT, 0) + ' km e ' + _hm(carT) + ' de carro' : '') + '</h5><div class="dplano">'
+      + (kmT ? ', ' + _numBR(kmT, 0) + ' km e ' + _hm(carT) + ' de carro' : '')
+      + ' · <b>trabalho ≈ ' + _hm(carT + n * p.ocup) + '</b> (' + n + ' × ' + p.ocup + ' min de ocupação' + (kmT ? ' + carro' : '') + ')</h5><div class="dplano">'
       + e.dias.map((d, j) => {
           const x = H[j], f = _feitosDia(d);
           return '<div class="d' + (f === d.ids.length ? ' feito' : '') + '"><div class="cab"><b>Dia ' + (j + 1) + '</b>'
             + (x ? ' · ' + _numBR(x.km, 0) + ' km (' + _numBR(x.rod, 0) + ' em rodovia) · carro ' + _hm(x.car)
+                 + ' + ocupação ' + _hm(d.ids.length * p.ocup)
                  + ' · almoço ' + (x.almoco != null ? _hora(x.almoco) : 'na volta') + ' · <span' + (x.passa ? ' style="color:#B91C1C;font-weight:700"' : '') + '>volta ao hotel '
                  + _hora(x.retorno) + (x.passa ? ' ⚠' : '') + '</span>' : ' · sem rota (horários não estimados)')
             + (f ? ' · <small>' + f + '/' + d.ids.length + ' coletados</small>' : '') + '</div><div class="pts">'

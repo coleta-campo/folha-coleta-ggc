@@ -543,8 +543,8 @@ você cabe o que nenhum arquivo registra.</p>
     <p class="leg">Como se fazia no QGIS sobre a base de rodovias, trecho a trecho, agora no caminho:
     na tela de navegação, toque no revestimento ao entrar num trecho e de novo quando ele mudar;
     no botão <b>⋯</b> ficam tipo, jurisdição, tráfego e código da rodovia, que se repetem no trecho
-    seguinte até serem mudados. Cada trecho sai como uma feição de
-    <span class="marca">TRACKING\LCnnn_TRACKING.shp</span>, com os códigos do formulário do QGIS —
+    seguinte até serem mudados. Cada trecho sai como uma feição da camada TRACKING do
+    <span class="marca">Dados_campo.gpkg</span>, com os códigos do formulário do QGIS —
     revestimento: 2 leito natural, 3 revestimento primário (solto), 4 pavimentado, 5 calçado,
     1 desconhecido; tipo: 1 acesso, 2 rodovia, 3 caminho carroçável, 4 auto-estrada; jurisdição:
     1 desconhecida, 2 federal, 3 estadual, 4 municipal, 5 propriedade particular; tráfego:
@@ -798,8 +798,8 @@ você cabe o que nenhum arquivo registra.</p>
     <p>Um ZIP no arranjo, nos nomes e nos formatos das entregas LC da GGC/CE
     (LC427, LC428), pronto para <span class="marca">\\WARQCE01\GGC\CARTOGRAFIA\PONTOS_CONTROLE\</span>:</p>
     <p><span class="marca">LCnnn\Relatorio_entrega_dados_LCnnn.docx</span>;
-    <span class="marca">PONTOS_COLETADOS\LCnnn_PONTOS_COLETA_CAMPO_AAAA.shp</span>;
-    <span class="marca">TRACKING\LCnnn_TRACKING.shp</span> (a trilha gravada, uma feição por trecho marcado);
+    <span class="marca">LCnnn\Dados_campo.gpkg</span> (GeoPackage em SIRGAS 2000, com as camadas PONTOS_COLETADOS e
+    TRACKING — a trilha gravada, uma feição por trecho marcado);
     <span class="marca">Equipe_NN\Relatório_Ponto de Controle_LCnnn.docx</span> e
     <span class="marca">Relatório de Viagem.docx</span>, com custos, SIAPE e veículo em branco;
     os PDFs da folha, com as fotos: <span class="marca">Relatório da Campanha_LCnnn.pdf</span>,
@@ -9472,7 +9472,7 @@ async function _bytesDe(d){
 }
 function _fnv(u){ let h = 0x811c9dc5; for (let i = 0; i < u.length; i++){ h ^= u[i]; h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16); }
 function _b64(u){ let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); }
-const TIPOS_ENVIO = {jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf', json: 'application/json',
+const TIPOS_ENVIO = {gpkg: 'application/geopackage+sqlite3', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf', json: 'application/json',
   txt: 'text/plain', csv: 'text/csv', zip: 'application/zip',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'};
 function _tipoEnvio(nome){ return TIPOS_ENVIO[(String(nome).split('.').pop() || '').toLowerCase()] || 'application/octet-stream'; }
@@ -9721,8 +9721,8 @@ async function enviaAoServidor(){
    LC428 (2023), lidos no servidor da GGC/CE:
    LCnnn/
      Relatorio_entrega_dados_LCnnn.docx         (as entregas de 2023 usavam .odt e .doc; decidido .docx)
-     PONTOS_COLETADOS/LCnnn_PONTOS_COLETA_CAMPO_AAAA.shp/.shx/.dbf/.prj/.cpg
-     TRACKING/LCnnn_TRACKING.shp/.shx/.dbf/.prj/.cpg
+     Dados_campo.gpkg                            GeoPackage (SIRGAS 2000): camadas PONTOS_COLETADOS e TRACKING
+                                                 (até 2026, dois shapefiles: PONTOS_COLETADOS/ e TRACKING/)
      Equipe_NN/
        Relatório_Ponto de Controle_LCnnn[_EQn].docx
        Relatório de Viagem.docx
@@ -9872,65 +9872,229 @@ async function recorteLC(p, num){
   return {bytes: _pngDpi(await _bytesCanvas(c, 'image/png'), 300), fonte: fonte};
 }
 
-/* --- shapefile (pontos e linhas), WGS84 geográfico como no padrão --- */
-const PRJ_LC = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]';
-function _dbf(campos, regs){
-  const enc = new TextEncoder(), hl = 32 + 32 * campos.length + 1;
-  const rl = 1 + campos.reduce((t, c) => t + c[2], 0);
-  const b = new Uint8Array(hl + rl * regs.length + 1), dv = new DataView(b.buffer), h = new Date();
-  b[0] = 3; b[1] = h.getFullYear() - 1900; b[2] = h.getMonth() + 1; b[3] = h.getDate();
-  dv.setUint32(4, regs.length, true); dv.setUint16(8, hl, true); dv.setUint16(10, rl, true);
-  campos.forEach((c, i) => {
-    const o = 32 + 32 * i; b.set(enc.encode(c[0]).subarray(0, 10), o);
-    b[o + 11] = c[1].charCodeAt(0); b[o + 16] = c[2]; b[o + 17] = c[3] || 0;
-  });
-  b[hl - 1] = 0x0D;
-  regs.forEach((r, j) => {
-    let o = hl + j * rl; b[o++] = 0x20;
-    campos.forEach((c, i) => {
-      const v = r[i] == null ? '' : String(r[i]);
-      const cel = new Uint8Array(c[2]).fill(0x20);
-      if (c[1] === 'N'){ const t = enc.encode(v.slice(0, c[2])); cel.set(t, c[2] - t.length); }
-      else { let t = enc.encode(v); while (t.length > c[2]) t = enc.encode(Array.from(new TextDecoder().decode(t)).slice(0, -1).join('')); cel.set(t, 0); }
-      b.set(cel, o); o += c[2];
-    });
-  });
-  b[b.length - 1] = 0x1A;
+/* ---------- GeoPackage escrito direto no formato do SQLite ----------
+   Padrão OGC 12-128r19 (GeoPackage 1.4.0, OGC, 2024); o arquivo se declara 1.3 (user_version 10300),
+   para abrir também nos QGIS/GDAL mais antigos das máquinas do IBGE.
+   Sem biblioteca externa: a folha monta o arquivo .gpkg no próprio celular, sem rede.
+   O arquivo segue o formato de banco do SQLite 3 (páginas de 4096 bytes, árvores B das
+   tabelas e dos índices automáticos, registros e páginas de transbordo) e as tabelas
+   obrigatórias do GeoPackage: gpkg_spatial_ref_sys, gpkg_contents e gpkg_geometry_columns.
+   Geometria: cabeçalho "GP" + WKB, em SIRGAS 2000 geográfico (EPSG:4674), x = longitude.
+   camadas = [{nome, tipo: 'POINT'|'LINESTRING', descricao, campos: [[nome, 'C'|'N', tam, dec]],
+               feicoes: [{g: [lon, lat] | [[lon, lat], …], a: [valores na ordem dos campos]}]}] */
+const GPKG_PAG = 4096;
+const GPKG_SRS = [
+  ['Undefined cartesian SRS', -1, 'NONE', -1, 'undefined', 'undefined cartesian coordinate reference system'],
+  ['Undefined geographic SRS', 0, 'NONE', 0, 'undefined', 'undefined geographic coordinate reference system'],
+  ['WGS 84 geodetic', 4326, 'EPSG', 4326, 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],'
+    + 'AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],'
+    + 'AXIS["Latitude",NORTH],AXIS["Longitude",EAST],AUTHORITY["EPSG","4326"]]', 'longitude/latitude coordinates in decimal degrees on the WGS 84 spheroid'],
+  ['SIRGAS 2000', 4674, 'EPSG', 4674, 'GEOGCS["SIRGAS 2000",DATUM["Sistema_de_Referencia_Geocentrico_para_las_AmericaS_2000",'
+    + 'SPHEROID["GRS 1980",6378137,298.257222101,AUTHORITY["EPSG","7019"]],TOWGS84[0,0,0,0,0,0,0],AUTHORITY["EPSG","6674"]],'
+    + 'PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],'
+    + 'AXIS["Latitude",NORTH],AXIS["Longitude",EAST],AUTHORITY["EPSG","4674"]]', 'Sistema de Referência Geocêntrico para as Américas 2000 (referencial geodésico brasileiro)']];
+const GPKG_SQL = {
+  srs: 'CREATE TABLE gpkg_spatial_ref_sys (srs_name TEXT NOT NULL, srs_id INTEGER PRIMARY KEY, organization TEXT NOT NULL, '
+    + 'organization_coordsys_id INTEGER NOT NULL, definition TEXT NOT NULL, description TEXT)',
+  cont: 'CREATE TABLE gpkg_contents (table_name TEXT NOT NULL PRIMARY KEY, data_type TEXT NOT NULL, identifier TEXT UNIQUE, '
+    + 'description TEXT DEFAULT \'\', last_change DATETIME NOT NULL DEFAULT (strftime(\'%Y-%m-%dT%H:%M:%fZ\',\'now\')), '
+    + 'min_x DOUBLE, min_y DOUBLE, max_x DOUBLE, max_y DOUBLE, srs_id INTEGER, '
+    + 'CONSTRAINT fk_gc_r_srs_id FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys(srs_id))',
+  geom: 'CREATE TABLE gpkg_geometry_columns (table_name TEXT NOT NULL, column_name TEXT NOT NULL, geometry_type_name TEXT NOT NULL, '
+    + 'srs_id INTEGER NOT NULL, z TINYINT NOT NULL, m TINYINT NOT NULL, CONSTRAINT pk_geom_cols PRIMARY KEY (table_name, column_name), '
+    + 'CONSTRAINT uk_gc_table_name UNIQUE (table_name), CONSTRAINT fk_gc_tn FOREIGN KEY (table_name) REFERENCES gpkg_contents(table_name), '
+    + 'CONSTRAINT fk_gc_srs FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys (srs_id))'};
+
+function _gpMinMax(a){ let lo = Infinity, hi = -Infinity; for (const v of a){ if (v < lo) lo = v; if (v > hi) hi = v; } return [lo, hi]; }
+function _gpVarint(v){                                   // inteiro de 64 bits em varint do SQLite (v >= 0 aqui)
+  const b = []; let n = BigInt(v);
+  if (n > 0x00ffffffffffffffn){                           // 9 bytes: o último leva 8 bits inteiros
+    const o = new Array(9); o[8] = Number(n & 0xffn); n >>= 8n;
+    for (let i = 7; i >= 0; i--){ o[i] = Number(n & 0x7fn) | 0x80; n >>= 7n; }
+    return o;
+  }
+  do { b.unshift(Number(n & 0x7fn)); n >>= 7n; } while (n > 0n);
+  for (let i = 0; i < b.length - 1; i++) b[i] |= 0x80;
   return b;
 }
-function _shp(tipo, geoms){
-  // geoms: ponto [lon, lat]; linha [[lon, lat], …]
-  const cont = geoms.map(g => tipo === 1 ? 20 : 44 + 4 + 16 * g.length);
-  const tam = 100 + cont.reduce((t, c) => t + 8 + c, 0);
-  const shp = new DataView(new ArrayBuffer(tam)), shx = new DataView(new ArrayBuffer(100 + 8 * geoms.length));
-  const todos = geoms.flatMap(g => tipo === 1 ? [g] : g);
-  const bx = todos.length ? [Math.min(...todos.map(q => q[0])), Math.min(...todos.map(q => q[1])),
-                             Math.max(...todos.map(q => q[0])), Math.max(...todos.map(q => q[1]))] : [0, 0, 0, 0];
-  for (const [dv, t] of [[shp, tam], [shx, 100 + 8 * geoms.length]]){
-    dv.setInt32(0, 9994); dv.setInt32(24, t / 2); dv.setInt32(28, 1000, true); dv.setInt32(32, tipo, true);
-    bx.forEach((v, i) => dv.setFloat64(36 + 8 * i, v, true));
-  }
-  let o = 100;
-  geoms.forEach((g, i) => {
-    shx.setInt32(100 + 8 * i, o / 2); shx.setInt32(104 + 8 * i, cont[i] / 2);
-    shp.setInt32(o, i + 1); shp.setInt32(o + 4, cont[i] / 2); o += 8;
-    shp.setInt32(o, tipo, true);
-    if (tipo === 1){ shp.setFloat64(o + 4, g[0], true); shp.setFloat64(o + 12, g[1], true); }
-    else {
-      const xs = g.map(q => q[0]), ys = g.map(q => q[1]);
-      [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)].forEach((v, j) => shp.setFloat64(o + 4 + 8 * j, v, true));
-      shp.setInt32(o + 36, 1, true); shp.setInt32(o + 40, g.length, true); shp.setInt32(o + 44, 0, true);
-      g.forEach((q, j) => { shp.setFloat64(o + 48 + 16 * j, q[0], true); shp.setFloat64(o + 56 + 16 * j, q[1], true); });
+const _gpTE = new TextEncoder();
+/* registro do SQLite: cabeçalho (tipos seriais) + corpo */
+function _gpRegistro(vals){
+  const tipos = [], corpo = [];
+  for (const v of vals){
+    if (v == null){ tipos.push(0); continue; }
+    if (typeof v === 'object' && 'real' in v){ const u = new Uint8Array(8); new DataView(u.buffer).setFloat64(0, v.real, false); tipos.push(7); corpo.push(u); continue; }
+    if (v instanceof Uint8Array){ tipos.push(12 + 2 * v.length); corpo.push(v); continue; }
+    if (typeof v === 'number' && Number.isInteger(v) && Math.abs(v) <= Number.MAX_SAFE_INTEGER){
+      if (v === 0){ tipos.push(8); continue; } if (v === 1){ tipos.push(9); continue; }
+      const L = [[1, 1, 127], [2, 2, 32767], [3, 3, 8388607], [4, 4, 2147483647], [5, 6, 140737488355327], [6, 8, Infinity]];
+      const [t, n] = L.find(([, , max]) => v <= max && v >= -max - 1);
+      const u = new Uint8Array(n); let x = BigInt(v); if (x < 0n) x += 1n << BigInt(8 * n);
+      for (let i = n - 1; i >= 0; i--){ u[i] = Number(x & 0xffn); x >>= 8n; }
+      tipos.push(t); corpo.push(u); continue;
     }
-    o += cont[i];
+    if (typeof v === 'number'){ const u = new Uint8Array(8); new DataView(u.buffer).setFloat64(0, v, false); tipos.push(7); corpo.push(u); continue; }
+    const t = _gpTE.encode(String(v)); tipos.push(13 + 2 * t.length); corpo.push(t);
+  }
+  const ht = tipos.map(_gpVarint); let hs = ht.reduce((s, x) => s + x.length, 0) + 1;
+  if (_gpVarint(hs).length > 1) hs += _gpVarint(hs + 1).length - 1;
+  const cab = [..._gpVarint(hs), ...ht.flat()];
+  const tot = cab.length + corpo.reduce((s, x) => s + x.length, 0), r = new Uint8Array(tot);
+  r.set(cab, 0); let o = cab.length; corpo.forEach(x => { r.set(x, o); o += x.length; });
+  return r;
+}
+/* geometria do GeoPackage: "GP", versão 0, flags (little endian; envelope xy nas linhas), srs_id, WKB */
+function _gpGeom(tipo, g, srs){
+  if (tipo === 'POINT'){
+    const b = new DataView(new ArrayBuffer(8 + 21));
+    b.setUint8(0, 0x47); b.setUint8(1, 0x50); b.setUint8(2, 0); b.setUint8(3, 0x01); b.setInt32(4, srs, true);
+    b.setUint8(8, 1); b.setUint32(9, 1, true); b.setFloat64(13, g[0], true); b.setFloat64(21, g[1], true);
+    return new Uint8Array(b.buffer);
+  }
+  const n = g.length, b = new DataView(new ArrayBuffer(8 + 32 + 9 + 16 * n));
+  const xs = g.map(q => q[0]), ys = g.map(q => q[1]);
+  b.setUint8(0, 0x47); b.setUint8(1, 0x50); b.setUint8(2, 0); b.setUint8(3, 0x03); b.setInt32(4, srs, true);
+  _gpMinMax(xs).concat(_gpMinMax(ys)).forEach((v, i) => b.setFloat64(8 + 8 * i, v, true));
+  b.setUint8(40, 1); b.setUint32(41, 2, true); b.setUint32(45, n, true);
+  g.forEach((q, i) => { b.setFloat64(49 + 16 * i, q[0], true); b.setFloat64(57 + 16 * i, q[1], true); });
+  return new Uint8Array(b.buffer);
+}
+/* montador de páginas: cada página é um Uint8Array de GPKG_PAG bytes; a página 1 é a do sqlite_master */
+function _gpBanco(){
+  const pags = [null];                                     // índice 0 = página 1 (reservada)
+  const nova = () => { pags.push(new Uint8Array(GPKG_PAG)); return pags.length; };   // devolve o número (1-based)
+  const pag = n => pags[n - 1];
+  /* conteúdo de uma célula com transbordo: local + cadeia de páginas */
+  const comTransbordo = (payload, X) => {
+    const U = GPKG_PAG, P = payload.length;
+    if (P <= X) return {local: payload, prim: 0};
+    const M = Math.floor((U - 12) * 32 / 255) - 23, K = M + ((P - M) % (U - 4)), loc = K <= X ? K : M;
+    let resto = payload.subarray(loc), prim = 0, ant = 0;
+    while (resto.length){
+      const n = nova(), p = pag(n), part = resto.subarray(0, U - 4);
+      p.set(part, 4); if (ant) new DataView(pag(ant).buffer).setUint32(0, n); else prim = n;
+      ant = n; resto = resto.subarray(part.length);
+    }
+    return {local: payload.subarray(0, loc), prim: prim};
+  };
+  /* grava uma página de árvore B: tipo, células (Uint8Array), página mais à direita (interiores) */
+  const gravaPagina = (n, tipo, celulas, direita, base) => {
+    const p = n === 1 ? (pags[0] = pags[0] || new Uint8Array(GPKG_PAG)) : pag(n), dv = new DataView(p.buffer);
+    const h0 = base || 0, interior = tipo === 0x05 || tipo === 0x02, hl = interior ? 12 : 8;
+    let fim = GPKG_PAG;
+    const ptrs = celulas.map(c => { fim -= c.length; p.set(c, fim); return fim; });
+    if (h0 + hl + 2 * celulas.length > fim) throw new Error('página do GeoPackage estourou');
+    dv.setUint8(h0, tipo); dv.setUint16(h0 + 1, 0); dv.setUint16(h0 + 3, celulas.length);
+    dv.setUint16(h0 + 5, fim === 65536 ? 0 : fim); dv.setUint8(h0 + 7, 0);
+    if (interior) dv.setUint32(h0 + 8, direita);
+    ptrs.forEach((o, i) => dv.setUint16(h0 + hl + 2 * i, o));
+  };
+  const cabe = (cels, base, interior) => (base || 0) + (interior ? 12 : 8) + cels.reduce((s, c) => s + c.length + 2, 0) <= GPKG_PAG;
+  /* tabela: linhas [{rowid, rec}] já em ordem de rowid; devolve a página raiz */
+  const tabela = (linhas, raiz1) => {
+    const X = GPKG_PAG - 35, folhas = [];
+    let atual = [], maxAtual = 0;
+    const fecha = () => { if (!atual.length) return; folhas.push({cels: atual, max: maxAtual}); atual = []; };
+    for (const l of linhas){
+      const t = comTransbordo(l.rec, X);
+      const c = [..._gpVarint(l.rec.length), ..._gpVarint(l.rowid), ...t.local];
+      if (t.prim) c.push((t.prim >>> 24) & 255, (t.prim >>> 16) & 255, (t.prim >>> 8) & 255, t.prim & 255);
+      const cel = Uint8Array.from(c);
+      if (!cabe(atual.concat([cel]), raiz1 && !folhas.length ? 100 : 0, false)) fecha();
+      atual.push(cel); maxAtual = l.rowid;
+    }
+    fecha();
+    if (raiz1){
+      if (folhas.length > 1) throw new Error('sqlite_master não coube na página 1');
+      gravaPagina(1, 0x0D, folhas.length ? folhas[0].cels : [], 0, 100); return 1;
+    }
+    if (!folhas.length){ const n = nova(); gravaPagina(n, 0x0D, [], 0); return n; }
+    let nivel = folhas.map(f => { const n = nova(); gravaPagina(n, 0x0D, f.cels, 0); return {n: n, max: f.max}; });
+    while (nivel.length > 1){                               // páginas interiores até sobrar a raiz
+      const prox = []; let grupo = [];
+      const fechaG = () => {
+        const dir = grupo[grupo.length - 1], cels = grupo.slice(0, -1).map(f => Uint8Array.from([(f.n >>> 24) & 255, (f.n >>> 16) & 255,
+          (f.n >>> 8) & 255, f.n & 255, ..._gpVarint(f.max)]));
+        const n = nova(); gravaPagina(n, 0x05, cels, dir.n); prox.push({n: n, max: dir.max}); grupo = [];
+      };
+      for (const f of nivel){
+        grupo.push(f);
+        const cels = grupo.slice(0, -1).map(x => new Uint8Array(4 + _gpVarint(x.max).length));
+        if (!cabe(cels, 0, true)){ const ult = grupo.pop(); fechaG(); grupo = [ult]; }
+      }
+      if (grupo.length) fechaG();
+      nivel = prox;
+    }
+    return nivel[0].n;
+  };
+  /* índice automático (poucas entradas: uma página-folha); chaves já ordenadas */
+  const indice = recs => {
+    const X = Math.floor((GPKG_PAG - 12) * 64 / 255) - 23, n = nova();
+    const cels = recs.map(r => { const t = comTransbordo(r, X); if (t.prim) throw new Error('chave de índice grande demais');
+      return Uint8Array.from([..._gpVarint(r.length), ...r]); });
+    if (!cabe(cels, 0, false)) throw new Error('índice do GeoPackage maior que uma página');
+    gravaPagina(n, 0x0A, cels, 0); return n;
+  };
+  const fecha = (userVersion, appId) => {
+    const N = pags.length, out = new Uint8Array(N * GPKG_PAG);
+    pags.forEach((p, i) => out.set(p || new Uint8Array(GPKG_PAG), i * GPKG_PAG));
+    const dv = new DataView(out.buffer);
+    out.set(_gpTE.encode('SQLite format 3\0'), 0);
+    dv.setUint16(16, GPKG_PAG); out[18] = 1; out[19] = 1; out[20] = 0; out[21] = 64; out[22] = 32; out[23] = 32;
+    dv.setUint32(24, 1); dv.setUint32(28, N); dv.setUint32(32, 0); dv.setUint32(36, 0); dv.setUint32(40, 1); dv.setUint32(44, 4);
+    dv.setUint32(48, 0); dv.setUint32(52, 0); dv.setUint32(56, 1); dv.setUint32(60, userVersion); dv.setUint32(64, 0);
+    dv.setUint32(68, appId); dv.setUint32(92, 1); dv.setUint32(96, 3045001);
+    return out;
+  };
+  return {tabela, indice, fecha};
+}
+/* comparação de chaves de índice: texto pela ordem dos bytes UTF-8 (colação BINARY) */
+function _gpCmpTxt(a, b){ const x = _gpTE.encode(a), y = _gpTE.encode(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i] - y[i];
+  return x.length - y.length; }
+
+function gpkgDe(camadas, srs){
+  srs = srs || 4674;
+  const B = _gpBanco(), mestre = [];
+  const agora = new Date().toISOString().replace(/(\.\d{3})\d*Z$/, '$1Z');
+  // 1) gpkg_spatial_ref_sys (srs_id é o rowid)
+  const srsLin = GPKG_SRS.slice().sort((a, b) => a[1] - b[1])
+    .map(s => ({rowid: s[1] < 0 ? (1n << 64n) + BigInt(s[1]) : s[1], rec: _gpRegistro([s[0], null, s[2], s[3], s[4], s[5]])}));
+  mestre.push(['table', 'gpkg_spatial_ref_sys', 'gpkg_spatial_ref_sys', B.tabela(srsLin), GPKG_SQL.srs]);
+  // 2) camadas de feições
+  const cont = [], geomc = [];
+  camadas.forEach(c => {
+    const cols = c.campos.map(k => '"' + k[0] + '" ' + (k[1] === 'N' ? ((k[3] || 0) > 0 ? 'REAL' : 'INTEGER') : 'TEXT'));
+    const sql = 'CREATE TABLE "' + c.nome + '" (fid INTEGER PRIMARY KEY NOT NULL, geom ' + c.tipo + ', ' + cols.join(', ') + ')';
+    const lin = c.feicoes.map((f, i) => ({rowid: i + 1, rec: _gpRegistro([null, _gpGeom(c.tipo, f.g, srs)].concat(c.campos.map((k, j) => {
+      const v = f.a[j]; if (v == null || v === '') return null;
+      if (k[1] !== 'N') return String(v);
+      const x = parseFloat(String(v).replace(',', '.')); if (!isFinite(x)) return null;
+      return (k[3] || 0) > 0 ? {real: x} : Math.round(x); })))}));
+    mestre.push(['table', c.nome, c.nome, B.tabela(lin), sql]);
+    const xs = [], ys = [];
+    c.feicoes.forEach(f => (c.tipo === 'POINT' ? [f.g] : f.g).forEach(q => { xs.push(q[0]); ys.push(q[1]); }));
+    cont.push({nome: c.nome, desc: c.descricao || '', bb: xs.length ? (([x0, x1], [y0, y1]) => [x0, y0, x1, y1])(_gpMinMax(xs), _gpMinMax(ys)) : null});
+    geomc.push({nome: c.nome, tipo: c.tipo});
   });
-  return {shp: new Uint8Array(shp.buffer), shx: new Uint8Array(shx.buffer)};
+  // 3) gpkg_contents (+ índices automáticos: table_name; identifier)
+  const contLin = cont.map((c, i) => ({rowid: i + 1, rec: _gpRegistro([c.nome, 'features', c.nome, c.desc, agora,
+    c.bb ? {real: c.bb[0]} : null, c.bb ? {real: c.bb[1]} : null, c.bb ? {real: c.bb[2]} : null, c.bb ? {real: c.bb[3]} : null, srs])}));
+  mestre.push(['table', 'gpkg_contents', 'gpkg_contents', B.tabela(contLin), GPKG_SQL.cont]);
+  const ix = (chaves) => chaves.map((k, i) => ({k: k, id: i + 1})).sort((a, b) => _gpCmpTxt(a.k.join('\u0000'), b.k.join('\u0000')) || a.id - b.id)
+    .map(e => _gpRegistro(e.k.concat([e.id])));
+  mestre.push(['index', 'sqlite_autoindex_gpkg_contents_1', 'gpkg_contents', B.indice(ix(cont.map(c => [c.nome]))), null]);
+  mestre.push(['index', 'sqlite_autoindex_gpkg_contents_2', 'gpkg_contents', B.indice(ix(cont.map(c => [c.nome]))), null]);
+  // 4) gpkg_geometry_columns (+ índices: (table_name, column_name); table_name)
+  const gcLin = geomc.map((g, i) => ({rowid: i + 1, rec: _gpRegistro([g.nome, 'geom', g.tipo, srs, 0, 0])}));
+  mestre.push(['table', 'gpkg_geometry_columns', 'gpkg_geometry_columns', B.tabela(gcLin), GPKG_SQL.geom]);
+  mestre.push(['index', 'sqlite_autoindex_gpkg_geometry_columns_1', 'gpkg_geometry_columns', B.indice(ix(geomc.map(g => [g.nome, 'geom']))), null]);
+  mestre.push(['index', 'sqlite_autoindex_gpkg_geometry_columns_2', 'gpkg_geometry_columns', B.indice(ix(geomc.map(g => [g.nome]))), null]);
+  // 5) sqlite_master na página 1
+  B.tabela(mestre.map((m, i) => ({rowid: i + 1, rec: _gpRegistro(m)})), true);
+  return B.fecha(10300, 0x47504B47);
 }
-function _shapefile(base, tipo, campos, feicoes){
-  const s = _shp(tipo, feicoes.map(f => f.g));
-  return [{nome: base + '.cpg', dados: 'UTF-8'}, {nome: base + '.dbf', dados: _dbf(campos, feicoes.map(f => f.a))},
-          {nome: base + '.prj', dados: PRJ_LC}, {nome: base + '.shp', dados: s.shp}, {nome: base + '.shx', dados: s.shx}];
-}
+
 const CAMPOS_COLETA = [['ESTACAO', 'C', 8], ['DIA', 'C', 10], ['CAMPANHA', 'C', 10], ['COMENTARIO', 'C', 99],
   ['Tipo_PTO', 'C', 30], ['EscolhaPTO', 'C', 30], ['DESCRICAO', 'C', 99], ['Imagem', 'C', 80],
   ['Observacao', 'C', 80], ['EQ_CAMPO', 'C', 80]];
@@ -10040,9 +10204,9 @@ function textoEntregaLC(lc, ctx){
     'Ao todo, foram medidos em campo ' + P.length + ' pontos.',
     (planialt ? planialt + ' pontos coletados são planialtimétricos' : '') + (planialt && alt ? ' e ' : '') + (alt ? _n2(alt) + ' altimétricos' : '') + '.',
     'Os dados finais da campanha ' + lc + ' se encontram disponíveis no servidor de dados da GGC/CE: \\\\WARQCE01\\GGC\\CARTOGRAFIA\\PONTOS_CONTROLE\\' + lc + ').',
-    'A pasta TRACKING contém os arquivos referentes aos trackings dos acessos aos pontos coletados durante a campanha.',
-    'A pasta PONTOS_COLETADOS contém os arquivos referentes aos pontos coletados durante a campanha. Este shape contém os dados dos ' + P.length
-      + ' pontos levantados em campo, na melhor coordenada disponível em cada um (IBGE-PPP, RINEX ou celular).',
+    'O arquivo Dados_campo.gpkg (GeoPackage, em SIRGAS 2000) reúne as duas camadas vetoriais da campanha: PONTOS_COLETADOS, com os dados dos '
+      + P.length + ' pontos levantados em campo, na melhor coordenada disponível em cada um (IBGE-PPP, RINEX ou celular); e TRACKING, com os '
+      + 'trackings dos acessos aos pontos, uma feição por trecho marcado.',
     'Os resultados do processamento dos dados GNSS, formulários, fotos e recortes dos pontos estão nas pastas das equipes.',
     'Observações sobre os dados disponibilizados:',
     '1) Sobre os dias de coleta: foram coletados pontos nos dias julianos ' + _lista(ctx.julianos) + ' pela equipe ' + equipeN + '.',
@@ -10633,7 +10797,7 @@ async function exportaLC(op){
       p.alvo || '', textoMunicipio(p) || p.localidade || '', [c.fonte === 'ppp' ? 'IBGE-PPP' : c.fonte, p.obs].filter(Boolean).join(' · '),
       F.campanha.equipe || '']};
   });
-  itens.push(..._shapefile(raiz + 'PONTOS_COLETADOS/' + lc + '_PONTOS_COLETA_CAMPO_' + ano, 1, CAMPOS_COLETA, feicoes));
+  // (os pontos e a trilha vão juntos no GeoPackage Dados_campo.gpkg, montado abaixo)
   // TRACKING: a trilha de cada dia, cortada nos trechos marcados (uma feição por trecho)
   const trilhas = [];
   for (const d of (F.dias || []).concat([F.dia])){
@@ -10645,8 +10809,15 @@ async function exportaLC(op){
       if (r.semKm > 0.05) faltas.push('TRACKING ' + (d.data || '') + ': ' + _numBR(r.semKm, 1) + ' km de trilha sem trecho marcado (atributos em branco)');
     }
   }
-  if (trilhas.length) itens.push(..._shapefile(raiz + 'TRACKING/' + lc + '_TRACKING', 3, CAMPOS_TRACKING, trilhas));
-  else faltas.push('TRACKING: nenhuma trilha gravada na campanha');
+  if (!trilhas.length) faltas.push('TRACKING: nenhuma trilha gravada na campanha');
+  // Dados_campo.gpkg: as camadas PONTOS_COLETADOS (pontos) e TRACKING (trechos), em SIRGAS 2000 (EPSG:4674)
+  try {
+    itens.push({nome: raiz + 'Dados_campo.gpkg', dados: gpkgDe([
+      {nome: 'PONTOS_COLETADOS', tipo: 'POINT', campos: CAMPOS_COLETA, feicoes: feicoes,
+       descricao: 'Pontos coletados em campo — ' + lc + ', ' + ano + ' (melhor coordenada de cada ponto: IBGE-PPP, RINEX ou celular)'},
+      {nome: 'TRACKING', tipo: 'LINESTRING', campos: CAMPOS_TRACKING, feicoes: trilhas.filter(f => f.g && f.g.length > 1),
+       descricao: 'Trilha dos acessos aos pontos — ' + lc + ' (uma feição por trecho marcado)'}])});
+  } catch (e){ faltas.push('Dados_campo.gpkg não montado: ' + e.message); }
   // relatórios
   const datas = reg.map(r => r.data).filter(Boolean).sort((a, b) => a - b);
   const ctx = {P: reg, dias: datas, equipeN: equipeN, orbitas: [...orbitas], munis: [...munis], ufs: [...ufs],

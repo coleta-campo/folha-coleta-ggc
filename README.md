@@ -23,6 +23,12 @@ internet, seguem para o receptor do Drive institucional (ver abaixo).
    *Branch* = `main`, pasta `/ (root)`; *Save*.
 5. Em alguns minutos a folha fica em `https://<conta>.github.io/folha-coleta-ggc/`.
 
+**Publicação atual (fase de teste):** organização `coleta-campo`, repositório
+`folha-coleta-ggc`:
+
+- folha de campo: https://coleta-campo.github.io/folha-coleta-ggc/
+- planejador: https://coleta-campo.github.io/folha-coleta-ggc/planejador.html
+
 ## 2. Atualizar
 
 1. Rode `gera_github.py`. Ele refaz esta pasta a partir de `folha_coleta_pontos.html`
@@ -32,13 +38,13 @@ internet, seguem para o receptor do Drive institucional (ver abaixo).
 
 ## 3. Quem usa e como
 
-**Escritório:** abre `https://<conta>.github.io/folha-coleta-ggc/planejador.html` no
+**Escritório:** abre `https://coleta-campo.github.io/folha-coleta-ggc/planejador.html` no
 Chrome do computador e não baixa nada. Carrega os pontos, prepara o mapa offline,
 planeja a campanha e gera a **folha de cada equipe**, um arquivo `.html` com os
 pontos, o mapa da região e o código do receptor. Esse arquivo segue para a equipe
 pelo Drive, Teams ou WhatsApp.
 
-**Equipe de campo:** abre `https://<conta>.github.io/folha-coleta-ggc/` no Chrome do
+**Equipe de campo:** abre `https://coleta-campo.github.io/folha-coleta-ggc/` no Chrome do
 celular. Com a folha vazia, aparece **Abrir a folha da equipe**: a equipe escolhe o
 `.html` recebido, e pontos, mapa e código do receptor passam para o aparelho.
 

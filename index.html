@@ -6103,6 +6103,9 @@ async function _partidaDoDia(){
   return P;
 }
 async function planejaDia(){
+  { const pcH = F.campanha.planoCampanha, hj = pcH && hojeNoPlano(pcH, F.dia.data || undefined);
+    if (hj && hj.util === false && !confirm(_ddmm(hj.data) + ' é ' + textoFolga(hj.motivo) + ': pelo plano da campanha, sem atividades de campo ('
+        + (hj.motivo.tipo === 'fds' ? FDS_TXT[pcH.calendario.fds || 'sem'] : FER_TXT[pcH.calendario.feriados || 'sem']) + ').\n\nPlanejar o dia mesmo assim?')) return; }
   const n0 = Math.max(1, Math.min(15, parseInt(($('#plano_n') || {}).value, 10) || 5));
   const A = F.campanha.alvos || [];
   const EQ = equipeDoPlano();
@@ -6223,6 +6226,19 @@ function pintaPlano(){
     + '<div class="lin" style="margin-top:6px"><label for="plano_n">Pontos no dia</label><input type="number" id="plano_n" min="1" max="15" value="'
     + ((p && p.paradas.length) || (F.campanha.planoCampanha ? F.campanha.planoCampanha.porDia : 5)) + '"><button type="button" class="btn peq" id="b_plano">Planejar</button>'
     + (p ? '<button type="button" class="btn sec peq" id="b_plano_tira">Esquecer o plano</button>' : '') + '</div>';
+  { const pcH = F.campanha.planoCampanha, hj = pcH && hojeNoPlano(pcH, F.dia.data || undefined);
+    if (hj){
+      const EQh = equipeDoPlano();
+      h += '<p class="leg" style="margin:6px 0;padding:6px 8px;border-radius:8px;background:' + (hj.util === false ? '#FEF3C7' : '#EFF6FF') + '">'
+        + (hj.antes ? 'O campo começa em ' + _ddmm(_diaDe(pcH.calendario.inicio)) + '.'
+          : hj.util === false ? '<b>' + _ddmm(hj.data) + ': ' + esc(textoFolga(hj.motivo)) + ' — pelo plano, sem atividades de campo</b> ('
+            + esc(hj.motivo.tipo === 'fds' ? FDS_TXT[pcH.calendario.fds || 'sem'] : FER_TXT[pcH.calendario.feriados || 'sem']) + ').'
+          : EQh && hj.j < EQh.dias.length ? 'Hoje, ' + _ddmm(hj.data) + ', é o <b>Dia ' + (hj.j + 1) + '</b> do plano da ' + esc(EQh.nome) + ': '
+            + EQh.dias[hj.j].ids.map(esc).join(', ') + '.'
+          : EQh ? 'Hoje, ' + _ddmm(hj.data) + ', passa do último dia do plano da ' + esc(EQh.nome) + ' (' + EQh.dias.length + ' dias): o que faltar entra no plano do dia.'
+          : 'Hoje, ' + _ddmm(hj.data) + ', é o dia de campo nº ' + (hj.j + 1) + ' do calendário.') + '</p>';
+    }
+  }
   if (p){
     const tot = p.paradas.reduce((s, x) => s + x.km, 0), tmin = p.paradas.reduce((s, x) => s + (x.min || 0), 0) + ((p.volta && p.volta.min) || 0);
     // chegada prevista: saída, velocidades, ocupação e almoço do plano da campanha (ou os padrões)
@@ -6659,6 +6675,8 @@ async function planejaCampanha(){
     baricentro: {lat: +bar.lat.toFixed(6), lon: +bar.lon.toFixed(6)}, mediana: {lat: +med.lat.toFixed(6), lon: +med.lon.toFixed(6)},
     cortes: div.cortes, fonteDist: fonteD, rotas: rotas ? 'OSRM, até 3 caminhos por trecho — dados © colaboradores do OpenStreetMap' : 'sem rotas (sem internet)',
     nUnid: U.length, equipes: equipes, avisos: avisos};
+  F.campanha.planoCampanha.calendario = _calDaTela();
+  _datasNaCampanha(F.campanha.planoCampanha);
   F.campanha.atribEquipes = {};
   equipes.forEach((e, i) => e.dias.forEach(d => d.ks.forEach(k => { F.campanha.atribEquipes[k] = i; })));
   if (!F.config) F.config = {};
@@ -6828,11 +6846,126 @@ function textoHospedagem(pc){
     + '<li><b>Qualidade e segurança</b> adequadas à equipe.</li>'
     + '<li><b>Preço compatível com a diária</b>, que indeniza pousada, alimentação e locomoção urbana (Decreto nº 5.992/2006, art. 1º).</li></ul>';
 }
+/* ---------- calendário do campo: dias úteis, fim de semana e feriados ----------
+   Via de regra não há campo no sábado, no domingo nem em feriado; o planejador pode incluir o
+   sábado ou os dois. Feriados nacionais: Lei nº 662/1949 (red. Lei nº 10.607/2002), Lei nº 6.802/1980
+   (12/10), Lei nº 14.759/2023 (20/11) e Lei nº 9.093/1995 (Sexta-feira da Paixão). Pontos facultativos
+   da administração pública federal: portaria anual do MGI (2026: Portaria MGI nº 11.460/2025).
+   Feriados estaduais da UF da campanha (CE: 25/03, Constituição estadual, art. 18, red. EC nº 73/2011;
+   RN: 03/10, Lei estadual nº 8.913/2006) e os municipais que o planejador informar.
+   Páscoa pelo algoritmo de Meeus/Jones/Butcher (MEEUS, 1991). */
+const FDS_TXT = {sem: 'sem atividades no sábado e no domingo', sabado: 'trabalho no sábado (domingo sem atividades)', ambos: 'trabalho no sábado e no domingo'};
+const FER_TXT = {sem: 'sem atividades nos feriados e nos pontos facultativos federais', facult: 'sem atividades só nos feriados (ponto facultativo é dia de campo)', trabalha: 'trabalho também nos feriados e pontos facultativos'};
+const _DSEM = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+function _diaDe(iso){ return new Date(String(iso).slice(0, 10) + 'T12:00:00Z'); }
+function _isoDia(d){ return d.toISOString().slice(0, 10); }
+function _ddmm(d){ return _DSEM[d.getUTCDay()] + ' ' + String(d.getUTCDate()).padStart(2, '0') + '/' + String(d.getUTCMonth() + 1).padStart(2, '0'); }
+function _pascoa(a){
+  const b = a % 19, c = Math.floor(a / 100), d = a % 100, e = Math.floor(c / 4), f = c % 4, g = Math.floor((c + 8) / 25),
+    h = Math.floor((c - g + 1) / 3), i = (19 * b + c - e - h + 15) % 30, k = Math.floor(d / 4), l = d % 4,
+    m = (32 + 2 * f + 2 * k - i - l) % 7, n = Math.floor((b + 11 * m + 22 * i) / 451), mes = Math.floor((i + m - 7 * n + 114) / 31),
+    dia = ((i + m - 7 * n + 114) % 31) + 1;
+  return new Date(Date.UTC(a, mes - 1, dia, 12));
+}
+const FER_UF = {CE: [['03-25', 'Data Magna do Ceará']], RN: [['10-03', 'Mártires de Cunhaú e Uruaçu']]};
+// pontos facultativos que a portaria do ano acrescenta (emendas); conferir a portaria de cada ano
+const FACULT_ANO = {2026: [['04-20', 'ponto facultativo (emenda de Tiradentes)'], ['06-05', 'ponto facultativo (emenda de Corpus Christi)']]};
+const _FER_CACHE = {};
+/* feriados e pontos facultativos de um ano: {iso: {nome, tipo: 'nacional'|'facultativo'|'estadual'|'municipal'}} */
+function feriadosDoAno(ano, uf){
+  const ch = ano + '|' + (uf || ''); if (_FER_CACHE[ch]) return _FER_CACHE[ch];
+  const R = {}, pa = _pascoa(ano), mais = (n) => { const d = new Date(pa); d.setUTCDate(d.getUTCDate() + n); return _isoDia(d); };
+  const pon = (iso, nome, tipo) => { if (!R[iso] || tipo !== 'facultativo') R[iso] = {nome: nome, tipo: tipo}; };
+  [['01-01', 'Confraternização Universal'], ['04-21', 'Tiradentes'], ['05-01', 'Dia do Trabalho'], ['09-07', 'Independência do Brasil'],
+   ['10-12', 'Nossa Senhora Aparecida'], ['11-02', 'Finados'], ['11-15', 'Proclamação da República'], ['12-25', 'Natal']]
+    .forEach(([md, n]) => pon(ano + '-' + md, n, 'nacional'));
+  if (ano >= 2024) pon(ano + '-11-20', 'Dia Nacional de Zumbi e da Consciência Negra', 'nacional');
+  pon(mais(-2), 'Paixão de Cristo', 'nacional');
+  [[-48, 'Carnaval'], [-47, 'Carnaval'], [-46, 'Quarta-feira de Cinzas (ponto facultativo até 14h)'], [60, 'Corpus Christi']]
+    .forEach(([n, t]) => pon(mais(n), t, 'facultativo'));
+  pon(ano + '-10-28', 'Dia do Servidor Público', 'facultativo');
+  pon(ano + '-12-24', 'Véspera de Natal (ponto facultativo após 13h)', 'facultativo');
+  pon(ano + '-12-31', 'Véspera de Ano Novo (ponto facultativo após 13h)', 'facultativo');
+  (FACULT_ANO[ano] || []).forEach(([md, n]) => pon(ano + '-' + md, n, 'facultativo'));
+  (FER_UF[uf] || []).forEach(([md, n]) => pon(ano + '-' + md, n + ' (feriado estadual)', 'estadual'));
+  return (_FER_CACHE[ch] = R);
+}
+/* "dd/mm/aaaa Nome" por linha (ou dd/mm, que vale para todo ano) → [{iso|md, nome}] */
+function lerFeriadosLocais(txt){
+  return String(txt || '').split(/\n|;/).map(l => l.trim()).filter(Boolean).map(l => {
+    const m = l.match(/^(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{4}))?\s*[-–:]?\s*(.*)$/); if (!m) return null;
+    const md = String(m[2]).padStart(2, '0') + '-' + String(m[1]).padStart(2, '0');
+    return {md: md, ano: m[3] ? +m[3] : null, nome: m[4] || 'feriado municipal'};
+  }).filter(x => x && +x.md.slice(0, 2) <= 12 && +x.md.slice(3) <= 31);
+}
+/* por que o dia não é de campo (null = é dia de campo) */
+function motivoFolga(d, c){
+  c = c || {}; const w = d.getUTCDay(), fds = c.fds || 'sem', regra = c.feriados || 'sem';
+  if (w === 0 && fds !== 'ambos') return {tipo: 'fds', nome: 'domingo'};
+  if (w === 6 && fds === 'sem') return {tipo: 'fds', nome: 'sábado'};
+  if (regra === 'trabalha') return null;
+  const iso = _isoDia(d), md = iso.slice(5), ano = d.getUTCFullYear();
+  const loc = (c.locais || []).find(x => x.md === md && (!x.ano || x.ano === ano));
+  if (loc) return {tipo: 'municipal', nome: loc.nome};
+  const f = feriadosDoAno(ano, c.uf)[iso];
+  if (!f || (f.tipo === 'facultativo' && regra === 'facult')) return null;
+  return f;
+}
+function diaDeTrabalho(d, c){ return !motivoFolga(d, typeof c === 'string' ? {fds: c} : c); }
+function textoFolga(f){
+  return f.tipo === 'fds' ? 'fim de semana' : f.tipo === 'facultativo' ? 'ponto facultativo — ' + f.nome
+    : f.tipo === 'nacional' ? 'feriado nacional — ' + f.nome : f.tipo === 'estadual' ? f.nome : 'feriado municipal — ' + f.nome;
+}
+function _calDaTela(){
+  return {inicio: ($('#pc_ini') || {}).value || F.campanha.inicio || '', fds: ($('#pc_fds') || {}).value || 'sem',
+    feriados: ($('#pc_fer') || {}).value || 'sem', uf: F.campanha.uf || '',
+    locaisTxt: ($('#pc_ferloc') || {}).value || '', locais: lerFeriadosLocais(($('#pc_ferloc') || {}).value)};
+}
+/* datas dos n primeiros dias de campo do plano (null sem data de início) */
+function datasDoPlano(pc, n){
+  const c = pc && pc.calendario; if (!c || !c.inicio || !n) return null;
+  const L = []; let d = _diaDe(c.inicio), guarda = 0;
+  while (L.length < n && guarda++ < 400){ if (diaDeTrabalho(d, c)) L.push(new Date(d)); d.setUTCDate(d.getUTCDate() + 1); }
+  return L;
+}
+/* resumo do período: do início ao último dia de campo da equipe com mais dias */
+function resumoCalendario(pc){
+  const c = pc && pc.calendario, n = Math.max(0, ...((pc && pc.equipes) || []).map(e => e.dias.length));
+  if (!c || !c.inicio) return 'Sem data de início: os dias do plano não têm data (informe o início do campo).';
+  const D = datasDoPlano(pc, n); if (!D || !D.length) return '';
+  let folga = 0; const fer = [];
+  for (let d = new Date(D[0]); d <= D[D.length - 1]; d.setUTCDate(d.getUTCDate() + 1)){
+    const f = motivoFolga(d, c); if (!f) continue;
+    if (f.tipo === 'fds') folga++; else fer.push(_ddmm(d) + ' ' + f.nome + (f.tipo === 'facultativo' ? ' (ponto facultativo)' : ''));
+  }
+  const f0 = _isoDia(D[0]) !== c.inicio && motivoFolga(_diaDe(c.inicio), c);
+  return 'Campo de ' + _ddmm(D[0]) + ' a ' + _ddmm(D[D.length - 1]) + ' de ' + D[D.length - 1].getUTCFullYear() + ': ' + n + ' dia(s) de trabalho'
+    + (folga ? ' e ' + folga + ' dia(s) de fim de semana sem atividades no meio' : '')
+    + (fer.length ? '; sem atividades em ' + fer.join('; ') : '') + ' · ' + FDS_TXT[c.fds || 'sem'] + ' · ' + FER_TXT[c.feriados || 'sem']
+    + (f0 ? ' (o início, ' + _ddmm(_diaDe(c.inicio)) + ', é ' + textoFolga(f0) + ': o primeiro dia de campo é ' + _ddmm(D[0]) + ')' : '') + '.';
+}
+/* o dia de hoje no plano: {util, j (índice do dia de campo), data} */
+function hojeNoPlano(pc, iso){
+  const c = pc && pc.calendario; if (!c || !c.inicio) return null;
+  const hoje = _diaDe(iso || new Date().toISOString());
+  if (hoje < _diaDe(c.inicio)) return {antes: true, data: hoje};
+  const mf = motivoFolga(hoje, c); if (mf) return {util: false, data: hoje, motivo: mf};
+  let j = 0; for (let d = _diaDe(c.inicio); d < hoje; d.setUTCDate(d.getUTCDate() + 1)) if (diaDeTrabalho(d, c)) j++;
+  return {util: true, j: j, data: hoje};
+}
+/* início e fim da campanha (identificação) seguem o calendário do plano */
+function _datasNaCampanha(pc){
+  const n = Math.max(0, ...pc.equipes.map(e => e.dias.length)), D = datasDoPlano(pc, n);
+  if (!D || !D.length) return;
+  F.campanha.inicio = _isoDia(D[0]); F.campanha.fim = _isoDia(D[D.length - 1]);
+  try { pintaCampos(); } catch (e){}
+}
 function tabelaPlano(pc, so){
   const p = paramTempo(), Et = estadosColeta();
   let h = '';
+  h += '<p class="leg" style="margin:4px 0"><b>Calendário:</b> ' + esc(resumoCalendario(pc)) + '</p>';
   pc.equipes.filter(e => !so || e === so).forEach(e => {
-    const H = e.dias.map(d => horarioDia(p, d.pernas, d.ids.length));
+    const H = e.dias.map(d => horarioDia(p, d.pernas, d.ids.length)), DT = datasDoPlano(pc, e.dias.length);
     const kmT = H.reduce((s, x) => s + (x ? x.km : 0), 0), carT = H.reduce((s, x) => s + (x ? x.car : 0), 0);
     const n = e.dias.reduce((s, d) => s + d.ids.length, 0);
     const feitosE = e.dias.reduce((t, d) => t + _feitosDia(d, Et), 0);
@@ -6844,7 +6977,7 @@ function tabelaPlano(pc, so){
       + ' · <b>trabalho ≈ ' + _hm(carT + n * p.ocup) + '</b> (' + n + ' × ' + p.ocup + ' min de ocupação' + (kmT ? ' + carro' : '') + ')</h5><div class="dplano">'
       + e.dias.map((d, j) => {
           const x = H[j], f = _feitosDia(d);
-          return '<div class="d' + (f === d.ids.length ? ' feito' : '') + '"><div class="cab"><b>Dia ' + (j + 1) + '</b>'
+          return '<div class="d' + (f === d.ids.length ? ' feito' : '') + '"><div class="cab"><b>Dia ' + (j + 1) + (DT ? ' · ' + _ddmm(DT[j]) : '') + '</b>'
             + (x ? ' · ' + _numBR(x.km, 0) + ' km (' + _numBR(x.rod, 0) + ' em rodovia) · carro ' + _hm(x.car)
                  + ' + ocupação ' + _hm(d.ids.length * p.ocup)
                  + ' · almoço ' + (x.almoco != null ? _hora(x.almoco) : 'na volta') + ' · <span' + (x.passa ? ' style="color:#B91C1C;font-weight:700"' : '') + '>volta ao hotel '
@@ -6934,6 +7067,18 @@ function pintaPlanoCampanha(){
     + '<label for="pc_vr">Rodovia (km/h)</label><input type="number" id="pc_vr" min="20" max="110" value="' + val('velRod', 60) + '"></div>'
     + '<div class="lin"><label for="pc_saida">Saída do hotel</label><input type="time" id="pc_saida" value="' + esc(val('saida', '07:00')) + '">'
     + '<label for="pc_almoco">Almoço (min)</label><input type="number" id="pc_almoco" min="0" max="180" value="' + val('almoco', 60) + '"></div>'
+    + '<div class="lin"><label for="pc_ini">Início do campo</label><input type="date" id="pc_ini" value="' + esc((pc && pc.calendario && pc.calendario.inicio) || F.campanha.inicio || '') + '">'
+    + '<label for="pc_fds">Fim de semana</label><select id="pc_fds">'
+    + Object.entries(FDS_TXT).map(([k, t]) => '<option value="' + k + '"' + (((pc && pc.calendario && pc.calendario.fds) || 'sem') === k ? ' selected' : '') + '>' + t + '</option>').join('')
+    + '</select></div>'
+    + '<div class="lin"><label for="pc_fer">Feriados</label><select id="pc_fer">'
+    + Object.entries(FER_TXT).map(([k, t]) => '<option value="' + k + '"' + (((pc && pc.calendario && pc.calendario.feriados) || 'sem') === k ? ' selected' : '') + '>' + t + '</option>').join('')
+    + '</select></div>'
+    + '<div class="lin"><label for="pc_ferloc">Feriados municipais da área</label><textarea id="pc_ferloc" rows="2" placeholder="um por linha: 21/11 Nossa Senhora da Apresentação (Natal) · 19/03/2026 São José">'
+    + esc((pc && pc.calendario && pc.calendario.locaisTxt) || '') + '</textarea>'
+    + '<small>nacionais e pontos facultativos federais entram sozinhos (Lei nº 662/1949, Lei nº 9.093/1995, Lei nº 14.759/2023; portaria anual do MGI); '
+    + 'estaduais pela UF da campanha' + (F.campanha.uf ? ' (' + esc(F.campanha.uf) + (FER_UF[F.campanha.uf] ? ': ' + FER_UF[F.campanha.uf].map(x => x[0].slice(3) + '/' + x[0].slice(0, 2) + ' ' + x[1]).join(', ') : ': nenhum cadastrado — informe aqui') + ')' : ' — escolha a UF na campanha')
+    + '; os municipais (Lei nº 9.093/1995, art. 2º) variam e devem ser conferidos na lei de cada município</small></div>'
     + '<div class="lin"><label for="pc_ordem">Ordem dos dias e dos pontos</label><select id="pc_ordem">'
     + '<option value="longe"' + (val('ordem', 'longe') === 'longe' ? ' selected' : '') + '>do mais distante para o mais próximo do hotel</option>'
     + '<option value="perto"' + (val('ordem', '') === 'perto' ? ' selected' : '') + '>do mais próximo para o mais distante do hotel</option></select></div>'
@@ -6961,6 +7106,11 @@ function pintaPlanoCampanha(){
   el.innerHTML = h;
   $('#b_pc').addEventListener('click', () => planejaCampanha().catch(e => marca('plano da campanha: ' + e.message)));
   ligaCamposHotel();
+  // início e fim de semana mudam só as datas: não precisa planejar de novo
+  ['#pc_ini', '#pc_fds', '#pc_fer', '#pc_ferloc'].forEach(s => { const e = $(s); if (e) e.addEventListener('change', () => {
+    const pc2 = F.campanha.planoCampanha; if (!pc2) return;
+    pc2.calendario = _calDaTela();
+    _datasNaCampanha(pc2); grava(); pintaPlanoCampanha(); }); });
   if (pc){
     $$('[data-atrib]').forEach(sel => sel.addEventListener('change', () => {
       F.campanha.atribEquipes = F.campanha.atribEquipes || {};

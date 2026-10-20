@@ -179,7 +179,7 @@ body:not(.semrede) .semrede_aviso{display:none}
 .dplano .pts{display:flex;flex-wrap:wrap;gap:2px 12px;margin-top:2px} .dplano .pts span.ok{color:#15803D} .dplano .pts span.and{color:#B45309} .dplano .pts span{white-space:nowrap;font-variant-numeric:tabular-nums}
 #impressao .dplano .d{break-inside:avoid}
 .kit{margin:10px 0;padding:8px 10px;background:rgba(0,0,0,.02);border-radius:6px} .kit h4{margin:0 0 6px;font-size:15px}
-body.planejador .abas, body.planejador #cart_aparelho, body.planejador #plano_dia, body.planejador .wrap > details.ajuda{display:none!important}
+body.planejador #c_veic_box, body.planejador .abas, body.planejador #cart_aparelho, body.planejador #plano_dia, body.planejador .wrap > details.ajuda{display:none!important}
 body.equipe #b_alvos, body.equipe #b_traj, body.equipe #b_alvos_tira, body.equipe #b_distrib{display:none!important}
 #cart_dias .lin{display:flex;gap:8px;align-items:center;flex-wrap:wrap} #cart_dias select{flex:1;min-width:12em}
 #cart_dias .lin .btn{width:auto;padding:5px 12px;margin:0}
@@ -425,9 +425,10 @@ você cabe o que nenhum arquivo registra.</p>
     <p class="leg">O modelo de antena e a altura medida em campo são exigidos pelo
     PPP do IBGE, ponto a ponto. O que entra aqui é só o padrão da campanha: cada
     ocupação registra os seus.</p>
+    <div id="c_veic_box">
     <h4 style="margin:12px 0 2px">Veículo da equipe</h4>
-    <p class="leg" style="margin-top:0">Uma equipe, um carro: preenchido uma vez (ou já vindo do planejamento), vale para
-    toda a campanha e vai ao item 3 do relatório de campanha da equipe. O hodômetro na saída e na volta dá o km percorrido.</p>
+    <p class="leg" style="margin-top:0">Uma equipe, um carro: preenchido uma vez (ou já vindo na folha da equipe, gerada
+    pelo planejador), vale para toda a campanha e vai ao item 3 do relatório de campanha da equipe. O hodômetro na saída e na volta dá o km percorrido.</p>
     <div class="lin2">
       <div><label class="c" for="c_vtipo">Tipo</label>
         <select id="c_vtipo" data-campo="campanha.veiculo.tipo"><option value="">—</option>
@@ -444,6 +445,7 @@ você cabe o que nenhum arquivo registra.</p>
         <input type="number" id="c_vkm1" data-campo="campanha.veiculo.km_volta" inputmode="numeric" min="0"></div>
     </div>
     <p class="leg" id="c_veic_aviso" style="margin-top:2px"></p>
+    </div>
     <p class="leg"><b>Declinação magnética:</b> a bússola do celular aponta o norte
     magnético; a navegação e as fotos F1–F4 trabalham com azimute verdadeiro. A folha
     calcula a declinação sozinha, para cada ponto e na data do trabalho, pelo Modelo
@@ -10796,6 +10798,7 @@ function _tileBB(z, x, y){
 /* ---------- planejador: a tela ---------- */
 function montaPlanejador(){
   document.body.classList.add('planejador');
+  delete F.campanha.veiculo;                                   // o carro é de cada equipe: vai na folha dela
   document.title = 'Planejador da campanha — coleta de pontos';
   $('h1').textContent = 'Planejador da campanha — coleta de pontos';
   $('.sub').innerHTML = 'No escritório: pontos planejados, trechos de acesso, mapa da área, divisão entre as '

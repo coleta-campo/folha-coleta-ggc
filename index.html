@@ -5652,9 +5652,27 @@ function pedeRotaOnline(a, P){
    (o celular aceita até 3 pontos de passagem). "Até a saída da BR" leva só ao
    início do trajeto. Sem trajeto, vai direto ao ponto, pelo caminho do próprio Maps.
    Funciona sem rede se a área estiver baixada no Maps (mapas offline). */
+/* O trecho do plano da campanha (feito no gabinete) que chega a este ponto. */
+function trechoCampanha(a){
+  const pc = F.campanha && F.campanha.planoCampanha; if (!pc || !a) return null;
+  for (const e of pc.equipes || []) for (let i = 0; i < e.dias.length; i++){
+    const d = e.dias[i], k = d.ids.indexOf(a.id);
+    if (k >= 0 && d.trechos && d.trechos[k] && (d.trechos[k].op || []).length)
+      return {t: d.trechos[k], dia: i + 1, k: k + 1, n: d.ids.length, eq: e.nome};
+  }
+  return null;
+}
+/* Caminhos de carro até o ponto, na ordem de preferência: o plano do dia refeito no
+   celular; o plano da campanha (gabinete), com até 3 opções; o arquivo de trajetos. */
+function trajetosDoPonto(a){
+  const pp = pernaDoPlano(a); if (pp) return [pp];
+  const tc = trechoCampanha(a);
+  if (tc) return tc.t.op.map(o => ({o: o.o, fonte: 'campanha', km: o.km, min: o.min, g: o.g,
+    dia: tc.dia, k: tc.k, n: tc.n, de: tc.t.de, nop: tc.t.op.length}));
+  return TRAJ[a.id] || [];
+}
 function _trajetoAtual(a){
-  const pp = pernaDoPlano(a); if (pp) return pp;
-  const TL = TRAJ[a.id] || [];
+  const TL = trajetosDoPonto(a);
   return TL.find(t => t.o === NAV.opc) || TL[0] || null;
 }
 
@@ -6029,9 +6047,11 @@ function montaDias(G, H, x, ordem, dH){
     const ab = R[0];
     const dia = [ab].concat(R.slice(1).sort((a, b) => d2(ab, a) - d2(ab, b)).slice(0, x - 1));
     R = R.filter(u => !dia.includes(u));
-    // ordem de visita: o mais próximo do hotel primeiro, depois o mais próximo do último
-    const vis = [], resto = dia.slice();
-    let cur = {k: '_h'}; XY.set('_h', [0, 0]);
+    // ordem de visita: 'longe' começa pelo ponto do dia mais distante do hotel (pelas ruas,
+    // quando há a tabela do OSRM) e volta em direção a ele; 'perto' começa pelo mais próximo.
+    // Depois, o mais próximo do último. Com internet, a ordem é refeita pelos tempos de carro.
+    const resto = dia.slice().sort((a, b) => ordem === 'perto' ? dH[a.k] - dH[b.k] : dH[b.k] - dH[a.k]);
+    let cur = resto.shift(); const vis = [cur];
     while (resto.length){
       resto.sort((a, b) => d2(cur, a) - d2(cur, b));
       cur = resto.shift(); vis.push(cur);
@@ -6090,28 +6110,57 @@ async function planejaCampanha(){
     ? {modo: divisao === 'dias' ? 'vazios' : 'dias', tam: alt.tam, dias: nd_(alt.tam)} : null;
   const equipes = div.grupos.map((G, i) => ({nome: 'Equipe ' + (i + 1), cor: CORES_EQ[i % CORES_EQ.length],
     dias: montaDias(G, H, x, ordem, dH).map(d => ({ids: d.map(u => u.id), ks: d.map(u => u.k), pernas: null}))}));
-  // carro de cada dia: hotel → pontos → hotel
+  /* Rotas de carro de cada dia, feitas aqui no gabinete para todas as equipes:
+     1) a ordem de visita é refeita pelos tempos de carro entre os pontos (tabela do OSRM),
+        começando pelo mais distante do hotel (ou pelo mais próximo, conforme a opção);
+     2) cada trecho (hotel → 1º ponto, ponto → ponto, último → hotel) ganha até 3 opções
+        de caminho, com o traçado, que vão na folha da equipe e servem à navegação sem rede. */
   let rotas = 0;
   if (rede){
     const tot = equipes.reduce((s, e) => s + e.dias.length, 0);
     let n = 0;
     for (const e of equipes) for (const d of e.dias){
       n++;
+      let pts = d.ids.map(id => F.campanha.alvos.find(a => a.id === id));
+      const ks = {}; d.ids.forEach((id, j) => { ks[id] = d.ks[j]; });
       try {
-        marca('plano da campanha: rota do dia ' + n + ' de ' + tot + '…');
-        const pts = d.ids.map(id => F.campanha.alvos.find(a => a.id === id));
-        const coords = [H].concat(pts).concat([H]).map(c => c.lon.toFixed(6) + ',' + c.lat.toFixed(6)).join(';');
-        const r = await _osrm('route/v1/driving/' + coords + '?overview=false&steps=true');
-        d.pernas = _pernasUR(r.routes[0]); rotas++;
-      } catch (err){ if (!avisos.some(a => a.startsWith('rotas'))) avisos.push('rotas dos dias incompletas (' + err.message + ')'); }
-      await _espera(1100);
+        if (pts.length > 2){
+          marca('plano da campanha: dia ' + n + ' de ' + tot + ' — ordem pelos tempos de carro…');
+          const c = [H].concat(pts).map(p => p.lon.toFixed(6) + ',' + p.lat.toFixed(6)).join(';');
+          const t = await _osrm('table/v1/driving/' + c + '?annotations=duration,distance');
+          const T = t.durations, Dh = t.distances[0];
+          const resto = pts.map((p, j) => j + 1).sort((a, b) => ordem === 'perto' ? Dh[a] - Dh[b] : Dh[b] - Dh[a]);
+          let cur = resto.shift(); const seq = [cur];
+          while (resto.length){ resto.sort((a, b) => T[cur][a] - T[cur][b]); cur = resto.shift(); seq.push(cur); }
+          pts = seq.map(j => pts[j - 1]);
+          d.ids = pts.map(p => p.id); d.ks = d.ids.map(id => ks[id]);
+          await _espera(1100);
+        }
+        const seqP = [Object.assign({id: 'hotel'}, H)].concat(pts).concat([Object.assign({id: 'hotel'}, H)]);
+        const trechos = [], pernas = [];
+        for (let j = 0; j + 1 < seqP.length; j++){
+          marca('plano da campanha: dia ' + n + ' de ' + tot + ' — trecho ' + (j + 1) + ' de ' + (seqP.length - 1) + '…');
+          const a = seqP[j], b = seqP[j + 1];
+          const r = await _osrm('route/v1/driving/' + a.lon.toFixed(6) + ',' + a.lat.toFixed(6) + ';' + b.lon.toFixed(6) + ',' + b.lat.toFixed(6)
+            + '?alternatives=3&overview=full&geometries=geojson&steps=true');
+          const op = (r.routes || []).slice(0, 3).map((ro, o) => ({o: o + 1, km: Math.round(ro.distance) / 1000, min: Math.round(ro.duration / 60),
+            g: ro.geometry.coordinates.map(q => [+q[0].toFixed(5), +q[1].toFixed(5)])}));
+          trechos.push({de: a.id, para: b.id, op: op});
+          pernas.push(_pernasUR({legs: [r.routes[0].legs[0]]})[0]);
+          await _espera(1100);
+        }
+        d.trechos = trechos; d.pernas = pernas; rotas++;
+      } catch (err){
+        d.trechos = null; d.pernas = null;
+        if (!avisos.some(a => a.startsWith('rotas'))) avisos.push('rotas dos dias incompletas (' + err.message + ')');
+      }
     }
   }
   F.campanha.planoCampanha = {criado: new Date().toISOString(), porDia: x, ordem: ordem, ocup: ocup, jornada: jornada,
     velUrb: velUrb, velRod: velRod, saida: saida, almoco: almoco, divisao: divisao, compara: compara,
     hotel: {lat: +H.lat.toFixed(6), lon: +H.lon.toFixed(6), txt: txt, semHotel: semHotel},
     baricentro: {lat: +bar.lat.toFixed(6), lon: +bar.lon.toFixed(6)}, mediana: {lat: +med.lat.toFixed(6), lon: +med.lon.toFixed(6)},
-    cortes: div.cortes, fonteDist: fonteD, rotas: rotas ? 'OSRM — dados © colaboradores do OpenStreetMap' : 'sem rotas (sem internet)',
+    cortes: div.cortes, fonteDist: fonteD, rotas: rotas ? 'OSRM, até 3 caminhos por trecho — dados © colaboradores do OpenStreetMap' : 'sem rotas (sem internet)',
     nUnid: U.length, equipes: equipes, avisos: avisos};
   if (!F.config) F.config = {};
   if (F.config.equipePlano != null && F.config.equipePlano >= N) delete F.config.equipePlano;
@@ -6168,10 +6217,14 @@ function svgPlanoCampanha(pc, W, Hh){
   pc.equipes.forEach((e, i) => e.dias.forEach((d, j) => d.ids.forEach(id => {
     const a = (F.campanha.alvos || []).find(z => z.id === id);
     if (a){ const k = d.ks[d.ids.indexOf(id)];
-            L.push({lat: a.lat, lon: a.lon, cor: e.cor, dia: j + 1, id: id, eq: i,
+            L.push({lat: a.lat, lon: a.lon, cor: e.cor, dia: j + 1, ord: d.ids.indexOf(id) + 1, id: id, eq: i,
                     estado: (estadoDaUnidade(k, id, Ez) || {}).st || null}); }
   })));
   const ex = L.concat([pc.hotel, pc.baricentro, pc.mediana]);
+  pc.equipes.forEach(e => e.dias.forEach(d => (d.trechos || []).forEach(t => {     // o quadro abrange os caminhos
+    const g = t.op && t.op[0] && t.op[0].g || [];
+    for (let i = 0; i < g.length; i += Math.max(1, Math.floor(g.length / 20))) ex.push({lat: g[i][1], lon: g[i][0]});
+  })));
   const ref = {lat: ex.reduce((s, p) => s + p.lat, 0) / ex.length, lon: ex.reduce((s, p) => s + p.lon, 0) / ex.length};
   const P = _plano(ref), V = ex.map(P.xy);
   const mx = Math.min(...V.map(v => v[0])), Mx = Math.max(...V.map(v => v[0]));
@@ -6189,6 +6242,12 @@ function svgPlanoCampanha(pc, W, Hh){
     s += '<line x1="' + h[0].toFixed(1) + '" y1="' + h[1].toFixed(1) + '" x2="' + (h[0] + dx * R).toFixed(1) + '" y2="' + (h[1] + dy * R).toFixed(1)
       + '" stroke="#555" stroke-width="1.2" stroke-dasharray="6 5" stroke-opacity=".55"/>';
   });
+  // caminhos de carro do plano (opção 1 de cada trecho), por baixo dos pontos
+  pc.equipes.forEach(e => e.dias.forEach(d => (d.trechos || []).forEach(t => {
+    const g = t.op && t.op[0] && t.op[0].g; if (!g || g.length < 2) return;
+    s += '<polyline fill="none" stroke="' + e.cor + '" stroke-opacity=".55" stroke-width="2" stroke-linejoin="round" points="'
+      + g.map(q => tela({lat: q[1], lon: q[0]}).map(v => v.toFixed(1)).join(',')).join(' ') + '"/>';
+  })));
   const ocupado = [];                                                          // caixas já usadas
   const caixa = (x, y, w, hh) => ({x: x, y: y, w: w, h: hh});
   const bate = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -6208,7 +6267,7 @@ function svgPlanoCampanha(pc, W, Hh){
       : '<circle cx="' + cx + '" cy="' + cy + '" r="4" fill="' + t.p.cor + '" stroke="#fff" stroke-width="1"/>';
   });
   T.forEach(t => {
-    const txt = String(t.p.dia), w = 7 * txt.length + 2, hh = 11, [x, y] = t.xy;
+    const txt = t.p.dia + '.' + t.p.ord, w = 6.2 * txt.length + 2, hh = 11, [x, y] = t.xy;
     const cand = [[6, -13], [6, 3], [-6 - w, -13], [-6 - w, 3], [-w / 2, -17], [-w / 2, 7], [9, -5], [-9 - w, -5]];
     let best = null, menor = 1e9;
     for (const c of cand){
@@ -6245,7 +6304,8 @@ function legendaPlano(pc){
     + '<path d="M4 7l2.2 2.4l4-4.6" fill="none" stroke="#15803D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> coletado (ocupação encerrada)</span>'
     + '<span><svg width="14" height="14" viewBox="0 0 14 14" style="vertical-align:middle"><circle cx="7" cy="7" r="5.5" fill="#FDE68A" stroke="#555" stroke-width="2"/>'
     + '<circle cx="7" cy="7" r="1.8" fill="#B45309"/></svg> em coleta (ocupação aberta)</span>'
-    + '<span><b>1, 2…</b> = dia da equipe</span>'
+    + '<span><b>2.3</b> = dia 2 da equipe, 3º ponto do dia</span>'
+    + (pc.equipes.some(e => e.dias.some(d => (d.trechos || []).length)) ? '<span><b style="letter-spacing:-1px">—</b> caminho de carro do dia (opção 1 de cada trecho)</span>' : '')
     + '<span><i class="q"></i>hotel' + (pc.hotel.semHotel ? ' (não informado: posto na mediana)' : '') + '</span>'
     + '<span><i class="o"></i>baricentro</span><span><b style="font-size:15px">+</b> mediana geométrica</span>'
     + '<span><b style="letter-spacing:-1px">- - -</b> divisa entre as regiões das equipes</span></div>';
@@ -6344,9 +6404,9 @@ function pintaPlanoCampanha(){
     + '<label for="pc_vr">Rodovia (km/h)</label><input type="number" id="pc_vr" min="20" max="110" value="' + val('velRod', 60) + '"></div>'
     + '<div class="lin"><label for="pc_saida">Saída do hotel</label><input type="time" id="pc_saida" value="' + esc(val('saida', '07:00')) + '">'
     + '<label for="pc_almoco">Almoço (min)</label><input type="number" id="pc_almoco" min="0" max="180" value="' + val('almoco', 60) + '"></div>'
-    + '<div class="lin"><label for="pc_ordem">Primeiros dias</label><select id="pc_ordem">'
-    + '<option value="longe"' + (val('ordem', 'longe') === 'longe' ? ' selected' : '') + '>mais distantes primeiro</option>'
-    + '<option value="perto"' + (val('ordem', '') === 'perto' ? ' selected' : '') + '>mais próximos primeiro</option></select></div>'
+    + '<div class="lin"><label for="pc_ordem">Ordem dos dias e dos pontos</label><select id="pc_ordem">'
+    + '<option value="longe"' + (val('ordem', 'longe') === 'longe' ? ' selected' : '') + '>do mais distante para o mais próximo do hotel</option>'
+    + '<option value="perto"' + (val('ordem', '') === 'perto' ? ' selected' : '') + '>do mais próximo para o mais distante do hotel</option></select></div>'
     + '<div class="lin"><label for="pc_div">Divisão</label><select id="pc_div">'
     + '<option value="dias"' + (val('divisao', 'dias') === 'dias' ? ' selected' : '') + '>mesmo número de dias</option>'
     + '<option value="vazios"' + (val('divisao', '') === 'vazios' ? ' selected' : '') + '>nos maiores vazios entre os pontos</option></select></div>'
@@ -6361,7 +6421,7 @@ function pintaPlanoCampanha(){
       + '</select><small>o plano do dia usa só a região e a ordem desta equipe</small></div>'
       + '<p class="leg" style="margin:4px 0">Planejado em ' + new Date(pc.criado).toLocaleString('pt-BR').slice(0, 17)
       + ' · ' + pc.porDia + ' ponto(s)/dia · ' + pc.ocup + ' min por ocupação · jornada ' + _numBR(pc.jornada) + ' h · '
-      + (pc.ordem === 'perto' ? 'mais próximos primeiro' : 'mais distantes primeiro') + ' · distâncias ' + esc(pc.fonteDist)
+      + (pc.ordem === 'perto' ? 'do mais próximo para o mais distante' : 'do mais distante para o mais próximo') + ' · distâncias ' + esc(pc.fonteDist)
       + ' · rotas: ' + esc(pc.rotas) + (pc.avisos.length ? ' · ' + esc(pc.avisos.join('; ')) : '') + '.</p>'
       + svgPlanoCampanha(pc, 420) + legendaPlano(pc) + tabelaPlano(pc)
       + '<p class="leg">' + esc(notaHorario(pc)) + '</p>'
@@ -6397,7 +6457,7 @@ function montaImpressaoPlano(){
        ['pontos por dia', pc.porDia], ['ocupação por ponto', pc.ocup + ' min (montagem, rastreio, desmontagem e avaliações locais)'],
        ['jornada', _numBR(pc.jornada) + ' h + ' + pc.almoco + ' min de almoço, saída às ' + pc.saida],
        ['velocidades médias', 'urbano/vicinal ' + pc.velUrb + ' km/h · rodovia ' + pc.velRod + ' km/h'], ['divisão entre as equipes', pc.divisao === 'vazios' ? 'nos maiores vazios entre os pontos' : 'mesmo número de dias'],
-       ['primeiros dias', pc.ordem === 'perto' ? 'mais próximos do hotel' : 'mais distantes do hotel'],
+       ['ordem dos dias e dos pontos', pc.ordem === 'perto' ? 'do mais próximo para o mais distante do hotel' : 'do mais distante para o mais próximo do hotel'],
        ['hotel', pc.hotel.semHotel ? 'não informado — usada a mediana geométrica' : pc.hotel.lat.toFixed(5) + ', ' + pc.hotel.lon.toFixed(5)],
        ['distâncias do hotel', pc.fonteDist], ['rotas dos dias', pc.rotas]]
       .map(r => '<tr><th style="width:30%">' + r[0] + '</th><td>' + esc(String(r[1])) + '</td></tr>').join('') + '</table>'
@@ -6411,9 +6471,16 @@ function montaImpressaoPlano(){
       : 'entre as divisões em que nenhuma equipe passa do menor número possível de dias, a de menor soma das aberturas angulares. ')
     + 'As divisas passam no meio dos vazios. '
     + 'Dias: o círculo mais distante do hotel ' + (pc.ordem === 'perto' ? '(na ordem inversa, o mais próximo) ' : '')
-    + 'abre o dia e leva os mais próximos dele; dentro do dia, a visita vai do mais próximo do hotel ao seguinte mais próximo. '
+    + 'abre o dia e leva os mais próximos dele; dentro do dia, a visita começa pelo ponto mais distante do hotel '
+    + (pc.ordem === 'perto' ? '(na ordem inversa, pelo mais próximo) ' : '') + 'e segue sempre para o mais próximo pelo tempo de carro '
+    + '(heurística do vizinho mais próximo; ROSENKRANTZ; STEARNS; LEWIS, 1977). Cada trecho do dia (hotel → 1º ponto, ponto → ponto, '
+    + 'último → hotel) tem até três caminhos de carro calculados pelo OSRM (LUXEN; VETTER, 2011), que seguem na folha da equipe para a navegação sem rede. '
     + 'Mediana geométrica pelo algoritmo de Weiszfeld (1937).</p>'
-    + '<p class="ocor">WEISZFELD, E. Sur le point pour lequel la somme des distances de n points donnés est minimum. '
+    + '<p class="ocor">LUXEN, D.; VETTER, C. Real-time routing with OpenStreetMap data. <i>In</i>: ACM SIGSPATIAL INTERNATIONAL CONFERENCE '
+    + 'ON ADVANCES IN GEOGRAPHIC INFORMATION SYSTEMS, 19., 2011, Chicago. <b>Proceedings</b> [...]. New York: ACM, 2011. p. 513-516.<br>'
+    + 'ROSENKRANTZ, D. J.; STEARNS, R. E.; LEWIS, P. M. An analysis of several heuristics for the traveling salesman problem. '
+    + '<i>SIAM Journal on Computing</i>, v. 6, n. 3, p. 563-581, 1977.<br>'
+    + 'WEISZFELD, E. Sur le point pour lequel la somme des distances de n points donnés est minimum. '
     + '<i>Tôhoku Mathematical Journal</i>, v. 43, p. 355-386, 1937.<br>'
     + 'BRASIL. Decreto nº 5.992, de 19 de dezembro de 2006. Dispõe sobre a concessão de diárias no âmbito da administração federal direta, '
     + 'autárquica e fundacional, e dá outras providências. <i>Diário Oficial da União</i>, Brasília, DF, 20 dez. 2006.<br>'
@@ -6605,7 +6672,7 @@ function montaTelaNav(){
   });
   q('bussola').addEventListener('click', alternaBussola);
   q('traj').addEventListener('click', () => {
-    const L = TRAJ[(F.campanha.alvos || [])[NAV.i].id] || [];
+    const L = trajetosDoPonto((F.campanha.alvos || [])[NAV.i]);
     if (!L.length) return;
     const k = L.findIndex(t => t.o === NAV.opc);
     NAV.opc = L[(k + 1) % L.length].o; NAV.dz = 0; desenhaNav();
@@ -7084,7 +7151,7 @@ function desenhaNav(){
   if (!perto && g && g.s > Math.max(40, 2 * (P.acc || 0))) NAV.chegouAviso = false;
   const carro = NAV.modo === 'carro';
   const pp = carro ? pernaDoPlano(a) : null;
-  let TL = carro ? (pp ? [pp] : (TRAJ[a.id] || [])) : [];
+  let TL = carro ? trajetosDoPonto(a) : [];
   if (carro && !TL.length){
     pedeRotaOnline(a, P);
     if (NAV.rotaOn && NAV.rotaOn.id === a.id) TL = [NAV.rotaOn];
@@ -7093,6 +7160,9 @@ function desenhaNav(){
   const st = (T && P) ? noTrajeto(T, P) : null;
   const nomeT = t => t.fonte === 'plano'
     ? 'Plano do dia · trecho ' + t.k + ' de ' + t.n + ' · ' + _numBR(t.km, 1) + ' km' + (t.min != null ? ' · ~' + t.min + ' min' : '')
+    : t.fonte === 'campanha'
+    ? 'Plano da campanha · dia ' + t.dia + ', ponto ' + t.k + ' de ' + t.n + ' · caminho <b>' + t.o + '</b> de ' + t.nop
+      + ' · ' + _numBR(t.km, 1) + ' km' + (t.min != null ? ' · ~' + t.min + ' min' : '')
     : t.fonte === 'osrm'
     ? 'Rota de carro (OSRM · dados © colaboradores do OpenStreetMap) · ' + _numBR(t.km, 1) + ' km · ~' + Math.max(1, Math.round(t.min)) + ' min'
     : 'Trajeto <b>opção ' + t.o + '</b> de ' + TL.length + ' · ' + _numBR(t.km, 1) + ' km';
@@ -7133,7 +7203,7 @@ function desenhaNav(){
   q('bussola').classList.toggle('on', NAV.bussola);
   q('bussola').textContent = NAV.bussola ? 'Bússola ligada' : 'Bússola';
   q('traj').style.display = TL.length > 1 ? '' : 'none';
-  { const Tg = _trajetoAtual(a); q('mapsbr').style.display = Tg && Tg.g && Tg.g.length > 1 && Tg.fonte !== 'plano' ? '' : 'none';
+  { const Tg = _trajetoAtual(a); q('mapsbr').style.display = Tg && Tg.g && Tg.g.length > 1 && Tg.fonte !== 'plano' && Tg.fonte !== 'campanha' ? '' : 'none';
     q('maps').textContent = Tg && Tg.g && Tg.g.length > 1 ? 'Google Maps até o ponto (pelo trajeto)' : 'Google Maps até o ponto'; }
   q('modo').textContent = carro ? 'Modo: carro' : 'Modo: direção';
   q('modo').classList.toggle('on', carro);

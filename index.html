@@ -129,6 +129,9 @@ body:not(.semrede) .semrede_aviso{display:none}
 .marcaarp .acoes .btn{flex:1}
 .tabhotel{width:100%;border-collapse:collapse;font-size:13px}
 .tabhotel th,.tabhotel td{border-bottom:1px solid var(--lin);padding:4px 3px;text-align:center}
+.tabdist{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0}
+.tabdist th,.tabdist td{border-bottom:1px solid var(--lin);padding:4px 3px;text-align:left}
+.tabdist select{padding:3px 6px;font-size:13px;min-width:8em}
 .tabhotel td:first-child,.tabhotel th:first-child{text-align:left}
 .tabhotel .ok{color:var(--ok);font-weight:700}
 .tabhotel .falta{color:var(--mau);font-weight:700}
@@ -6008,7 +6011,7 @@ function medianaGeo(U){
 /* Divide em setores vistos do hotel. modo 'dias': entre as divisões em que nenhuma
    equipe passa do menor número possível de dias, a de menor soma das aberturas
    angulares; modo 'vazios': corta nos N maiores vazios angulares, sem olhar o tamanho. */
-function divideEquipes(U, H, N, x, modo){
+function divideEquipes(U, H, N, x, modo, par){
   if (N <= 1 || U.length <= N) return {grupos: N <= 1 ? [U.slice()] : U.map(u => [u]), cortes: []};
   const P = _plano(H);
   const L = U.map(u => { const v = P.xy(u); return {u: u, t: Math.atan2(v[0], v[1])}; })   // azimute a partir do norte
@@ -6034,20 +6037,50 @@ function divideEquipes(U, H, N, x, modo){
     const tam = gaps.map((g, k) => ((gaps[(k + 1) % N] - g) + M) % M || M);
     return monta(gaps[0], tam);
   }
-  const D = Math.ceil(Math.ceil(M / N) / x), cap = D * x, comp = [];
+  /* equilibrada: iguala o TEMPO de trabalho, não o número de círculos — quem vai mais longe
+     fica com menos. Entre as divisões em setores contíguos, a de menor tempo estimado da
+     equipe mais carregada (ocupações + deslocamento); depois, a de menor diferença entre a
+     mais e a menos carregada; por fim, as regiões mais compactas. O deslocamento de
+     cada dia é o circuito hotel → pontos → hotel em linha reta, pelo vizinho mais próximo,
+     vezes 1,3 (fator de sinuosidade das vias; BALLOU; RAHARDJA; SAKAI, 2002), na velocidade
+     urbana. */
+  par = par || {ocup: 40, vel: 20};
+  const XY = L.map(l => P.xy(l.u)), mpm = par.vel * 1000 / 60;
+  const memo = new Map();
+  const tempo = (i0, t) => {
+    const ch = i0 + ':' + t; if (memo.has(ch)) return memo.get(ch);
+    let min = t * par.ocup;
+    for (let a = 0; a < t; a += x){                                  // dias: blocos de x vizinhos em azimute
+      const idx = []; for (let j = a; j < Math.min(t, a + x); j++) idx.push((i0 + j) % M);
+      let cur = [0, 0], dist = 0; const resto = idx.slice();
+      while (resto.length){
+        resto.sort((p, q) => Math.hypot(XY[p][0] - cur[0], XY[p][1] - cur[1]) - Math.hypot(XY[q][0] - cur[0], XY[q][1] - cur[1]));
+        const k = resto.shift(); dist += Math.hypot(XY[k][0] - cur[0], XY[k][1] - cur[1]); cur = XY[k];
+      }
+      dist += Math.hypot(cur[0], cur[1]);
+      min += dist * 1.3 / mpm;
+    }
+    memo.set(ch, min); return min;
+  };
+  const lo = 1, hi = M - (N - 1), comp = [];
   (function gera(pref, resto, k){
-    if (comp.length > 5000) return;
-    if (k === N - 1){ if (resto >= 1 && resto <= cap) comp.push(pref.concat([resto])); return; }
-    for (let t = Math.max(1, resto - cap * (N - k - 1)); t <= Math.min(cap, resto - (N - k - 1)); t++) gera(pref.concat([t]), resto - t, k + 1);
+    if (comp.length > 80000) return;
+    if (k === N - 1){ if (resto >= lo && resto <= hi) comp.push(pref.concat([resto])); return; }
+    for (let t = lo; t <= Math.min(hi, resto - lo * (N - k - 1)); t++) gera(pref.concat([t]), resto - t, k + 1);
   })([], M, 0);
   let melhor = null;
   for (const tam of comp) for (let r = 0; r < M; r++){
-    let custo = 0, i0 = r;
-    for (const t of tam){ custo += ang(L[i0 % M].t, L[(i0 + t - 1) % M].t); i0 += t; }
-    const desv = tam.reduce((s, t) => s + Math.abs(t - M / N), 0);          // desempate: tamanhos parecidos
-    if (!melhor || custo < melhor.c - 1e-9 || (Math.abs(custo - melhor.c) < 1e-9 && desv < melhor.d)) melhor = {c: custo, d: desv, r: r, tam: tam};
+    let pior = 0, leve = Infinity, abert = 0, i0 = r;
+    for (const t of tam){ const tt = tempo(i0 % M, t); pior = Math.max(pior, tt); leve = Math.min(leve, tt);
+                          abert += ang(L[i0 % M].t, L[(i0 + t - 1) % M].t); i0 += t; }
+    const dif = pior - leve;
+    if (!melhor || pior < melhor.p - 1e-6
+        || (Math.abs(pior - melhor.p) < 1e-6 && (dif < melhor.d - 1e-6 || (Math.abs(dif - melhor.d) < 1e-6 && abert < melhor.a))))
+      melhor = {p: pior, d: dif, a: abert, r: r, tam: tam};
   }
-  return monta(melhor.r, melhor.tam);
+  const res = monta(melhor.r, melhor.tam);
+  res.tempos = melhor.tam.map((t, k) => Math.round(tempo((melhor.r + melhor.tam.slice(0, k).reduce((s, v) => s + v, 0)) % M, t)));
+  return res;
 }
 /* Ordem de visita de um dia: o menor tempo total hotel → pontos → hotel, exato por
    programação dinâmica (HELD; KARP, 1962) sobre a matriz M (0 = hotel; tempos de carro
@@ -6183,11 +6216,23 @@ async function planejaCampanha(){
       avisos.push('distâncias em linha reta (' + (e.name === 'AbortError' ? 'servidor não respondeu' : e.message) + ')');
     }
   }
-  const divisao = v('#pc_div') === 'vazios' ? 'vazios' : 'dias';
-  const div = divideEquipes(U, H, N, x, divisao);
-  const alt = divideEquipes(U, H, N, x, divisao === 'dias' ? 'vazios' : 'dias');
+  const dv = v('#pc_div'), divisao = dv === 'vazios' || dv === 'manual' ? dv : 'dias';
+  const par = {ocup: ocup, vel: velUrb};
+  let div;
+  if (divisao === 'manual'){
+    // a distribuição escolhida na tabela; círculo sem equipe vai para a equipe com o ponto mais perto dele
+    const at = F.campanha.atribEquipes || {}, grupos = Array.from({length: N}, () => []), sem = [];
+    U.forEach(u => { const i = at[u.k]; if (i != null && i >= 0 && i < N) grupos[i].push(u); else sem.push(u); });
+    sem.forEach(u => {
+      let bi = grupos.findIndex(g => !g.length), bd = Infinity;
+      if (bi < 0) grupos.forEach((g, i) => g.forEach(w => { const d = geodInversa(u.lat, u.lon, w.lat, w.lon).s; if (d < bd){ bd = d; bi = i; } }));
+      grupos[bi].push(u);
+    });
+    div = {grupos: grupos, cortes: []};
+  } else div = divideEquipes(U, H, N, x, divisao, par);
+  const alt = divisao === 'manual' ? null : divideEquipes(U, H, N, x, divisao === 'dias' ? 'vazios' : 'dias', par);
   const nd_ = t => t.map(k => Math.ceil(k / x));
-  const compara = alt.tam && div.tam && alt.tam.join() !== div.tam.join()
+  const compara = alt && alt.tam && div.tam && alt.tam.join() !== div.tam.join()
     ? {modo: divisao === 'dias' ? 'vazios' : 'dias', tam: alt.tam, dias: nd_(alt.tam)} : null;
   const equipes = div.grupos.map((G, i) => ({nome: 'Equipe ' + (i + 1), cor: CORES_EQ[i % CORES_EQ.length],
     dias: montaDias(G, H, x, ordem, dH).map(d => ({ids: d.map(u => u.id), ks: d.map(u => u.k), pernas: null}))}));
@@ -6240,6 +6285,8 @@ async function planejaCampanha(){
     baricentro: {lat: +bar.lat.toFixed(6), lon: +bar.lon.toFixed(6)}, mediana: {lat: +med.lat.toFixed(6), lon: +med.lon.toFixed(6)},
     cortes: div.cortes, fonteDist: fonteD, rotas: rotas ? 'OSRM, até 3 caminhos por trecho — dados © colaboradores do OpenStreetMap' : 'sem rotas (sem internet)',
     nUnid: U.length, equipes: equipes, avisos: avisos};
+  F.campanha.atribEquipes = {};
+  equipes.forEach((e, i) => e.dias.forEach(d => d.ks.forEach(k => { F.campanha.atribEquipes[k] = i; })));
   if (!F.config) F.config = {};
   if (F.config.equipePlano != null && F.config.equipePlano >= N) delete F.config.equipePlano;
   grava(); pintaAlvos();
@@ -6345,7 +6392,7 @@ function svgPlanoCampanha(pc, W, Hh){
       : '<circle cx="' + cx + '" cy="' + cy + '" r="4" fill="' + t.p.cor + '" stroke="#fff" stroke-width="1"/>';
   });
   T.forEach(t => {
-    const txt = t.p.dia + '.' + t.p.ord, w = 6.2 * txt.length + 2, hh = 11, [x, y] = t.xy;
+    const txt = t.p.dia + '.' + t.p.ord + ' · ' + t.p.id, w = 6.1 * txt.length + 2, hh = 11, [x, y] = t.xy;
     const cand = [[6, -13], [6, 3], [-6 - w, -13], [-6 - w, 3], [-w / 2, -17], [-w / 2, 7], [9, -5], [-9 - w, -5]];
     let best = null, menor = 1e9;
     for (const c of cand){
@@ -6357,7 +6404,7 @@ function svgPlanoCampanha(pc, W, Hh){
     if (!best) best = caixa(x + 6, y - 13, w, hh);
     ocupado.push(best);
     s += '<text x="' + (best.x + 1).toFixed(1) + '" y="' + (best.y + 9).toFixed(1) + '" font-size="10.5" font-weight="700" fill="'
-      + t.p.cor + '">' + txt + '</text>';
+      + t.p.cor + '" stroke="#fff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">' + esc(txt) + '</text>';
   });
   S.forEach(z => {
     const [x, y] = z.xy;
@@ -6382,7 +6429,7 @@ function legendaPlano(pc){
     + '<path d="M4 7l2.2 2.4l4-4.6" fill="none" stroke="#15803D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> coletado (ocupação encerrada)</span>'
     + '<span><svg width="14" height="14" viewBox="0 0 14 14" style="vertical-align:middle"><circle cx="7" cy="7" r="5.5" fill="#FDE68A" stroke="#555" stroke-width="2"/>'
     + '<circle cx="7" cy="7" r="1.8" fill="#B45309"/></svg> em coleta (ocupação aberta)</span>'
-    + '<span><b>2.3</b> = dia 2 da equipe, 3º ponto do dia</span>'
+    + '<span><b>2.3 · 0037A</b> = dia 2 da equipe, 3º ponto do dia · ponto 0037A</span>'
     + (pc.equipes.some(e => e.dias.some(d => (d.trechos || []).length)) ? '<span><b style="letter-spacing:-1px">—</b> caminho de carro do dia (opção 1 de cada trecho)</span>' : '')
     + '<span><i class="q"></i>hotel' + (pc.hotel.semHotel ? ' (não informado: posto na mediana)' : '') + '</span>'
     + '<span><i class="o"></i>baricentro</span><span><b style="font-size:15px">+</b> mediana geométrica</span>'
@@ -6435,10 +6482,30 @@ function tabelaPlano(pc, so){
     const c = pc.compara;
     h += '<p class="leg">' + (pc.divisao === 'dias'
       ? 'Cortando nos maiores vazios entre os pontos, as equipes ficariam com ' + c.tam.join(' / ') + ' círculos — '
-        + c.dias.join(' / ') + ' dias. A divisão adotada iguala os dias.'
-      : 'Igualando os dias, as equipes ficariam com ' + c.tam.join(' / ') + ' círculos — ' + c.dias.join(' / ') + ' dias.') + '</p>';
+        + c.dias.join(' / ') + ' dias. A divisão adotada equilibra o trabalho.'
+      : 'Equilibrando o trabalho, as equipes ficariam com ' + c.tam.join(' / ') + ' círculos — ' + c.dias.join(' / ') + ' dias.') + '</p>';
   }
   return h;
+}
+/* Distribuição manual: a equipe de cada círculo, escolhida aqui; "Refazer o plano" monta
+   de novo os dias, a ordem de visita, os horários e as rotas com essa distribuição. */
+function tabelaDistribuicao(pc){
+  const A = F.campanha.alvos || [], L = [];
+  pc.equipes.forEach((e, i) => e.dias.forEach((d, j) => d.ids.forEach((id, k) => {
+    const a = A.find(z => z.id === id); if (!a) return;
+    L.push({k: d.ks[k], id: id, i: i, dia: j + 1, ord: k + 1,
+            dist: geodInversa(pc.hotel.lat, pc.hotel.lon, a.lat, a.lon).s});
+  })));
+  if (pc.equipes.length < 2 || !L.length) return '';
+  L.sort((a, b) => a.id < b.id ? -1 : 1);
+  const op = i => pc.equipes.map((e, q) => '<option value="' + q + '"' + (q === i ? ' selected' : '') + '>' + esc(e.nome) + '</option>').join('');
+  return '<details class="ajuda" id="pc_dist"><summary>Mudar a distribuição entre as equipes</summary>'
+    + '<p class="leg">Escolha a equipe de cada círculo e toque em <b>Refazer o plano</b>: os dias, a ordem de visita, os horários '
+    + 'e as rotas são calculados de novo com essa distribuição (Divisão passa a “manual”).</p>'
+    + '<table class="tabdist"><tr><th>ponto</th><th>hoje</th><th>do hotel</th><th>equipe</th></tr>'
+    + L.map(r => '<tr><td><b>' + esc(r.id) + '</b></td><td>dia ' + r.dia + '.' + r.ord + '</td><td>' + _metros(r.dist) + '</td>'
+      + '<td><select data-atrib="' + esc(r.k) + '" style="border-left:6px solid ' + pc.equipes[r.i].cor + '">' + op(r.i) + '</select></td></tr>').join('')
+    + '</table><div class="acoes"><button type="button" class="btn peq" id="b_pc_refaz">Refazer o plano com esta distribuição</button></div></details>';
 }
 function notaHorario(pc){
   const p = paramTempo();
@@ -6490,8 +6557,9 @@ function pintaPlanoCampanha(){
     + '<option value="longe"' + (val('ordem', 'longe') === 'longe' ? ' selected' : '') + '>do mais distante para o mais próximo do hotel</option>'
     + '<option value="perto"' + (val('ordem', '') === 'perto' ? ' selected' : '') + '>do mais próximo para o mais distante do hotel</option></select></div>'
     + '<div class="lin"><label for="pc_div">Divisão</label><select id="pc_div">'
-    + '<option value="dias"' + (val('divisao', 'dias') === 'dias' ? ' selected' : '') + '>mesmo número de dias</option>'
-    + '<option value="vazios"' + (val('divisao', '') === 'vazios' ? ' selected' : '') + '>nos maiores vazios entre os pontos</option></select></div>'
+    + '<option value="dias"' + (val('divisao', 'dias') === 'dias' ? ' selected' : '') + '>equilibrada pelo tempo (quem vai mais longe coleta menos)</option>'
+    + '<option value="vazios"' + (val('divisao', '') === 'vazios' ? ' selected' : '') + '>nos maiores vazios entre os pontos</option>'
+    + '<option value="manual"' + (val('divisao', '') === 'manual' ? ' selected' : '') + '>manual (escolhida na tabela abaixo)</option></select></div>'
     + '<div class="lin" style="margin-top:6px"><button type="button" class="btn peq" id="b_pc">Planejar a campanha</button>'
     + (pc ? '<button type="button" class="btn sec peq" id="b_pc_pdf">Material de planejamento (PDF)</button>'
           + '<button type="button" class="btn sec peq" id="b_pc_tira">Esquecer</button>' : '') + '</div>';
@@ -6505,7 +6573,7 @@ function pintaPlanoCampanha(){
       + ' · ' + pc.porDia + ' ponto(s)/dia · ' + pc.ocup + ' min por ocupação · jornada ' + _numBR(pc.jornada) + ' h · '
       + (pc.ordem === 'perto' ? 'do mais próximo para o mais distante' : 'do mais distante para o mais próximo') + ' · distâncias ' + esc(pc.fonteDist)
       + ' · rotas: ' + esc(pc.rotas) + (pc.avisos.length ? ' · ' + esc(pc.avisos.join('; ')) : '') + '.</p>'
-      + svgPlanoCampanha(pc, 420) + legendaPlano(pc) + tabelaPlano(pc)
+      + svgPlanoCampanha(pc, 420) + legendaPlano(pc) + tabelaPlano(pc) + tabelaDistribuicao(pc)
       + '<p class="leg">' + esc(notaHorario(pc)) + '</p>'
       + '<details class="ajuda"><summary>Onde se hospedar</summary>' + textoHospedagem(pc) + '</details>';
   }
@@ -6513,6 +6581,14 @@ function pintaPlanoCampanha(){
   $('#b_pc').addEventListener('click', () => planejaCampanha().catch(e => marca('plano da campanha: ' + e.message)));
   ligaCamposHotel();
   if (pc){
+    $$('[data-atrib]').forEach(sel => sel.addEventListener('change', () => {
+      F.campanha.atribEquipes = F.campanha.atribEquipes || {};
+      F.campanha.atribEquipes[sel.dataset.atrib] = +sel.value;
+      sel.style.borderLeftColor = (pc.equipes[+sel.value] || {}).cor || '#999'; grava();
+    }));
+    const rf = $('#b_pc_refaz');
+    if (rf) rf.addEventListener('click', () => { const d = $('#pc_div'); if (d) d.value = 'manual';
+      planejaCampanha().catch(e => marca('plano da campanha: ' + e.message)); });
     $('#b_pc_tira').addEventListener('click', () => {
       if (!confirm('Esquecer o plano da campanha?')) return;
       delete F.campanha.planoCampanha; if (F.config) delete F.config.equipePlano; grava(); pintaAlvos(); });
@@ -6539,7 +6615,7 @@ function montaImpressaoPlano(){
     + [['círculos pendentes', pc.nUnid], ['equipes', pc.equipes.length + ' (mesmo hotel, regiões sem sobreposição)'],
        ['pontos por dia', pc.porDia], ['ocupação por ponto', pc.ocup + ' min (montagem, rastreio, desmontagem e avaliações locais)'],
        ['jornada', _numBR(pc.jornada) + ' h + ' + pc.almoco + ' min de almoço, saída às ' + pc.saida],
-       ['velocidades médias', 'urbano/vicinal ' + pc.velUrb + ' km/h · rodovia ' + pc.velRod + ' km/h'], ['divisão entre as equipes', pc.divisao === 'vazios' ? 'nos maiores vazios entre os pontos' : 'mesmo número de dias'],
+       ['velocidades médias', 'urbano/vicinal ' + pc.velUrb + ' km/h · rodovia ' + pc.velRod + ' km/h'], ['divisão entre as equipes', pc.divisao === 'vazios' ? 'nos maiores vazios entre os pontos' : pc.divisao === 'manual' ? 'manual (escolhida pelo planejador)' : 'equilibrada pelo tempo de trabalho'],
        ['ordem dos dias e dos pontos', pc.ordem === 'perto' ? 'do mais próximo para o mais distante do hotel' : 'do mais distante para o mais próximo do hotel'],
        ['hotel', pc.hotel.semHotel ? 'não informado — usada a mediana geométrica' : pc.hotel.lat.toFixed(5) + ', ' + pc.hotel.lon.toFixed(5)],
        ['distâncias do hotel', pc.fonteDist], ['rotas dos dias', pc.rotas]]
@@ -6549,10 +6625,15 @@ function montaImpressaoPlano(){
     + '<p class="ocor">' + esc(notaHorario(pc)) + ' '
     + 'Se a opção A não puder ser ocupada, a equipe segue para B, C e D do mesmo círculo, nessa ordem.</p>'
     + '<h2>Hospedagem</h2>' + textoHospedagem(pc)
-    + '<h2>Método</h2><p class="ocor">Regiões: os círculos pendentes são ordenados pelo azimute visto do hotel e cortados em grupos '
-    + 'contíguos — ' + (pc.divisao === 'vazios' ? 'nos maiores vazios angulares, sem olhar o tamanho. '
-      : 'entre as divisões em que nenhuma equipe passa do menor número possível de dias, a de menor soma das aberturas angulares. ')
-    + 'As divisas passam no meio dos vazios. '
+    + '<h2>Método</h2><p class="ocor">' + (pc.divisao === 'manual'
+      ? 'Regiões: a distribuição dos círculos entre as equipes foi escolhida pelo planejador. '
+      : 'Regiões: os círculos pendentes são ordenados pelo azimute visto do hotel e cortados em grupos contíguos — '
+        + (pc.divisao === 'vazios' ? 'nos maiores vazios angulares, sem olhar o tamanho. '
+          : 'igualando o tempo de trabalho, e não o número de círculos: quem vai mais longe fica com menos. Escolhe-se a divisão de menor '
+            + 'tempo estimado para a equipe mais carregada (ocupações mais o deslocamento de cada dia, circuito em linha reta pelo vizinho mais '
+            + 'próximo multiplicado por 1,3, fator de sinuosidade das vias; BALLOU; RAHARDJA; SAKAI, 2002; na velocidade urbana); no empate, a de '
+            + 'menor diferença entre a equipe mais e a menos carregada e, por fim, as regiões mais compactas. ')
+        + 'As divisas passam no meio dos vazios. ')
     + 'Dias: o círculo mais distante do hotel ' + (pc.ordem === 'perto' ? '(na ordem inversa, o mais próximo) ' : '')
     + 'abre o dia e leva os mais próximos dele; dentro do dia, a ordem de visita é a de menor tempo total de carro do hotel, pelos pontos, '
     + 'de volta ao hotel, calculada de forma exata por programação dinâmica (HELD; KARP, 1962) sobre os tempos entre os pontos; '
@@ -6561,7 +6642,9 @@ function montaImpressaoPlano(){
     + 'Cada trecho do dia (hotel → 1º ponto, ponto → ponto, '
     + 'último → hotel) tem até três caminhos de carro calculados pelo OSRM (LUXEN; VETTER, 2011), que seguem na folha da equipe para a navegação sem rede. '
     + 'Mediana geométrica pelo algoritmo de Weiszfeld (1937).</p>'
-    + '<p class="ocor">HELD, M.; KARP, R. M. A dynamic programming approach to sequencing problems. <i>Journal of the Society for Industrial and '
+    + '<p class="ocor">BALLOU, R. H.; RAHARDJA, H.; SAKAI, N. Selected country circuity factors for road travel distance estimation. '
+    + '<i>Transportation Research Part A: Policy and Practice</i>, v. 36, n. 9, p. 843-848, 2002.<br>'
+    + 'HELD, M.; KARP, R. M. A dynamic programming approach to sequencing problems. <i>Journal of the Society for Industrial and '
     + 'Applied Mathematics</i>, v. 10, n. 1, p. 196-210, 1962.<br>'
     + 'LUXEN, D.; VETTER, C. Real-time routing with OpenStreetMap data. <i>In</i>: ACM SIGSPATIAL INTERNATIONAL CONFERENCE '
     + 'ON ADVANCES IN GEOGRAPHIC INFORMATION SYSTEMS, 19., 2011, Chicago. <b>Proceedings</b> [...]. New York: ACM, 2011. p. 513-516.<br>'

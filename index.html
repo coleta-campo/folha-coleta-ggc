@@ -764,7 +764,7 @@ você cabe o que nenhum arquivo registra.</p>
     <b>Enviar ao servidor</b>. O código abaixo só é preciso numa folha que não veio do
     planejador.</p>
     <p class="leg" id="srv_auto"></p>
-    <label class="c" for="srv_codigo">Código de envio da equipe (preenchido pela folha da equipe; ou cole, ou leia o QR)</label>
+    <label class="c" for="srv_codigo">Código de envio (só para folha que não veio do planejador: cole ou leia o QR)</label>
     <input type="text" id="srv_codigo" placeholder="GGC:…" autocomplete="off" spellcheck="false">
     <div class="acoes"><button type="button" class="btn sec peq" id="b_srv_qr">Ler o QR do código</button></div>
     <details class="ajuda"><summary>Endereço e chave, um a um</summary>
@@ -7976,7 +7976,6 @@ function monta(){
   try { const sv = (F.config && F.config.servidor) || {}, su = $('#srv_url'), sc = $('#srv_chave');
         if (su && document.activeElement !== su) su.value = sv.url || '';
         if (sc && document.activeElement !== sc) sc.value = sv.chave || '';
-        const scd = $('#srv_codigo'); if (scd && document.activeElement !== scd) scd.value = _codigoDe(sv);
         pintaSrvAuto(); } catch (e){}
   const bc = $('#blocos_campanha'); bc.innerHTML = '';
   secoesDe('campanha').forEach(s => bc.appendChild(bloco(s, F.campanha.itens, 'campanha')));
@@ -9359,7 +9358,7 @@ function aplicaCodigoReceptor(t){
   if (c.equipe){ s.lc = c.lc; s.equipe = c.equipe; } else { delete s.lc; delete s.equipe; }
   grava();
   const u = $('#srv_url'), k = $('#srv_chave'), cd = $('#srv_codigo');
-  if (u) u.value = c.url; if (k) k.value = c.chave; if (cd) cd.value = _codigoDe(s);
+  if (u) u.value = c.url; if (k) k.value = c.chave; if (cd) cd.value = '';
   pintaSrvAuto();
   _srvRes('Código da equipe lido: receptor e chave preenchidos. Toque em <b>Testar a ligação</b>.');
   marca('código da equipe lido');
@@ -10864,10 +10863,16 @@ function pintaKits(){
         + ['', 'Veículo IBGE', 'Veículo locado', 'Veículo particular'].map(o => '<option' + (d.vtipo === o ? ' selected' : '') + '>' + o + '</option>').join('')
         + '</select></div><div><label class="c">Placa</label><input type="text" data-kitc="' + i + '" data-k="vplaca" data-maiusc data-lista-fixa list="l_frota" autocomplete="off" maxlength="8" placeholder="ex.: OZA9269" value="' + v('vplaca', '') + '"></div></div>'
         + '<label class="c">Marca / modelo</label><input type="text" data-kitc="' + i + '" data-k="vmodelo" data-maiusc data-lista-fixa list="l_frota_mod" autocomplete="off" placeholder="ex.: MITSUBISHI/L200" value="' + v('vmodelo', '') + '">'
-        + '<label class="c">Código de envio ao Drive (gerado pelo sistema)</label>'
-        + '<div style="display:flex;gap:6px;align-items:center"><input type="text" id="kit_cod' + i + '" readonly spellcheck="false" style="flex:1;font-family:monospace;font-size:12px">'
-        + '<button type="button" class="btn sec peq" data-kitcopia="' + i + '">Copiar</button></div>'
-        + '<p class="leg" id="kit_codleg' + i + '" style="margin-top:2px"></p>'
+        + '<p class="leg" id="kit_codleg' + i + '" style="margin:8px 0 2px"></p>'
+        + '<details class="ajuda" id="kit_codbox' + i + '" style="display:none"><summary>Quer copiar o código de envio desta equipe?</summary>'
+        + '<p><b>Normalmente não é preciso:</b> o código vai dentro da folha da equipe. Copiar só serve quando a equipe vai '
+        + 'usar uma folha que não saiu deste botão: celular trocado ou com os dados apagados, ou a folha aberta pelo endereço da '
+        + 'web sem o arquivo da equipe. Lá, em <i>Fechar o dia &gt; Enviar ao servidor</i>, a equipe cola o código.</p>'
+        + '<p><b>Riscos:</b> quem tiver o código grava arquivos na pasta da campanha no Drive em nome desta equipe e deste LC '
+        + '(não lê nem apaga nada). Mande só para a equipe, em conversa individual, nunca em grupo ou e-mail aberto. Não há como '
+        + 'cancelar o código de uma equipe só: se vazar, é preciso trocar o código da coordenação, e as folhas já distribuídas '
+        + 'de todas as equipes param de enviar.</p>'
+        + '<div class="acoes"><button type="button" class="btn sec peq" data-kitcopia="' + i + '">Copiar o código de envio</button></div></details>'
         + '<p class="leg" id="kit_av' + i + '" style="margin-top:2px"></p>'
         + '<div class="acoes"><button type="button" class="btn peq" data-kit="' + i + '">Gerar a folha da ' + esc(e.nome) + '</button></div></div>';
     });
@@ -10890,8 +10895,11 @@ function pintaKits(){
   pc.equipes.forEach((e, i) => { confereKitEquipe(i); pintaCodigoEquipe(i); });
   _pintaListasFrota();
   el.querySelectorAll('[data-kitcopia]').forEach(b => b.addEventListener('click', () => {
-    const v = ($('#kit_cod' + b.dataset.kitcopia) || {}).value; if (!v) return;
-    (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(() => marca('código copiado'), () => marca('copie o código à mão'));
+    const v = _COD_EQ[b.dataset.kitcopia]; if (!v) return;
+    const alt = () => { const t = document.createElement('textarea'); t.value = v; t.style.position = 'fixed'; t.style.opacity = '0';
+      document.body.appendChild(t); t.select(); const ok = document.execCommand('copy'); t.remove(); if (!ok) throw new Error('cópia recusada'); };
+    (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).catch(alt)
+      .then(() => marca('código de envio copiado — cole só na conversa individual com a equipe'), () => marca('o navegador não deixou copiar'));
   }));
   ligaCoord();
   el.querySelectorAll('[data-kit]').forEach(b => b.addEventListener('click', () =>
@@ -10938,17 +10946,18 @@ async function _servidorDaEquipe(i){
   const lc = String(F.campanha.ptcon_lc || ''), equipe = 'Equipe_' + _n2(i + 1);
   return {url: c.url, lc: lc, equipe: equipe, chave: await _hmacHex(c.seg, lc + '|' + equipe)};
 }
+const _COD_EQ = {};                                    // código de cada equipe: só na memória, nunca na tela
 async function pintaCodigoEquipe(i){
-  const inp = $('#kit_cod' + i), leg = $('#kit_codleg' + i); if (!inp) return;
+  const leg = $('#kit_codleg' + i), box = $('#kit_codbox' + i); if (!leg) return;
   const lc = String(F.campanha.ptcon_lc || ''), eq = 'Equipe_' + _n2(i + 1);
   let cod = '', t;
   if (!_coord()) t = 'Sem receptor configurado neste computador (quadro Envio ao Drive, acima): a folha sai sem envio.';
   else if (!LC_OK.test(lc)) t = '<span style="color:#B91C1C">Aguardando o código LC da campanha: o código de envio é gerado a partir dele.</span>';
   else { try { cod = _codigoDe(await _servidorDaEquipe(i)); } catch (e){ t = 'não foi possível gerar: ' + esc(e.message); }
-         if (cod) t = 'Vai dentro da folha da equipe (' + esc(lc) + ' · ' + eq + '); no celular não há o que digitar. '
-           + 'Use o Copiar só se precisar mandar o código à parte.'; }
-  inp.value = cod; inp.placeholder = cod ? '' : '—'; if (leg) leg.innerHTML = t;
-  const bt = document.querySelector('[data-kitcopia="' + i + '"]'); if (bt) bt.disabled = !cod;
+         if (cod) t = '<b style="color:#047857">Envio ao Drive pronto</b> (' + esc(lc) + ' · ' + eq + '): vai dentro da folha da equipe; '
+           + 'no celular não há o que digitar.'; }
+  _COD_EQ[i] = cod; leg.innerHTML = t;
+  if (box){ box.style.display = cod ? '' : 'none'; if (!cod) box.open = false; }
 }
 function _htmlCoord(){
   const c = _coord(), lc = String(F.campanha.ptcon_lc || '');

@@ -11032,6 +11032,16 @@ function confereKitEquipe(i){
   av.innerHTML = _problemasKit(d).map(x => '<span style="color:#B91C1C">' + esc(x) + '</span>').join('<br>');
 }
 /* blocos da imagem Esri: Blob no aparelho, data:URL dentro da folha da equipe */
+/* WebP com qualidade 0,6: ~40 % menor que o JPEG da Esri, sem perda visível no campo
+   (conferido em blocos do nível 18). Se o navegador não gerar WebP, fica o original. */
+async function _webp(bl){
+  try {
+    const im = await createImageBitmap(bl), c = document.createElement('canvas');
+    c.width = im.width; c.height = im.height; c.getContext('2d').drawImage(im, 0, 0);
+    const o = await new Promise(ok => c.toBlob(ok, 'image/webp', 0.6));
+    return o && o.type === 'image/webp' && o.size < bl.size ? o : bl;
+  } catch (e){ return bl; }
+}
 function _blobURL(b){ return new Promise((ok, erro) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => erro(r.error); r.readAsDataURL(b); }); }
 function _deURL(v){
   if (v instanceof Blob) return v;
@@ -11064,13 +11074,21 @@ async function geraKit(i){
     if (v.dados && cruza(v.n, v.s, v.o, v.l)) mapa.push([k, v]);
   }
   if (vias.length) mapa.push(['vias:osm', {linhas: vias, fonte: 'OpenStreetMap (recorte da região da equipe)', quando: new Date().toISOString()}]);
-  const blocos = [];
-  for (const k of (await blocoChaves().catch(() => [])) || []){
+  // imagem Esri: visão geral (níveis até 14) no retângulo da equipe; detalhe (15 a 19) só a 300 m
+  // dos pontos DESTA equipe, como foi baixado; cada bloco recomprimido em WebP
+  const blocos = [], perto = (t) => meus.some(a => {
+    const dl = 300 / 111320, dg = dl / Math.cos(a.lat * Math.PI / 180);
+    return !(t.n < a.lat - dl || t.s > a.lat + dl || t.l < a.lon - dg || t.o > a.lon + dg); });
+  const KB = await blocoChaves().catch(() => []) || []; let nb = 0, antes = 0, depois = 0;
+  for (const k of KB){
     const [z, x, y] = String(k).split('/').map(Number), t = _tileBB(z, x, y);
-    if (!cruza(t.n, t.s, t.o, t.l)) continue;
-    const bl = await blocoPega(k);                      // Blob: vai no arquivo como data:URL
-    if (bl instanceof Blob) blocos.push([k, await _blobURL(bl)]);
+    if (z <= 14 ? !cruza(t.n, t.s, t.o, t.l) : !perto(t)) continue;
+    const bl = await blocoPega(k); if (!(bl instanceof Blob)) continue;
+    const w = await _webp(bl); antes += bl.size; depois += w.size;
+    blocos.push([k, await _blobURL(w)]);            // Blob: vai no arquivo como data:URL
+    if (++nb % 25 === 0) marca('folha da ' + e.nome + ': imagem, ' + nb + ' blocos…');
   }
+  if (nb) marca('folha da ' + e.nome + ': ' + nb + ' blocos de imagem, ' + (antes / 1e6).toFixed(1) + ' → ' + (depois / 1e6).toFixed(1) + ' MB');
   let traj = null;
   try {
     const v = await _txTraj('readonly', l => l.get('trajetos'));

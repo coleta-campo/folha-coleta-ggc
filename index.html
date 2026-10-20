@@ -45,6 +45,14 @@ button{font:inherit;cursor:pointer}
 .abas button{flex:1;border:0;background:#fff;color:var(--az);padding:12px 4px;
  font-weight:600;font-size:15px;border-right:1px solid var(--az)}
 .abas button:last-child{border-right:0}
+/* coleta de um ponto: a tela fica só com o cartão dele */
+body.foco .abas, body.foco #kit_convite, body.foco #aba_dia > :not(#pontos):not(#foco_barra){display:none!important}
+body.foco #pontos > .voo:not(.emfoco){display:none!important}
+body.foco .wrap > details.ajuda, body.foco #cart_aparelho, body.foco [data-focar]{display:none!important}
+#foco_barra{position:sticky;top:0;z-index:30;background:#0A2E52;color:#fff;padding:10px 12px;border-radius:0 0 12px 12px;margin:0 0 10px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+#foco_barra .btn{background:#fff;color:#0A2E52;border-color:#fff}
+#foco_barra .btn.sec{background:transparent;color:#fff}
+#foco_barra .acoes{margin-top:6px}
 .abas button.on{background:var(--az);color:#fff}
 .bloco{border:1px solid var(--lin);border-radius:10px;margin:10px 0;background:#fff}
 .bloco>summary{list-style:none;cursor:pointer;padding:12px 14px;display:flex;
@@ -655,6 +663,7 @@ você cabe o que nenhum arquivo registra.</p>
     <button type="button" class="btn sec peq" id="b_ponto_rinex">Novo ponto pelo RINEX</button>
     <button type="button" class="btn sec peq" id="b_novo_ponto">Ponto em branco</button>
   </div>
+  <div id="foco_barra" class="naoimprime" hidden></div>
   <div id="pontos"></div>
 
   <h2>Fechamento do dia</h2>
@@ -2812,8 +2821,10 @@ function cartaoPonto(p, k){
     '<h3>Ponto ' + (k+1) + (p.id ? ' — ' + esc(p.id) : '')
     + '<span class="selo" style="background:'
     + (p.tipo === 'controle' ? '#8e44ad' : '#16a085') + '">' + p.tipo + '</span>'
+    + '<button type="button" class="btn sec peq naoimprime" data-focar="' + k
+    + '" style="margin-left:auto">só este ponto</button>'
     + '<button type="button" class="btn sec peq naoimprime" data-tira="' + k
-    + '" style="margin-left:auto">remover</button></h3>'
+    + '" style="margin-left:6px">remover</button></h3>'
     + '<div class="lin2">'
     + '<div><label class="c">Identificador do ponto (único)</label>'
     + '<input type="text" data-p="id" value="' + esc(p.id) + '"></div>'
@@ -3082,8 +3093,10 @@ function cartaoPonto(p, k){
     }));
   d.querySelector('[data-tira]').addEventListener('click', () => {
     if (!confirm('Remover o ponto ' + (p.id || k+1) + ' desta folha?')) return;
+    if (F.dia.foco === k) delete F.dia.foco; else if (F.dia.foco > k) F.dia.foco--;
     F.dia.pontos.splice(k, 1); pintaPontos(); pintaAlvos(); grava();
   });
+  d.querySelector('[data-focar]').addEventListener('click', () => focoPonto(k));
   pintaAvisos(d, p, MIN_PONTO[p.tipo] || 0);
   pintaFaltaDescricao(d, p);
   pintaMiniaturas(d, p);
@@ -3226,6 +3239,45 @@ function pintaPontos(){
     return;
   }
   F.dia.pontos.forEach((p, k) => alvo.appendChild(cartaoPonto(p, k)));
+  aplicaFoco();
+}
+/* Coleta de um ponto: só o cartão dele na tela, com uma barra fixa no alto (o que se está
+   coletando, a ocupação, Navegar até ele e a volta à lista). Evita mexer, por engano, em
+   outro ponto do dia ou na lista dos planejados. */
+function focoPonto(k){
+  F.dia.foco = k; grava();
+  const ab = $('button[data-aba=dia]'); if (ab && !ab.classList.contains('on')) ab.click();
+  aplicaFoco(); window.scrollTo(0, 0);
+}
+function saiFoco(){ delete F.dia.foco; grava(); aplicaFoco(); }
+let _focoTimer = null;
+function aplicaFoco(){
+  const k = F.dia ? F.dia.foco : null, p = k != null ? (F.dia.pontos || [])[k] : null, on = !!p && !MODO_PLAN;
+  if (!on && F.dia && F.dia.foco != null) delete F.dia.foco;
+  document.body.classList.toggle('foco', on);
+  $$('#pontos > .voo').forEach((d, i) => d.classList.toggle('emfoco', on && i === k));
+  const b = $('#foco_barra'); if (!b) return;
+  if (on){ const ab = $('button[data-aba=dia]'); if (ab && !ab.classList.contains('on') && !aplicaFoco._ab){
+    aplicaFoco._ab = true; try { ab.click(); } finally { aplicaFoco._ab = false; } } }
+  clearInterval(_focoTimer); b.hidden = !on;
+  if (!on){ b.innerHTML = ''; return; }
+  const pinta = () => {
+    const oc = !p.ocup_ini ? 'ocupação ainda não iniciada'
+      : p.ocup_fim ? 'ocupação encerrada (' + _dmin((_msDe(p.ocup_fim) - _msDe(p.ocup_ini)) / 1000) + ')'
+      : 'ocupação em curso há ' + _dmin((Date.now() - _msDe(p.ocup_ini)) / 1000);
+    const iA = p.planejado ? (F.campanha.alvos || []).findIndex(a => a.id === p.planejado.id) : -1;
+    b.innerHTML = '<div style="font-size:.85em;opacity:.85">Coletando</div>'
+      + '<div style="font-size:1.15em"><b>Ponto ' + (k + 1) + (p.id ? ' — ' + esc(p.id) : '') + '</b> · ' + esc(p.tipo || '') + '</div>'
+      + '<div style="font-size:.9em">' + oc + '</div>'
+      + '<div class="acoes">' + (iA >= 0 ? '<button type="button" class="btn sec peq" id="b_foco_nav">Navegar até ele</button>' : '')
+      + '<button type="button" class="btn peq" id="b_foco_sai">Concluído — voltar à lista</button></div>';
+    const n = $('#b_foco_nav'); if (n) n.addEventListener('click', () => abreNav(iA));
+    $('#b_foco_sai').addEventListener('click', () => {
+      if (p.ocup_ini && !p.ocup_fim && !confirm('A ocupação deste ponto ainda está em curso. Voltar à lista mesmo assim? '
+          + 'O cartão continua salvo e reabre em "só este ponto".')) return;
+      saiFoco(); window.scrollTo(0, 0); });
+  };
+  pinta(); _focoTimer = setInterval(() => { if (!b.hidden) pinta(); }, 30000);
 }
 
 
@@ -4347,16 +4399,14 @@ $('#b_novo_ponto').addEventListener('click', async () => {
       marca(P ? 'cartão em branco' : 'sem posição do celular — cartão em branco');
     }
   }
-  F.dia.pontos.push(p); pintaPontos(); pintaAlvos(); grava();
-  const cards = $$('#pontos > .voo');
-  const ult = cards[cards.length - 1];
-  if (ult) ult.scrollIntoView({behavior: 'smooth', block: 'start'});
+  F.dia.pontos.push(p); F.dia.foco = F.dia.pontos.length - 1; pintaPontos(); pintaAlvos(); grava();
+  window.scrollTo(0, 0);
 });
 $('#b_ponto_rinex').addEventListener('click', () => pedeRinex(r => {
   const p = pontoNovo(); aplicaRinex(p, r);
   // 2 h ou mais é ocupação de controle; abaixo disso, checagem
   if (r.duracao != null && r.duracao >= 2*3600) p.tipo = 'controle';
-  F.dia.pontos.push(p); pintaPontos(); pintaAlvos(); grava();
+  F.dia.pontos.push(p); F.dia.foco = F.dia.pontos.length - 1; pintaPontos(); pintaAlvos(); grava(); window.scrollTo(0, 0);
   marca('ponto criado a partir de ' + r.arquivo
     + (r.aviso_marcador ? ' — ' + r.aviso_marcador : ''));
 }));
@@ -7842,11 +7892,9 @@ function comecaPontoAqui(){
         + 'mesmo assim? (o afastamento fica registrado)')) return;
   }
   const p = ligaAoPlanejado(padraoCampanha(pontoNovo(), 'ponto'), a, NAV.pos, !!ja);
-  F.dia.pontos.push(p);
-  fechaNav(); pintaPontos(); pintaAlvos(); grava();
-  const cards = $$('#pontos > .voo');
-  const ult = cards[cards.length - 1];
-  if (ult) ult.scrollIntoView({behavior: 'smooth', block: 'start'});
+  F.dia.pontos.push(p); F.dia.foco = F.dia.pontos.length - 1;
+  fechaNav(); $('button[data-aba=dia]') && $('button[data-aba=dia]').click();
+  pintaPontos(); pintaAlvos(); grava(); window.scrollTo(0, 0);
   marca('ponto ' + p.id + ' começado — leia o RINEX dele ao terminar o rastreio');
 }
 
@@ -7943,12 +7991,10 @@ async function escolheEmCampo(num, P){
     p.declinacao = declinacaoEm(P.lat, P.lon);
     if (dA != null) p.campo.dist_A_m = Math.round(dA);
   }
-  F.dia.pontos.push(p);
+  F.dia.pontos.push(p); F.dia.foco = F.dia.pontos.length - 1;
   if (NAV.el && !NAV.el.classList.contains('oculto')) fechaNav();
   $('button[data-aba=dia]') && $('button[data-aba=dia]').click();
-  pintaPontos(); pintaAlvos(); grava();
-  const cards = $$('#pontos > .voo'); const ult = cards[cards.length - 1];
-  if (ult) ult.scrollIntoView({behavior: 'smooth', block: 'start'});
+  pintaPontos(); pintaAlvos(); grava(); window.scrollTo(0, 0);
   setTimeout(() => marca(p.id + ' escolhido em campo (substitui o círculo ' + num + ') — ' + (P ? 'coordenada provisória do celular' : 'sem posição: leia o RINEX')), 700);
 }
 

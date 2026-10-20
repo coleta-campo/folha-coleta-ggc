@@ -85,14 +85,23 @@ A instalação passo a passo está no cabeçalho do próprio `.gs`. Em resumo:
 
 1. Crie a pasta no Drive institucional.
 2. Crie o projeto Apps Script e cole o código.
-3. Defina as propriedades `PASTA_RAIZ` e `CHAVES` (uma chave por equipe, gerada
-   com `novaChave()`).
+3. Defina a propriedade `PASTA_RAIZ`.
 4. Rode `testeReceptor`.
 5. Implante como *Aplicativo da Web* (*Executar como: Eu*; *Quem pode acessar:
    Qualquer pessoa*).
+6. Defina `URL_RECEPTOR` (o endereço `/exec`) e rode `codigoCoordenacao`: o registro
+   mostra o **código da coordenação** (`GGC-COORD:…`).
 
-Na folha: *Fechar o dia > Enviar ao servidor*. Informe o endereço `/exec` e a chave
-da equipe, toque em *Testar a ligação* e depois em *Enviar ao servidor*.
+**No planejador**, uma vez por computador: *Folhas das equipes > Envio ao Drive* e
+cole o código da coordenação. Cada folha de equipe gerada daí em diante já sai com a
+chave dela, calculada na hora a partir do código LC e do número da equipe
+(HMAC-SHA256; KRAWCZYK; BELLARE; CANETTI, 1997). Não há nada a cadastrar no receptor
+por campanha ou por equipe. O segredo da coordenação fica só no receptor e no
+navegador do planejador. A folha da equipe leva só a chave dela, que vale só para o
+seu LC e a sua equipe.
+
+**No celular:** *Fechar o dia > Enviar ao servidor*, *Testar a ligação* e *Enviar ao
+servidor*. Não há código a digitar.
 
 **Como o envio funciona:**
 
@@ -105,8 +114,14 @@ da equipe, toque em *Testar a ligação* e depois em *Enviar ao servidor*.
 
 - A pasta deve ficar em conta ou drive compartilhado **institucional**, com acesso
   restrito à coordenação. Não use conta pessoal.
-- As chaves não vão para o repositório nem para grupos de mensagens abertos. Cada
-  equipe recebe só a sua.
+- O código da coordenação não vai para o repositório nem para grupos de mensagens.
+  Cada equipe recebe só a sua chave, dentro da folha dela.
 - Fotos de campo podem mostrar pessoas e imóveis. O tratamento segue a POSIC do
   IBGE e a LGPD. A hospedagem e o receptor passam pela validação da DTI (seção 12
   do documento *Padrão de dados das campanhas LC*).
+
+## Referência
+
+KRAWCZYK, H.; BELLARE, M.; CANETTI, R. **HMAC**: keyed-hashing for message
+authentication. RFC 2104. [S. l.]: IETF, 1997. Disponível em:
+https://www.rfc-editor.org/rfc/rfc2104. Acesso em: 20 out. 2026.

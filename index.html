@@ -759,9 +759,10 @@ você cabe o que nenhum arquivo registra.</p>
     aparelho ao receptor da GGC, que grava na pasta da campanha, separada por
     equipe. Em campo nada disso é preciso: a coleta continua no aparelho, sem rede.
     O que já foi enviado e não mudou não sai de novo; se a conexão cair, toque de
-    novo e só o que faltou é mandado. O código da equipe (texto que começa
-    por GGC:, ou o QR dele) é dado pela coordenação da campanha; a folha da equipe
-    gerada pelo planejador já vem com ele.</p>
+    novo e só o que faltou é mandado. A folha da equipe gerada pelo
+    planejador já vem pronta para enviar: basta tocar em <b>Testar a ligação</b> e em
+    <b>Enviar ao servidor</b>. O código abaixo só é preciso numa folha que não veio do
+    planejador.</p>
     <label class="c" for="srv_codigo">Código da equipe (cole aqui ou leia o QR)</label>
     <input type="text" id="srv_codigo" placeholder="GGC:…" autocomplete="off" spellcheck="false">
     <div class="acoes"><button type="button" class="btn sec peq" id="b_srv_qr">Ler o QR do código</button></div>
@@ -4262,6 +4263,7 @@ document.addEventListener('input', e => {
   poe(F, c, e.target.value);
   if (c === 'dia.data') F.dia.data_auto = false;   // digitou: manda quem digitou
   if (/^campanha\.veiculo\./.test(c)) confereVeiculo();
+  if (c === 'campanha.ptcon_lc' && MODO_PLAN){ clearTimeout(window._tKit); window._tKit = setTimeout(() => { try { pintaKits(); } catch (e){} }, 600); }
   if (c === 'campanha.ptcon_lc'){ confereLC(); renomeiaPontos(); clearTimeout(window._tRen); window._tRen = setTimeout(pintaPontos, 800); }
   grava();
 });
@@ -9298,7 +9300,8 @@ async function _posta(corpo){
       const ac = new AbortController(), to = setTimeout(() => ac.abort(), ENVIO.espera);
       let r;
       try { r = await fetch(s.url.trim(), {method: 'POST', redirect: 'follow', signal: ac.signal,
-              body: JSON.stringify(Object.assign({chave: s.chave.trim(), versao: VERSAO}, corpo))}); }
+              body: JSON.stringify(Object.assign({chave: s.chave.trim(), versao: VERSAO},
+                s.equipe ? {lc: s.lc || '', equipe: s.equipe} : {}, corpo))}); }
       finally { clearTimeout(to); }
       if (!r.ok) throw new Error('o receptor respondeu ' + r.status);
       const j = await r.json().catch(() => { throw new Error('resposta do receptor não entendida'); });
@@ -9336,7 +9339,7 @@ function _codigoReceptor(t){
 }
 function aplicaCodigoReceptor(t){
   const c = _codigoReceptor(t); if (!c) return false;
-  const s = _srv(); s.url = c.url; s.chave = c.chave; grava();
+  const s = _srv(); s.url = c.url; s.chave = c.chave; delete s.lc; delete s.equipe; grava();
   const u = $('#srv_url'), k = $('#srv_chave'), cd = $('#srv_codigo');
   if (u) u.value = c.url; if (k) k.value = c.chave; if (cd) cd.value = '';
   _srvRes('Código da equipe lido: receptor e chave preenchidos. Toque em <b>Testar a ligação</b>.');
@@ -10827,6 +10830,7 @@ function pintaKits(){
       + 'dias dela, os pontos, os trechos de acesso e o mapa da região. No celular: baixar pelo Chrome e abrir — não há o que carregar. '
       + 'Material na tela: ' + A.length + ' pontos · ' + Object.keys(TRAJ).length + ' com trechos · ' + AREAS.length + ' imagem(ns) do mapa · '
       + VIAS.length + ' trechos de rua · ' + BLOCOS_N + ' blocos de imagem.</p>';
+    h += _htmlCoord();
     pc.equipes.forEach((e, i) => {
       const d = e.dados || {}, n = e.dias.reduce((s, x) => s + x.ids.length, 0);
       const v = (k, def) => esc(d[k] != null ? d[k] : def);
@@ -10840,7 +10844,7 @@ function pintaKits(){
         + ['', 'Veículo IBGE', 'Veículo locado', 'Veículo particular'].map(o => '<option' + (d.vtipo === o ? ' selected' : '') + '>' + o + '</option>').join('')
         + '</select></div><div><label class="c">Placa</label><input type="text" data-kitc="' + i + '" data-k="vplaca" data-maiusc maxlength="8" placeholder="ex.: OZA9269" value="' + v('vplaca', '') + '"></div></div>'
         + '<label class="c">Marca / modelo</label><input type="text" data-kitc="' + i + '" data-k="vmodelo" data-maiusc placeholder="ex.: MITSUBISHI/L200" value="' + v('vmodelo', '') + '">'
-        + '<label class="c">Código da equipe no receptor do Drive (GGC:…; opcional)</label><input type="text" data-kitc="' + i + '" data-k="srv" spellcheck="false" autocomplete="off" value="' + v('srv', '') + '">'
+        + '<p class="leg" id="kit_av' + i + '" style="margin-top:2px"></p>'
         + '<div class="acoes"><button type="button" class="btn peq" data-kit="' + i + '">Gerar a folha da ' + esc(e.nome) + '</button></div></div>';
     });
   }
@@ -10848,10 +10852,15 @@ function pintaKits(){
     + '<button type="button" class="btn sec peq" id="b_plan_novo">Começar outro planejamento (apaga este)</button></div>'
     + '<p class="leg">Para guardar este planejamento: <b>Cópia completa</b>, na barra de baixo. O mapa não vai na cópia: ao reabrir, carregue-o de novo.</p>';
   el.innerHTML = h;
-  el.querySelectorAll('[data-kitc]').forEach(c => c.addEventListener('change', () => {
-    const e = F.campanha.planoCampanha.equipes[+c.dataset.kitc];
-    e.dados = e.dados || {}; e.dados[c.dataset.k] = c.value; grava();
-  }));
+  el.querySelectorAll('[data-kitc]').forEach(c => {
+    c.addEventListener('change', () => {
+      const e = F.campanha.planoCampanha.equipes[+c.dataset.kitc];
+      e.dados = e.dados || {}; e.dados[c.dataset.k] = c.value; grava();
+    });
+    if (c.dataset.k === 'vplaca') c.addEventListener('input', () => confereKitEquipe(+c.dataset.kitc));
+  });
+  pc.equipes.forEach((e, i) => confereKitEquipe(i));
+  ligaCoord();
   el.querySelectorAll('[data-kit]').forEach(b => b.addEventListener('click', () =>
     geraKit(+b.dataset.kit).catch(err => marca('folha da equipe não saiu: ' + err.message))));
   $('#b_plan_novo').addEventListener('click', () => novoPlanejamento().catch(err => marca('não limpou: ' + err.message)));
@@ -10874,8 +10883,73 @@ async function novoPlanejamento(){
   try { localStorage.removeItem(CHAVE); } catch (e){}
   location.reload();
 }
+/* ---------- envio ao Drive: chaves das equipes calculadas no planejador ----------
+   A coordenação cola UMA VEZ, neste computador, o código da coordenação que o
+   receptor mostra (GGC-COORD:<implantação>:<segredo>). Ao gerar a folha de cada
+   equipe, a chave dela é calculada na hora: HMAC-SHA256(segredo, "LCnnn|Equipe_NN")
+   (KRAWCZYK; BELLARE; CANETTI, 1997). O receptor refaz a mesma conta; nada a
+   cadastrar no servidor por campanha ou por equipe, e nada a digitar no celular.
+   O segredo fica só neste navegador (fora do registro e da cópia completa); a folha
+   da equipe leva só a chave dela, que vale só para o seu LC e a sua equipe. */
+const COORD_RE = /^GGC-COORD:([\w-]{20,}):([0-9a-f]{16,})$/i;
+function _coord(){
+  try { const m = String(localStorage.getItem(CHAVE + '_coord') || '').match(COORD_RE);
+        return m ? {url: 'https://script.google.com/macros/s/' + m[1] + '/exec', seg: m[2], id: m[1]} : null; } catch (e){ return null; }
+}
+async function _hmacHex(seg, msg){
+  const te = new TextEncoder(), k = await crypto.subtle.importKey('raw', te.encode(seg), {name: 'HMAC', hash: 'SHA-256'}, false, ['sign']);
+  return [...new Uint8Array(await crypto.subtle.sign('HMAC', k, te.encode(msg)))].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 40);
+}
+async function _servidorDaEquipe(i){
+  const c = _coord(); if (!c) return undefined;
+  const lc = String(F.campanha.ptcon_lc || ''), equipe = 'Equipe_' + _n2(i + 1);
+  return {url: c.url, lc: lc, equipe: equipe, chave: await _hmacHex(c.seg, lc + '|' + equipe)};
+}
+function _htmlCoord(){
+  const c = _coord(), lc = String(F.campanha.ptcon_lc || '');
+  return '<div class="kit" id="coord_box"><h4>Envio ao Drive</h4>'
+    + (c ? '<p class="leg" style="margin-top:0"><b style="color:#047857">Receptor configurado neste computador</b> (implantação …'
+        + esc(c.id.slice(-6)) + '). Cada folha sai pronta para enviar, com a chave da sua equipe, calculada do código LC'
+        + (LC_OK.test(lc) ? ' (<b>' + esc(lc) + '</b>)' : '') + ' e do número da equipe. Na equipe, ninguém digita código nenhum.'
+        + (LC_OK.test(lc) ? '' : ' <b style="color:#B91C1C">Falta definir o código LC da campanha.</b>') + '</p>'
+        + '<div class="acoes"><button type="button" class="btn sec peq" id="b_coord_tira">Esquecer o receptor neste computador</button></div>'
+      : '<p class="leg" style="margin-top:0">Sem receptor configurado, as folhas saem sem envio ao Drive e a equipe entrega o '
+        + 'pacote (ZIP) como antes. Para ligar o envio, cole aqui, <b>uma vez neste computador</b>, o código da coordenação '
+        + '(GGC-COORD:…), que o responsável pelo receptor obtém em <i>codigoCoordenacao</i>, no Apps Script.</p>'
+        + '<input type="password" id="coord_cod" placeholder="GGC-COORD:…" autocomplete="off" spellcheck="false">'
+        + '<p class="leg" id="coord_av" style="margin-top:2px"></p>')
+    + '</div>';
+}
+function ligaCoord(){
+  const i = $('#coord_cod'), t = $('#b_coord_tira');
+  if (i) { const f = () => {
+      const v = i.value.trim(); if (!v) return;
+      if (!COORD_RE.test(v)){ $('#coord_av').innerHTML = '<span style="color:#B91C1C">código não reconhecido: deve começar por GGC-COORD:</span>'; return; }
+      try { localStorage.setItem(CHAVE + '_coord', v); } catch (e){}
+      marca('receptor do Drive configurado neste computador'); pintaKits(); };
+    i.addEventListener('change', f); i.addEventListener('paste', () => setTimeout(f, 0)); }
+  if (t) t.addEventListener('click', () => {
+    if (!confirm('Esquecer o receptor do Drive neste computador? As próximas folhas sairão sem envio ao Drive.')) return;
+    try { localStorage.removeItem(CHAVE + '_coord'); } catch (e){}
+    pintaKits(); });
+}
+/* placa de cada equipe, conferida enquanto se digita no planejador */
+function _problemasKit(d){
+  const m = [], p = String(d.vplaca || '').toUpperCase().replace(/\s+/g, '');
+  if (p && !PLACA_OK.test(p)) m.push('placa “' + p + '” fora do padrão: ABC1234 ou ABC-1234 (antiga) ou ABC1D23 (Mercosul)');
+  return m;
+}
+function confereKitEquipe(i){
+  const av = $('#kit_av' + i); if (!av) return;
+  const d = {}; document.querySelectorAll('[data-kitc="' + i + '"]').forEach(c => { d[c.dataset.k] = c.value; });
+  av.innerHTML = _problemasKit(d).map(x => '<span style="color:#B91C1C">' + esc(x) + '</span>').join('<br>');
+}
 async function geraKit(i){
   const pc = F.campanha.planoCampanha, e = pc.equipes[i], d = e.dados || {};
+  const prob = _problemasKit(d);
+  if (_coord() && !LC_OK.test(String(F.campanha.ptcon_lc || '')))
+    prob.push('defina antes o código LC da campanha (ex.: LC430): a chave de envio de cada equipe é calculada a partir dele');
+  if (prob.length){ confereKitEquipe(i); throw new Error(e.nome + ': ' + prob.join('; ')); }
   const molde = $('#molde');
   if (!molde) throw new Error('este arquivo não traz o molde da folha — use o planejador_campanha.html');
   marca('montando a folha da ' + e.nome + '…');
@@ -10907,14 +10981,13 @@ async function geraKit(i){
   } catch (err){}
   const r = JSON.parse(JSON.stringify(F));
   r.campanha.ptcon_equipe = d.ptcon || ''; r.campanha.equipe = d.membros || ''; r.campanha.responsavel = d.resp || '';
-  r.campanha.veiculo = {tipo: d.vtipo || '', modelo: (d.vmodelo || '').toUpperCase(), placa: (d.vplaca || '').toUpperCase(), km_saida: '', km_volta: ''};
+  r.campanha.veiculo = {tipo: d.vtipo || '', modelo: (d.vmodelo || '').toUpperCase(), placa: (d.vplaca || '').toUpperCase().replace(/\s+/g, ''), km_saida: '', km_volta: ''};
   r.campanha.municipio = d.mun != null ? d.mun : munDaEquipe(e);
   r.campanha.partida = pc.hotel.semHotel ? '' : (pc.hotel.txt || pc.hotel.lat + ', ' + pc.hotel.lon);
   r.dia = diaNovo(); r.dias = []; r.config = {}; r.gerado = new Date().toISOString(); r.versao = VERSAO;
   const kit = {tipo: 'kit_folha_pontos', id: 'kit_' + Date.now().toString(36) + '_' + i, gerado: r.gerado,
                equipe: {i: i, nome: e.nome, cor: e.cor}, registro: r, trajetos: traj, mapa: mapa, blocos: blocos,
-               servidor: _codigoReceptor(d.srv) || undefined};
-  if (d.srv && !kit.servidor) throw new Error('código do receptor da ' + e.nome + ' não reconhecido (deve começar por GGC:)');
+               servidor: await _servidorDaEquipe(i)};
   const js = JSON.stringify(kit).replace(/</g, '\\u003c');            // nenhum fechamento de script dentro do bloco
   const tit = 'Folha da ' + e.nome + ' — ' + (F.campanha.nome || 'campanha');
   let out = html.replace('<body>', '<body>\n<script type="application/json" id="kit_dados">' + js + '<\/script>');
@@ -10951,7 +11024,8 @@ async function aplicaKit(kitDoArquivo){
   F = Object.assign(folhaNova(), kit.registro);
   F.config = {kit: {id: kit.id, equipe: kit.equipe.nome, gerado: kit.gerado}, equipePlano: kit.equipe.i};
   try { const cv = $('#kit_convite'); if (cv) cv.remove(); } catch (e){}
-  if (kit.servidor && kit.servidor.url) F.config.servidor = {url: kit.servidor.url, chave: kit.servidor.chave || ''};
+  if (kit.servidor && kit.servidor.url) F.config.servidor = {url: kit.servidor.url, chave: kit.servidor.chave || '',
+    lc: kit.servidor.lc || '', equipe: kit.servidor.equipe || ''};
   F.dia.data = new Date().toISOString().slice(0, 10); F.dia.data_auto = true;
   try { await idbLimpa(); } catch (e){}
   try { await mapaLimpa(); for (const [k, v] of kit.mapa || []) await mapaPoeUm(k, v); } catch (e){ marca('mapa: ' + e.message); }

@@ -11,28 +11,36 @@
  *  1. Numa conta/drive compartilhado INSTITUCIONAL, crie a pasta que recebe e
  *     copie o ID dela (o trecho do endereço depois de /folders/).
  *  2. script.google.com > Novo projeto > cole este arquivo em Código.gs.
- *  3. Configurações do projeto > Propriedades do script:
- *       PASTA_RAIZ = <ID da pasta>
- *       CHAVES     = {"<chave longa da equipe 1>":"Equipe_01","<chave da equipe 2>":"Equipe_02"}
- *     (gere cada chave com a função novaChave(), em Executar; mínimo de 16 caracteres)
+ *  3. Configurações do projeto > Propriedades do script: PASTA_RAIZ = <ID da pasta>.
  *  4. Executar > testeReceptor (autoriza o acesso ao Drive e confere a pasta).
  *  5. Implantar > Nova implantação > Aplicativo da Web:
  *       Executar como: Eu · Quem pode acessar: Qualquer pessoa
- *     Copie o endereço que termina em /exec: é o "Endereço do receptor" da folha.
  *     ("Qualquer pessoa" é necessário porque a folha não envia login Google; quem
  *      protege a pasta é a chave de cada equipe. O receptor só grava: não lista nem
  *      devolve arquivo nenhum.)
- *  6. A cada nova versão deste código: Implantar > Gerenciar implantações > editar >
+ *  6. Propriedades do script: URL_RECEPTOR = <o endereço que termina em /exec>.
+ *     Executar > codigoCoordenacao: o registro mostra o CÓDIGO DA COORDENAÇÃO
+ *     (GGC-COORD:…). Cole-o UMA VEZ no planejador (Folhas das equipes > Receptor do
+ *     Drive). Daí em diante, cada folha de equipe gerada pelo planejador já sai com a
+ *     chave dela, calculada na hora a partir do código LC e do número da equipe:
+ *     nada a cadastrar aqui por campanha nem por equipe, e nada a digitar em campo.
+ *  7. A cada nova versão deste código: Implantar > Gerenciar implantações > editar >
  *     Nova versão (o endereço /exec continua o mesmo).
  *
+ * Chaves das equipes: chave = HMAC-SHA256(SEGREDO, "LCnnn|Equipe_NN"), em hexadecimal,
+ * 40 primeiros caracteres (código de autenticação de mensagem; KRAWCZYK; BELLARE;
+ * CANETTI, 1997, RFC 2104). O SEGREDO fica só aqui e no planejador da coordenação;
+ * a folha da equipe leva apenas a sua chave, que vale só para o seu LC e a sua equipe.
+ * Chaves fixas em CHAVES = {"<chave>":"Equipe_01", …} continuam aceitas.
+ *
  * Protocolo (POST, corpo JSON em texto simples):
- *   {acao:'ping', chave}                                  -> {ok, equipe, pasta, versao}
+ *   {acao:'ping', chave, lc, equipe}                       -> {ok, equipe, pasta, versao}
  *   {acao:'arquivo', chave, caminho, tipo, id, parte, partes, ini, bytes, b64}
  *     parte única: grava direto; várias partes (arquivo > 6 MB): envio retomável
  *     da API do Drive, uma parte por pedido, sem juntar o arquivo na memória.
  *   Arquivo com o mesmo nome na mesma pasta é substituído (o anterior vai à lixeira).
  */
-const VERSAO_RECEPTOR = '1.0';
+const VERSAO_RECEPTOR = '1.1';
 const PARTE_MAX = 8 * 1024 * 1024;                 // bytes por pedido (a folha manda 6 MB)
 const INICIO_OK = /^(LC[0-9X]{1,6}|_registros)$/;  // primeira pasta aceita no caminho
 
@@ -41,10 +49,10 @@ function doGet(){ return _json({ok: true, servico: 'receptor da folha de coleta 
 function doPost(e){
   try {
     const q = JSON.parse(e && e.postData && e.postData.contents || '{}');
-    const equipe = _equipe(q.chave);
-    if (!equipe) return _json({ok: false, erro: 'chave da equipe não reconhecida'});
-    if (q.acao === 'ping') return _json({ok: true, equipe: equipe, pasta: _raiz().getName(), versao: VERSAO_RECEPTOR});
-    if (q.acao === 'arquivo') return _json(_arquivo(q, equipe));
+    const eq = _equipe(q);
+    if (!eq) return _json({ok: false, erro: 'chave da equipe não reconhecida'});
+    if (q.acao === 'ping') return _json({ok: true, equipe: eq.equipe, lc: eq.lc || '', pasta: _raiz().getName(), versao: VERSAO_RECEPTOR});
+    if (q.acao === 'arquivo') return _json(_arquivo(q, eq));
     return _json({ok: false, erro: 'ação desconhecida'});
   } catch (err){
     console.error(err);
@@ -54,12 +62,24 @@ function doPost(e){
 
 function _json(o){ return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 
-function _equipe(chave){
-  const c = String(chave || '');
+/* {equipe, lc}: chave fixa (CHAVES) ou chave calculada do LC e da equipe (SEGREDO) */
+function _equipe(q){
+  const c = String(q.chave || ''), P = PropertiesService.getScriptProperties();
   if (c.length < 16) return null;
-  const mapa = JSON.parse(PropertiesService.getScriptProperties().getProperty('CHAVES') || '{}');
-  const eq = mapa[c];
-  return eq && /^[\w-]{1,40}$/.test(eq) ? eq : null;
+  const mapa = JSON.parse(P.getProperty('CHAVES') || '{}'), fixa = mapa[c];
+  if (fixa && /^[\w-]{1,40}$/.test(fixa)) return {equipe: fixa, lc: ''};
+  const seg = P.getProperty('SEGREDO'), lc = String(q.lc || ''), equipe = String(q.equipe || '');
+  if (!seg || !/^LC(\d{1,6}|X{1,6})$/.test(lc) || !/^Equipe_\d{2}$/.test(equipe)) return null;
+  return _iguais(_chaveDe(seg, lc, equipe), c) ? {equipe: equipe, lc: lc} : null;
+}
+function _chaveDe(seg, lc, equipe){
+  return Utilities.computeHmacSha256Signature(lc + '|' + equipe, seg)
+    .map(function(b){ return ('0' + (b & 255).toString(16)).slice(-2); }).join('').slice(0, 40);
+}
+function _iguais(a, b){                             // comparação em tempo constante
+  if (a.length !== b.length) return false;
+  let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
 }
 
 function _raiz(){
@@ -100,8 +120,10 @@ function _trocaAntigos(pasta, nome, idNovo){
   while (it.hasNext()){ const f = it.next(); if (f.getId() !== idNovo) f.setTrashed(true); }
 }
 
-function _arquivo(q, equipe){
-  const segs = _segmentos(q.caminho), nome = segs.pop();
+function _arquivo(q, eq){
+  const equipe = eq.equipe, segs = _segmentos(q.caminho);
+  if (eq.lc && segs[0] !== eq.lc && segs[0] !== '_registros') throw new Error('caminho deve começar por ' + eq.lc + ' (o LC da chave desta equipe)');
+  const nome = segs.pop();
   const partes = Math.max(1, q.partes | 0), k = q.parte | 0, ini = q.ini | 0, total = q.bytes | 0;
   const tipo = /^[\w.+-]+\/[\w.+-]+$/.test(q.tipo || '') ? q.tipo : 'application/octet-stream';
   const bytes = Utilities.base64Decode(String(q.b64 || ''));
@@ -161,6 +183,18 @@ function _sessaoDrive(pastaId, nome, tipo, total){
 function novaChave(){
   const c = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
   console.log('chave nova (40 caracteres): ' + c);
+  return c;
+}
+/* Código da coordenação: GGC-COORD:<id da implantação>:<SEGREDO>. Vai só para o planejador. */
+function codigoCoordenacao(){
+  const P = PropertiesService.getScriptProperties();
+  let seg = P.getProperty('SEGREDO');
+  if (!seg){ seg = novaChave(); P.setProperty('SEGREDO', seg); }
+  const url = P.getProperty('URL_RECEPTOR') || ScriptApp.getService().getUrl() || '';
+  const m = url.match(/\/macros\/s\/([\w-]+)\/exec/);
+  if (!m) throw new Error('defina a propriedade URL_RECEPTOR com o endereço /exec da implantação');
+  const c = 'GGC-COORD:' + m[1] + ':' + seg;
+  console.log('código da coordenação (cole no planejador, uma vez): ' + c);
   return c;
 }
 function testeReceptor(){

@@ -772,7 +772,8 @@ você cabe o que nenhum arquivo registra.</p>
     O que já foi enviado e não mudou não sai de novo; se a conexão cair, toque de
     novo e só o que faltou é mandado. A folha da equipe gerada pelo
     planejador já vem pronta para enviar: basta tocar em <b>Testar a ligação</b> e em
-    <b>Enviar ao servidor</b>. O código abaixo só é preciso numa folha que não veio do
+    <b>Enviar ao servidor</b>, e <b>deixar esta tela aberta e acesa até o fim</b> (com a tela
+    apagada o Chrome pausa o envio; ao voltar, ele continua sozinho). O código abaixo só é preciso numa folha que não veio do
     planejador.</p>
     <p class="leg" id="srv_auto"></p>
     <label class="c" for="srv_codigo">Código de envio (só para folha que não veio do planejador: cole ou leia o QR)</label>
@@ -786,6 +787,7 @@ você cabe o que nenhum arquivo registra.</p>
     </details>
     <div class="acoes so_rede">
       <button type="button" class="btn sec peq" id="b_srv_teste">Testar a ligação</button>
+      <button type="button" class="btn sec peq" id="b_srv_falta">O que falta enviar?</button>
       <button type="button" class="btn sec peq" id="b_srv_envia">Enviar ao servidor</button>
     </div>
     <p class="leg semrede_aviso">Sem internet agora: os botões aparecem quando o aparelho se conectar.</p>
@@ -9443,6 +9445,9 @@ $('#b_ptcon').addEventListener('click', () => {
   u.addEventListener('paste', () => setTimeout(() => { if (_codigoReceptor(u.value)) aplicaCodigoReceptor(u.value); }, 0));
   $('#b_srv_qr').addEventListener('click', () => leQRReceptor().catch(erro));
   $('#b_srv_envia').addEventListener('click', () => enviaAoServidor().catch(erro));
+  $('#b_srv_falta').addEventListener('click', () => { try { _confereSrv(); } catch (e){ return erro(e); } estimaEnvio().catch(erro); });
+  if (s.pendente === true) _srvRes('<b style="color:#B45309">O último envio não terminou</b> (a folha foi fechada no meio). '
+    + 'Com internet, toque em <b>Enviar ao servidor</b>: vai só o que falta.');
 })();
 
 /* ---------- envio ao servidor (Drive institucional, pelo receptor em Apps Script) ----------
@@ -9454,7 +9459,7 @@ $('#b_ptcon').addEventListener('click', () => {
    partes de 6 MB, e uma parte que falha é repetida até três vezes. Pedido em texto
    simples (sem cabeçalhos próprios) para o navegador não exigir pré-verificação
    CORS do Apps Script; a chave da equipe vai no corpo, nunca no endereço. */
-const ENVIO = {parte: 6 * 1024 * 1024, tentativas: 3, espera: 120000};
+const ENVIO = {parte: 6 * 1024 * 1024, tentativas: 3, espera: 120000, paralelo: 3};
 function _srv(){ F.config = F.config || {}; return F.config.servidor = F.config.servidor || {url: '', chave: ''}; }
 function _enviados(){ try { return JSON.parse(localStorage.getItem(CHAVE + '_envios') || '{}'); } catch (e){ return {}; } }
 function _guardaEnviados(m){ try { localStorage.setItem(CHAVE + '_envios', JSON.stringify(m)); } catch (e){} }
@@ -9493,7 +9498,7 @@ async function _posta(corpo){
     }
   }
 }
-async function enviaArquivo(caminho, dados, m){
+async function enviaArquivo(caminho, dados, m, aoParte){
   const s = _srv(), u = await _bytesDe(dados), ass = u.length + ':' + _fnv(u), k = s.url.trim() + '|' + caminho;
   if (m[k] === ass) return 'igual';
   const n = Math.max(1, Math.ceil(u.length / ENVIO.parte));
@@ -9502,6 +9507,7 @@ async function enviaArquivo(caminho, dados, m){
     const a = i * ENVIO.parte, b = Math.min(u.length, a + ENVIO.parte);
     await _posta({acao: 'arquivo', caminho: caminho, tipo: _tipoEnvio(caminho), id: id, parte: i, partes: n,
                   ini: a, bytes: u.length, b64: _b64(u.subarray(a, b))});
+    if (aoParte) aoParte(b - a);
   }
   m[k] = ass; _guardaEnviados(m);
   return 'enviado';
@@ -9578,48 +9584,136 @@ function _itensRegistro(){
   const ap = idAparelho(), it = [{nome: '_registros/' + ap + '/registro.json', dados: registro()}];
   return it;
 }
+/* O envio corre na página: com a tela apagada ou o Chrome em segundo plano, o Android
+   congela a página e o envio para. Por isso a tela fica acesa (Wake Lock) enquanto envia;
+   se mesmo assim a página sair da frente, o envio retoma sozinho quando ela volta. */
+const _AVISO_TELA = 'Mantenha esta tela aberta e acesa até o fim: com a tela apagada ou em outro aplicativo, o Chrome pausa o envio '
+  + '(ele continua sozinho quando você voltar a esta tela).';
+let _travaEnvio = null;
+async function _pedeTela(){ try { _travaEnvio = navigator.wakeLock ? await navigator.wakeLock.request('screen') : null; } catch (e){ _travaEnvio = null; } }
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible'){ if (ENVIO.rodando) ENVIO.saiu = true; return; }
+  const s = (F.config && F.config.servidor) || {};
+  if (ENVIO.rodando){ _pedeTela(); return; }                       // a trava cai quando a tela apaga
+  if (s.pendente === true && navigator.onLine && _urlReceptorOk(s.url)){
+    marca('servidor: retomando o envio interrompido…');
+    enviaAoServidor().catch(e => { _srvRes('<b style="color:#B91C1C">' + esc(e.message) + '</b>'); marca('servidor: ' + e.message); });
+  }
+});
+/* ---------- o que falta enviar e quanto tempo leva ----------
+   Tempo de cada arquivo ≈ a + b·bytes (a = custo fixo de cada pedido ao receptor; b = inverso
+   da vazão), ajustado por mínimos quadrados sobre os arquivos já enviados, como a previsão
+   de tempo do odm.py; dividido pelo número de envios simultâneos. Antes do primeiro arquivo,
+   vale o modelo do último envio deste aparelho (ou 2 s + 1 Mbit/s). */
+function _velEnvio(){ try { return JSON.parse(localStorage.getItem(CHAVE + '_velEnvio') || 'null') || {a: 2, b: 8e-6}; } catch (e){ return {a: 2, b: 8e-6}; } }
+function _ajustaVel(amostras){
+  const n = amostras.length; if (n < 3) return null;
+  const mx = amostras.reduce((s, x) => s + x[0], 0) / n, my = amostras.reduce((s, x) => s + x[1], 0) / n;
+  let sxx = 0, sxy = 0; amostras.forEach(([x, y]) => { sxx += (x - mx) * (x - mx); sxy += (x - mx) * (y - my); });
+  let b = sxx > 0 ? sxy / sxx : 0;
+  if (!(b > 0)) b = my / Math.max(1, mx) * 0.5;
+  return {a: Math.max(0.2, my - b * mx), b: b};
+}
+function _tempoTxt(s){ s = Math.max(0, Math.round(s)); return s < 90 ? s + ' s' : s < 5400 ? Math.round(s / 60) + ' min' : (s / 3600).toFixed(1).replace('.', ',') + ' h'; }
+async function _listaEnvio(){
+  const P = await exportaLC({soItens: true});
+  if (!P || !P.itens) return null;
+  const itens = _itensRegistro();
+  try { const v = await _txTraj('readonly', l => l.get('trajetos'));
+        if (v) itens.push({nome: '_registros/' + idAparelho() + '/trajetos.json', dados: JSON.stringify(v)}); } catch (e){}
+  for (const d of diasDaCampanha()) if (d.dia.trilha_id){
+    const T = await trilhaDoDia(d.dia).catch(() => null);
+    if (T && T.length) itens.push({nome: '_registros/' + idAparelho() + '/trilha_' + (d.dia.data || d.dia.trilha_id) + '.json', dados: JSON.stringify(T)});
+  }
+  const L = [], falhas = [], m = _enviados(), url = _srv().url.trim();
+  for (const it of P.itens.concat(itens)){
+    try { const u = await _bytesDe(it.dados); L.push({nome: it.nome, u: u, igual: m[url + '|' + it.nome] === u.length + ':' + _fnv(u)}); }
+    catch (e){ falhas.push(it.nome + ': ' + e.message); }
+  }
+  L.sort((a, b) => a.u.length - b.u.length);         // os pequenos primeiro: o essencial chega mesmo se a conexão cair
+  return {P: P, L: L, falhas: falhas, m: m};
+}
+function _resumoFalta(L){
+  const F_ = L.filter(x => !x.igual), mb = F_.reduce((s, x) => s + x.u.length, 0), v = _velEnvio();
+  const t = F_.reduce((s, x) => s + v.a + v.b * x.u.length, 0) / ENVIO.paralelo;
+  return {n: F_.length, ig: L.length - F_.length, bytes: mb, seg: t};
+}
+async function estimaEnvio(){
+  marca('servidor: conferindo o que falta enviar…');
+  const r = await _listaEnvio(); if (!r) return;
+  const q = _resumoFalta(r.L);
+  _srvRes(q.n ? 'Falta enviar <b>' + q.n + ' arquivo(s), ' + (q.bytes / 1e6).toFixed(1).replace('.', ',') + ' MB</b>'
+      + (q.ig ? ' (' + q.ig + ' já estão no servidor sem mudança)' : '') + '. Tempo estimado: <b>~' + _tempoTxt(q.seg) + '</b>, com '
+      + ENVIO.paralelo + ' envios simultâneos (' + (localStorage.getItem(CHAVE + '_velEnvio') ? 'pela velocidade do último envio deste aparelho'
+      : 'estimativa inicial: 1 Mbit/s') + '; a previsão se corrige durante o envio).'
+    : 'Nada a enviar: os ' + q.ig + ' arquivo(s) já estão no servidor sem mudança.');
+  marca('servidor: falta enviar ' + q.n + ' arquivo(s)');
+}
 async function enviaAoServidor(){
+  if (ENVIO.rodando) return marca('servidor: o envio já está em andamento');
   _confereSrv();
   const s = _srv(); grava();
   await testaServidor();
-  let trava = null;
-  try { trava = navigator.wakeLock ? await navigator.wakeLock.request('screen') : null; } catch (e){}
+  ENVIO.rodando = true; ENVIO.saiu = false; s.pendente = true; grava();
+  await _pedeTela();
   try {
     marca('servidor: montando o pacote da campanha…');
-    const P = await exportaLC({soItens: true});
-    if (!P || !P.itens) return;
-    const itens = _itensRegistro();
-    try { const v = await _txTraj('readonly', l => l.get('trajetos'));
-          if (v) itens.push({nome: '_registros/' + idAparelho() + '/trajetos.json', dados: JSON.stringify(v)}); } catch (e){}
-    for (const d of diasDaCampanha()) if (d.dia.trilha_id){
-      const T = await trilhaDoDia(d.dia).catch(() => null);
-      if (T && T.length) itens.push({nome: '_registros/' + idAparelho() + '/trilha_' + (d.dia.data || d.dia.trilha_id) + '.json', dados: JSON.stringify(T)});
+    const R_ = await _listaEnvio();
+    if (!R_){ s.pendente = false; grava(); return; }
+    const P = R_.P, m = R_.m, falhas = R_.falhas;
+    const fila = R_.L.filter(x => !x.igual), ig = R_.L.length - fila.length;
+    const tot = fila.reduce((t, x) => t + x.u.length, 0), t0 = Date.now(), amostras = [];
+    let feito = 0, env = 0, prox = 0, k = ENVIO.paralelo, seguidas = 0, para = false, vel = _velEnvio();
+    const progresso = () => {
+      const rest = fila.slice(prox).reduce((t, x) => t + x.u.length, 0) + Math.max(0, fila.slice(0, prox).reduce((t, x) => t + x.u.length, 0) - feito);
+      const nRest = fila.length - env - falhas.length;
+      const seg = Math.max(0, (nRest * vel.a + vel.b * rest) / k);
+      const dt = (Date.now() - t0) / 1000, mbps = dt > 2 ? feito * 8 / dt / 1e6 : null;
+      _srvRes('Enviando: <b>' + env + ' de ' + fila.length + '</b> arquivos · ' + (feito / 1e6).toFixed(1).replace('.', ',') + ' de '
+        + (tot / 1e6).toFixed(1).replace('.', ',') + ' MB (' + Math.round(100 * feito / Math.max(1, tot)) + ' %)'
+        + (nRest ? ' · <b>~' + _tempoTxt(seg) + ' restantes</b>' : '') + ' · ' + k + ' envio(s) simultâneo(s)'
+        + (mbps ? ' · ' + mbps.toFixed(1).replace('.', ',') + ' Mbit/s' : '') + (ig ? ' · ' + ig + ' já estavam no servidor' : '')
+        + '<br><b style="color:#B45309">' + _AVISO_TELA + '</b>');
+      marca('servidor: ' + env + ' de ' + fila.length + (nRest ? ' · ~' + _tempoTxt(seg) + ' restantes' : ''));
+    };
+    // k envios ao mesmo tempo: cada um pega o próximo arquivo da fila; falhas de rede seguidas
+    // reduzem para um só (rede fraca), e a recusa da chave para tudo
+    const trabalhador = async w => {
+      while (!para && prox < fila.length){
+        if (w >= k) return;
+        const x = fila[prox++], ti = Date.now();
+        try {
+          await enviaArquivo(x.nome, x.u, m, b => { feito += b; progresso(); });
+          env++; seguidas = 0;
+          amostras.push([x.u.length, (Date.now() - ti) / 1000]);
+          const aj = _ajustaVel(amostras); if (aj) vel = aj;
+        } catch (e){
+          falhas.push(x.nome + ': ' + e.message); feito += x.u.length;
+          if (e.definitivo && /chave/.test(e.message)) para = true;
+          else if (++seguidas >= 2 && k > 1){ k = 1; marca('servidor: rede instável — seguindo com um envio por vez'); }
+        }
+        progresso();
+      }
+    };
+    if (fila.length){ progresso(); await Promise.all(Array.from({length: ENVIO.paralelo}, (_, w) => trabalhador(w))); }
+    const aj = _ajustaVel(amostras);
+    if (aj) try { localStorage.setItem(CHAVE + '_velEnvio', JSON.stringify({a: +aj.a.toFixed(3), b: aj.b, quando: new Date().toISOString()})); } catch (e){}
+    const durou = (Date.now() - t0) / 1000;
+    s.ultimoEnvio = new Date().toISOString(); s.pendente = falhas.length ? (ENVIO.saiu ? true : 'falhas') : false; grava();
+    // falhas porque a tela apagou no meio: repete sozinho, uma vez, com a tela de volta
+    if (falhas.length && ENVIO.saiu && !ENVIO.repetiu && document.visibilityState === 'visible' && navigator.onLine){
+      ENVIO.repetiu = true;
+      setTimeout(() => { marca('servidor: repetindo o que parou com a tela apagada…');
+        enviaAoServidor().catch(e => marca('servidor: ' + e.message)).finally(() => { ENVIO.repetiu = false; }); }, 1500);
     }
-    // os pequenos primeiro: o essencial chega mesmo se a conexão cair no meio
-    const L = [];
-    const falhas = [];
-    for (const it of P.itens.concat(itens)){
-      try { L.push({nome: it.nome, u: await _bytesDe(it.dados)}); } catch (e){ falhas.push(it.nome + ': ' + e.message); }
-    }
-    L.sort((a, b) => a.u.length - b.u.length);
-    const m = _enviados(), tot = L.reduce((t, x) => t + x.u.length, 0);
-    let feito = 0, env = 0, ig = 0;
-    for (let i = 0; i < L.length; i++){
-      const x = L[i];
-      marca('servidor: ' + (i + 1) + ' de ' + L.length + ' — ' + x.nome.split('/').pop());
-      _srvRes('Enviando ' + (i + 1) + ' de ' + L.length + ' (' + Math.round(100 * feito / Math.max(1, tot)) + ' % dos '
-        + (tot / 1e6).toFixed(1) + ' MB)…');
-      try { (await enviaArquivo(x.nome, x.u, m)) === 'igual' ? ig++ : env++; }
-      catch (e){ falhas.push(x.nome + ': ' + e.message); if (e.definitivo && /chave/.test(e.message)) break; }
-      feito += x.u.length;
-    }
-    s.ultimoEnvio = new Date().toISOString(); grava();
-    _srvRes('<b>' + esc(P.lc) + ', Equipe ' + esc(P.equipeN) + '</b>: ' + env + ' arquivo(s) enviado(s), ' + ig
+    try { navigator.vibrate && navigator.vibrate([150, 80, 150]); } catch (e){}
+    _srvRes('<b>' + esc(P.lc) + ', Equipe ' + esc(P.equipeN) + '</b>: ' + env + ' arquivo(s) enviado(s)'
+      + (env ? ' (' + (feito / 1e6).toFixed(1).replace('.', ',') + ' MB em ' + _tempoTxt(durou) + ')' : '') + ', ' + ig
       + ' já estavam no servidor sem mudança' + (falhas.length ? ', <b style="color:#B91C1C">' + falhas.length
       + ' com falha</b> — toque de novo para repetir só esses:<br>' + falhas.map(f => '· ' + esc(f)).join('<br>') : '.')
       + (P.faltas.length ? '<br>Pendências do pacote: ' + P.faltas.length + ' (veja em Pacote da campanha).' : ''));
     marca('servidor: ' + env + ' enviado(s), ' + ig + ' sem mudança' + (falhas.length ? ', ' + falhas.length + ' falha(s)' : ''));
-  } finally { try { trava && trava.release(); } catch (e){} }
+  } finally { ENVIO.rodando = false; try { _travaEnvio && _travaEnvio.release(); } catch (e){} _travaEnvio = null; }
 }
 
 /* ---------- pacote da campanha no padrão LC da GGC/CE ----------

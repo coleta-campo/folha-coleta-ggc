@@ -1,7 +1,8 @@
-/* service worker da folha de coleta de pontos (GGC/SES-CE) — versão 202610200956
-   Os arquivos da folha: rede primeiro (4 s), guardando a cópia; sem rede, a cópia guardada.
+/* service worker da folha de coleta de pontos (GGC/SES-CE) — versão 202610201007
+   Os arquivos da folha: rede primeiro (4 s, sempre conferindo a versão), guardando a cópia;
+   sem rede, a cópia guardada.
    Pedidos a outros endereços (mapas, IBGE-PPP, receptor do Drive) passam direto. */
-const CACHE = 'folha-202610200956';
+const CACHE = 'folha-202610201007';
 const ARQS = ['./', './index.html', './planejador.html', './manifest.webmanifest', './icone-192.png', './icone-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARQS)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(L => Promise.all(L.filter(k => k !== CACHE).map(k => caches.delete(k))))
@@ -12,7 +13,8 @@ self.addEventListener('fetch', e => {
   e.respondWith((async () => {
     const c = await caches.open(CACHE);
     try {
-      const rede = await Promise.race([fetch(r), new Promise((_, n) => setTimeout(() => n(new Error('lenta')), 4000))]);
+      // 'no-cache': sempre confere com o servidor (resposta curta quando nada mudou), sem esperar o cache de 10 min do Pages
+      const rede = await Promise.race([fetch(r, {cache: 'no-cache'}), new Promise((_, n) => setTimeout(() => n(new Error('lenta')), 4000))]);
       if (rede && rede.ok) c.put(r, rede.clone());
       return rede;
     } catch (err){

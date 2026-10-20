@@ -33,8 +33,13 @@ internet, seguem para o receptor do Drive institucional (ver abaixo).
 
 1. Rode `gera_github.py`. Ele refaz esta pasta a partir de `folha_coleta_pontos.html`
    e de `planejador_campanha.html`.
-2. Reenvie `index.html`, `planejador.html` e `sw.js`.
-3. Cada celular recebe a versão nova na próxima vez que abrir a folha com internet.
+2. Copie os arquivos para a cópia local do repositório (clone do GitHub Desktop, fora
+   do Google Drive): `F:\DRONES_ODM_GOV\FERRAMENTAS_CAMPO\folha-coleta-ggc\folha-coleta-ggc`.
+3. No GitHub Desktop: escreva o resumo da mudança, **Commit to main** e **Push origin**.
+   Sem o Desktop, dá para reenviar `index.html`, `planejador.html` e `sw.js` pela página
+   do repositório (*Add file > Upload files*).
+4. O site muda em 1 a 2 minutos. Cada aparelho confere a versão sempre que abre a
+   folha com internet.
 
 ## 3. Quem usa e como
 

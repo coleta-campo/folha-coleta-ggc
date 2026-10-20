@@ -383,16 +383,16 @@ você cabe o que nenhum arquivo registra.</p>
   <div class="cart">
     <h3>Identificação da campanha</h3>
     <label class="c" for="c_nome">Nome da campanha ou do projeto</label>
-    <input type="text" id="c_nome" data-campo="campanha.nome" placeholder="ex.: Campanha de Risco 2026 — RN">
+    <input type="text" id="c_nome" data-campo="campanha.nome" data-maiusc placeholder="ex.: Campanha de Risco 2026 — RN">
     <div class="lin2">
       <div><label class="c" for="c_lc">Campanha no PTCON</label>
-        <input type="text" id="c_lc" data-campo="campanha.ptcon_lc" placeholder="ex.: LC426" maxlength="16"></div>
+        <input type="text" id="c_lc" data-campo="campanha.ptcon_lc" data-maiusc placeholder="ex.: LC426" maxlength="16"></div>
       <div><label class="c" for="c_eqp">Equipe no PTCON</label>
-        <input type="text" id="c_eqp" data-campo="campanha.ptcon_equipe" placeholder="ex.: CE1" maxlength="16"></div>
+        <input type="text" id="c_eqp" data-campo="campanha.ptcon_equipe" data-maiusc placeholder="ex.: CE1" maxlength="16"></div>
     </div>
     <p class="leg" id="c_lc_aviso" style="margin-top:2px"></p>
     <label class="c" for="c_proj">Projeto no PTCON</label>
-    <input type="text" id="c_proj" data-campo="campanha.ptcon_projeto" placeholder="ex.: AVALIA-RN-1">
+    <input type="text" id="c_proj" data-campo="campanha.ptcon_projeto" data-maiusc placeholder="ex.: AVALIA-RN-1">
     <p class="leg">Usados no <b>pacote PTCON</b> (aba Fechar): o código LC dá nome à
     pasta e forma o identificador de cada ponto, <span class="marca">LC426:0037A</span>.</p>
     <div class="lin2">
@@ -4205,6 +4205,7 @@ function sincronizaMun(){
 
 /* ---------- ligação dos campos ---------- */
 function pintaCampos(){
+  try { maiusculasNoRegistro(); } catch (e){}
   $$('[data-campo]').forEach(el => {
     const v = pega(F, el.dataset.campo);
     if (v != null) el.value = v;
@@ -4212,6 +4213,27 @@ function pintaCampos(){
   try { sincronizaMun(); } catch (e){}
   try { confereLC(); } catch (e){}
 }
+/* Nome da campanha, códigos do PTCON e nome das equipes: sempre em MAIÚSCULAS, como
+   quer que se digite (o cursor fica no lugar). */
+const MAIUSC_CAMPOS = ['campanha.nome', 'campanha.ptcon_lc', 'campanha.ptcon_equipe', 'campanha.ptcon_projeto'];
+function emMaiusculas(el){
+  if (!el || el.dataset.maiusc == null) return;
+  const v = el.value, u = v.toLocaleUpperCase('pt-BR');
+  if (u === v) return;
+  const a = el.selectionStart, b = el.selectionEnd;
+  el.value = u;
+  try { if (a != null) el.setSelectionRange(a, b); } catch (err){}
+}
+function maiusculasNoRegistro(){
+  const c = F.campanha || {};
+  MAIUSC_CAMPOS.forEach(k => { const v = pega(F, k); if (typeof v === 'string' && v !== v.toLocaleUpperCase('pt-BR')) poe(F, k, v.toLocaleUpperCase('pt-BR')); });
+  const pc = c.planoCampanha;
+  if (pc && pc.equipes) pc.equipes.forEach(e => {
+    if (e.nome) e.nome = e.nome.toLocaleUpperCase('pt-BR');
+    if (e.dados && e.dados.ptcon) e.dados.ptcon = e.dados.ptcon.toLocaleUpperCase('pt-BR');
+  });  if (F.config && F.config.kit && F.config.kit.equipe) F.config.kit.equipe = F.config.kit.equipe.toLocaleUpperCase('pt-BR');
+}
+document.addEventListener('input', e => { if (e.target && e.target.dataset && e.target.dataset.maiusc != null) emMaiusculas(e.target); }, true);
 document.addEventListener('input', e => {
   const c = e.target.dataset.campo; if (!c) return;
   poe(F, c, e.target.value);
@@ -6236,7 +6258,7 @@ async function planejaCampanha(){
   const nd_ = t => t.map(k => Math.ceil(k / x));
   const compara = alt && alt.tam && div.tam && alt.tam.join() !== div.tam.join()
     ? {modo: divisao === 'dias' ? 'vazios' : 'dias', tam: alt.tam, dias: nd_(alt.tam)} : null;
-  const equipes = div.grupos.map((G, i) => ({nome: 'Equipe ' + (i + 1), cor: CORES_EQ[i % CORES_EQ.length],
+  const equipes = div.grupos.map((G, i) => ({nome: 'EQUIPE ' + (i + 1), cor: CORES_EQ[i % CORES_EQ.length],
     dias: montaDias(G, H, x, ordem, dH).map(d => ({ids: d.map(u => u.id), ks: d.map(u => u.k), pernas: null}))}));
   /* Rotas de carro de cada dia, feitas aqui no gabinete para todas as equipes:
      1) a ordem de visita é refeita pelos tempos de carro entre os pontos (tabela do OSRM),
@@ -10756,7 +10778,7 @@ function pintaKits(){
       const v = (k, def) => esc(d[k] != null ? d[k] : def);
       h += '<div class="kit" style="border-left:4px solid ' + e.cor + '"><h4 style="color:' + e.cor + '">' + esc(e.nome) + ' — '
         + n + ' círculo(s), ' + e.dias.length + ' dia(s)</h4>'
-        + '<div class="lin2"><div><label class="c">Equipe no PTCON</label><input type="text" data-kitc="' + i + '" data-k="ptcon" maxlength="16" placeholder="ex.: CE1" value="' + v('ptcon', '') + '"></div>'
+        + '<div class="lin2"><div><label class="c">Equipe no PTCON</label><input type="text" data-kitc="' + i + '" data-k="ptcon" data-maiusc maxlength="16" placeholder="ex.: CE1" value="' + v('ptcon', '') + '"></div>'
         + '<div><label class="c">Município</label><input type="text" data-kitc="' + i + '" data-k="mun" list="l_mun" data-lista-fixa autocomplete="off" value="' + v('mun', munDaEquipe(e)) + '"></div></div>'
         + '<label class="c">Integrantes — um por linha: nome; papel; SIAPE</label><textarea data-kitc="' + i + '" data-k="membros">' + v('membros', '') + '</textarea>'
         + '<label class="c">Responsável pela carga do equipamento</label><input type="text" data-kitc="' + i + '" data-k="resp" value="' + v('resp', '') + '">'

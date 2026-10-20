@@ -425,6 +425,25 @@ você cabe o que nenhum arquivo registra.</p>
     <p class="leg">O modelo de antena e a altura medida em campo são exigidos pelo
     PPP do IBGE, ponto a ponto. O que entra aqui é só o padrão da campanha: cada
     ocupação registra os seus.</p>
+    <h4 style="margin:12px 0 2px">Veículo da equipe</h4>
+    <p class="leg" style="margin-top:0">Uma equipe, um carro: preenchido uma vez (ou já vindo do planejamento), vale para
+    toda a campanha e vai ao item 3 do relatório de campanha da equipe. O hodômetro na saída e na volta dá o km percorrido.</p>
+    <div class="lin2">
+      <div><label class="c" for="c_vtipo">Tipo</label>
+        <select id="c_vtipo" data-campo="campanha.veiculo.tipo"><option value="">—</option>
+          <option>Veículo IBGE</option><option>Veículo locado</option><option>Veículo particular</option></select></div>
+      <div><label class="c" for="c_vplaca">Placa</label>
+        <input type="text" id="c_vplaca" data-campo="campanha.veiculo.placa" data-maiusc placeholder="ex.: OZA9269" maxlength="8" autocomplete="off"></div>
+    </div>
+    <label class="c" for="c_vmodelo">Marca / modelo</label>
+    <input type="text" id="c_vmodelo" data-campo="campanha.veiculo.modelo" data-maiusc placeholder="ex.: MITSUBISHI/L200">
+    <div class="lin2">
+      <div><label class="c" for="c_vkm0">Hodômetro na saída (km)</label>
+        <input type="number" id="c_vkm0" data-campo="campanha.veiculo.km_saida" inputmode="numeric" min="0"></div>
+      <div><label class="c" for="c_vkm1">Hodômetro na volta (km)</label>
+        <input type="number" id="c_vkm1" data-campo="campanha.veiculo.km_volta" inputmode="numeric" min="0"></div>
+    </div>
+    <p class="leg" id="c_veic_aviso" style="margin-top:2px"></p>
     <p class="leg"><b>Declinação magnética:</b> a bússola do celular aponta o norte
     magnético; a navegação e as fotos F1–F4 trabalham com azimute verdadeiro. A folha
     calcula a declinação sozinha, para cada ponto e na data do trabalho, pelo Modelo
@@ -4212,10 +4231,12 @@ function pintaCampos(){
   });
   try { sincronizaMun(); } catch (e){}
   try { confereLC(); } catch (e){}
+  try { confereVeiculo(); } catch (e){}
 }
 /* Nome da campanha, códigos do PTCON e nome das equipes: sempre em MAIÚSCULAS, como
    quer que se digite (o cursor fica no lugar). */
-const MAIUSC_CAMPOS = ['campanha.nome', 'campanha.ptcon_lc', 'campanha.ptcon_equipe', 'campanha.ptcon_projeto'];
+const MAIUSC_CAMPOS = ['campanha.nome', 'campanha.ptcon_lc', 'campanha.ptcon_equipe', 'campanha.ptcon_projeto',
+  'campanha.veiculo.placa', 'campanha.veiculo.modelo'];
 function emMaiusculas(el){
   if (!el || el.dataset.maiusc == null) return;
   const v = el.value, u = v.toLocaleUpperCase('pt-BR');
@@ -4238,6 +4259,7 @@ document.addEventListener('input', e => {
   const c = e.target.dataset.campo; if (!c) return;
   poe(F, c, e.target.value);
   if (c === 'dia.data') F.dia.data_auto = false;   // digitou: manda quem digitou
+  if (/^campanha\.veiculo\./.test(c)) confereVeiculo();
   if (c === 'campanha.ptcon_lc'){ confereLC(); renomeiaPontos(); clearTimeout(window._tRen); window._tRen = setTimeout(pintaPontos, 800); }
   grava();
 });
@@ -4420,6 +4442,7 @@ async function pacoteDistribuicao(){
   if (minhas.length) f.campanha.externas[idAparelho()] = {equipe: nomeEquipe(), gerado: new Date().toISOString(),
     recebido: new Date().toISOString(), ocup: minhas, remedir: (F.campanha.remedir || []).slice()};
   f.campanha.ptcon_equipe = ''; f.campanha.equipe = ''; f.campanha.responsavel = ''; f.campanha.partida = '';
+  f.campanha.veiculo = {};                                     // outra equipe, outro carro
   f.dia = diaNovo(); f.dias = [];
   // o endereço do receptor segue para a outra equipe; a chave, não (cada equipe tem a sua)
   f.config = F.config && F.config.servidor && F.config.servidor.url ? {servidor: {url: F.config.servidor.url, chave: ''}} : {}; f.gerado = new Date().toISOString(); f.versao = VERSAO;
@@ -10168,6 +10191,31 @@ function confereLC(){
     : '<span style="color:#B91C1C">“' + esc(v) + '” fora do padrão: use LC seguido só de números (ex.: LC429). Em teste, LC900 ou LCXXX. '
       + 'Com este código os pontos não recebem o nome do PTCON, e o pacote e o envio ao servidor não saem.</span>';
 }
+/* Placa no padrão antigo (ABC-1234) ou Mercosul (ABC1D23); km pelo hodômetro, ou pela trilha. */
+const PLACA_OK = /^[A-Z]{3}-?\d[A-Z0-9]\d{2}$/;
+function kmDaCampanha(){
+  const v = F.campanha.veiculo || {}, a = parseFloat(v.km_saida), b = parseFloat(v.km_volta);
+  if (isFinite(a) && isFinite(b) && b >= a) return {km: b - a, fonte: 'hodômetro'};
+  const t = diasDaCampanha().reduce((s, e) => s + ((e.dia.trilha_resumo || {}).km || 0), 0);
+  return t ? {km: t, fonte: 'trilha do celular'} : null;
+}
+function confereVeiculo(){
+  const av = $('#c_veic_aviso'); if (!av) return;
+  const v = F.campanha.veiculo || {}, p = String(v.placa || '').toUpperCase(), k = kmDaCampanha(), m = [];
+  if (p && !PLACA_OK.test(p)) m.push('<span style="color:#B45309">placa “' + esc(p) + '” fora do padrão (ABC1234, ABC-1234 ou ABC1D23)</span>');
+  const a = parseFloat(v.km_saida), b = parseFloat(v.km_volta);
+  if (isFinite(a) && isFinite(b) && b < a) m.push('<span style="color:#B91C1C">hodômetro da volta menor que o da saída</span>');
+  if (k) m.push('km percorrido: <b>' + _numBR(k.km, k.fonte === 'hodômetro' ? 0 : 1) + ' km</b> (' + k.fonte + ')');
+  av.innerHTML = m.join(' · ');
+}
+/* Integrantes, uma linha cada: "nome; papel; SIAPE" (o que faltar fica em branco). */
+function integrantes(){
+  return String(F.campanha.equipe || '').split(/\n+/).map(l => l.trim()).filter(Boolean).map(l => {
+    const p = l.split(';').map(x => x.trim());
+    const siape = p.find((x, i) => i > 0 && /^\d{5,8}$/.test(x)) || '';
+    return {nome: p[0], papel: p.slice(1).filter(x => x !== siape).join('; '), siape: siape};
+  });
+}
 async function exportaLC(op){
   await atualizaTemposCampo();
   let lc = ptconNome(F.campanha.ptcon_lc);
@@ -10293,20 +10341,23 @@ async function exportaLC(op){
   itens.push({nome: eqd + 'Relatório_Ponto de Controle_' + lc + (iEq > 0 ? '_EQ' + (iEq + 1) : '') + '.docx', dados: await docxDe([{titulo: 'RELATÓRIO DE CAMPANHA DA EQUIPE'},
     {t: [['UNIDADE: GGC/SES/CE', 'DGC - COORDENAÇÃO DE CARTOGRAFIA'],
          ['CAMPANHA: ' + ((F.campanha.ptcon_projeto || '').toUpperCase() + ' ' + lc).trim(), 'DATA (Início e fim): ' + (F.campanha.inicio || (datas[0] ? _br(datas[0]) : '')) + ' a ' + (F.campanha.fim || (datas.length ? _br(datas[datas.length - 1]) : ''))]]},
-    {h: '1 – EQUIPE'}, {t: [['Nome: ' + (F.campanha.equipe || ''), 'SIAPE: ']]},
+    {h: '1 – EQUIPE'}, {t: integrantes().map(m => ['Nome: ' + m.nome, 'SIAPE: ' + (m.siape || '')]).concat(integrantes().length ? [] : [['Nome: ', 'SIAPE: ']])},
     {h: '2 – OBJETIVO DA VIAGEM / ATIVIDADE'}, 'Coleta de pontos de ' + ([...new Set(reg.map(r => r.p.tipo).filter(Boolean))].join(' e ') || 'controle') + ' para verificação das imagens' + (F.campanha.ptcon_projeto ? ' do projeto ' + F.campanha.ptcon_projeto : '') + '.',
-    {h: '3 - MEIO DE TRANSPORTE'}, {t: [['Tipo: ', 'Marca / Modelo: ', 'Placa: ']]},
+    {h: '3 - MEIO DE TRANSPORTE'}, {t: [['Tipo: ' + ((F.campanha.veiculo || {}).tipo || ''), 'Marca / Modelo: ' + ((F.campanha.veiculo || {}).modelo || ''),
+      'Placa: ' + ((F.campanha.veiculo || {}).placa || '')]]},
     {h: '4 – EQUIPAMENTOS E MATERIAIS UTILIZADOS (GPS, NOTEBOOK, ANTENAS, ETC.)'}, rec ? 'Receptor ' + rec + '.' : '',
     {h: '5 - CONTATOS MANTIDOS'}, 'Nome:', 'Endereço:', 'Tel:', 'E-mail:',
     {h: '6 – QUANTITATIVO DA PRODUÇÃO CARTOGRÁFICA PARA PONTOS DE CONTROLE'},
     'Pontos coletados = ' + reg.length, ...linhasDia,
+    ...(function(){ const k = kmDaCampanha(); return k ? ['OBS: KM Percorrido: ' + Math.round(k.km).toLocaleString('pt-BR') + ' km' + (k.fonte === 'hodômetro' ? '' : ' (pela trilha do celular)') + '.'] : []; })(),
     'Processamento e medição dos pontos: com posicionamento estático, utilizando como tipo de processamento o PPP.',
     {h: '7 - QUANTITATIVO DA PRODUÇÃO CARTOGRÁFICA PARA REAMBULAÇÃO'}, 'Não aplicável',
     {h: '8 - Ocorrências, Dificuldades, Observações.'}, ...(F.dias || []).concat([F.dia]).map(d => d.ocorrencias).filter(Boolean),
     {h: '9 – COMPOSIÇÃO DE CUSTOS DA EQUIPE'}, '(a preencher pela equipe)',
     'RESPONSÁVEL: ' + (F.campanha.responsavel || '')])});
   itens.push({nome: eqd + 'Relatório de Viagem.docx', dados: await docxDe([
-    {titulo: 'RELATÓRIO DE VIAGENS NACIONAIS'}, 'IDENTIFICAÇÃO DA EQUIPE', 'Nome: ' + (F.campanha.equipe || ''), 'Cargo:', 'PCDP:', 'SIAPE:', 'Função:', 'Lotação: SES/CE – GGC',
+    {titulo: 'RELATÓRIO DE VIAGENS NACIONAIS'}, 'IDENTIFICAÇÃO DA EQUIPE',
+    ...(integrantes().length ? integrantes() : [{nome: '', siape: ''}]).flatMap(m => ['Nome: ' + m.nome, 'Cargo:', 'PCDP:', 'SIAPE: ' + (m.siape || ''), 'Função:', 'Lotação: SES/CE – GGC', '']),
     'IDENTIFICAÇÃO DO AFASTAMENTO COM LOCAIS DE PERNOITE', '(a preencher pela equipe)',
     'DESCRIÇÃO SUCINTA DA VIAGEM (ATIVIDADES REALIZADAS)', ...linhasDia])});
   // os PDFs da folha, na pasta da equipe: campanha, cada dia, relatórios dos pontos
@@ -10782,6 +10833,10 @@ function pintaKits(){
         + '<div><label class="c">Município</label><input type="text" data-kitc="' + i + '" data-k="mun" list="l_mun" data-lista-fixa autocomplete="off" value="' + v('mun', munDaEquipe(e)) + '"></div></div>'
         + '<label class="c">Integrantes — um por linha: nome; papel; SIAPE</label><textarea data-kitc="' + i + '" data-k="membros">' + v('membros', '') + '</textarea>'
         + '<label class="c">Responsável pela carga do equipamento</label><input type="text" data-kitc="' + i + '" data-k="resp" value="' + v('resp', '') + '">'
+        + '<div class="lin2"><div><label class="c">Veículo — tipo</label><select data-kitc="' + i + '" data-k="vtipo">'
+        + ['', 'Veículo IBGE', 'Veículo locado', 'Veículo particular'].map(o => '<option' + (d.vtipo === o ? ' selected' : '') + '>' + o + '</option>').join('')
+        + '</select></div><div><label class="c">Placa</label><input type="text" data-kitc="' + i + '" data-k="vplaca" data-maiusc maxlength="8" placeholder="ex.: OZA9269" value="' + v('vplaca', '') + '"></div></div>'
+        + '<label class="c">Marca / modelo</label><input type="text" data-kitc="' + i + '" data-k="vmodelo" data-maiusc placeholder="ex.: MITSUBISHI/L200" value="' + v('vmodelo', '') + '">'
         + '<label class="c">Código da equipe no receptor do Drive (GGC:…; opcional)</label><input type="text" data-kitc="' + i + '" data-k="srv" spellcheck="false" autocomplete="off" value="' + v('srv', '') + '">'
         + '<div class="acoes"><button type="button" class="btn peq" data-kit="' + i + '">Gerar a folha da ' + esc(e.nome) + '</button></div></div>';
     });
@@ -10849,6 +10904,7 @@ async function geraKit(i){
   } catch (err){}
   const r = JSON.parse(JSON.stringify(F));
   r.campanha.ptcon_equipe = d.ptcon || ''; r.campanha.equipe = d.membros || ''; r.campanha.responsavel = d.resp || '';
+  r.campanha.veiculo = {tipo: d.vtipo || '', modelo: (d.vmodelo || '').toUpperCase(), placa: (d.vplaca || '').toUpperCase(), km_saida: '', km_volta: ''};
   r.campanha.municipio = d.mun != null ? d.mun : munDaEquipe(e);
   r.campanha.partida = pc.hotel.semHotel ? '' : (pc.hotel.txt || pc.hotel.lat + ', ' + pc.hotel.lon);
   r.dia = diaNovo(); r.dias = []; r.config = {}; r.gerado = new Date().toISOString(); r.versao = VERSAO;

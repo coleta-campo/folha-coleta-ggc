@@ -6392,8 +6392,10 @@ function svgPlanoCampanha(pc, W, Hh){
       : '<circle cx="' + cx + '" cy="' + cy + '" r="4" fill="' + t.p.cor + '" stroke="#fff" stroke-width="1"/>';
   });
   T.forEach(t => {
-    const txt = t.p.dia + '.' + t.p.ord + ' · ' + t.p.id, w = 6.1 * txt.length + 2, hh = 11, [x, y] = t.xy;
-    const cand = [[6, -13], [6, 3], [-6 - w, -13], [-6 - w, 3], [-w / 2, -17], [-w / 2, 7], [9, -5], [-9 - w, -5]];
+    // duas linhas: o número do ponto em cima (maior) e a sequência dia.ordem embaixo (menor)
+    const l1 = String(t.p.id), l2 = t.p.dia + '.' + t.p.ord;
+    const w = Math.max(7 * l1.length, 5.6 * l2.length) + 2, hh = 24, [x, y] = t.xy;
+    const cand = [[6, -25], [6, 3], [-6 - w, -25], [-6 - w, 3], [-w / 2, -29], [-w / 2, 7], [9, -12], [-9 - w, -12]];
     let best = null, menor = 1e9;
     for (const c of cand){
       const b = caixa(x + c[0], y + c[1], w, hh);
@@ -6403,8 +6405,11 @@ function svgPlanoCampanha(pc, W, Hh){
     }
     if (!best) best = caixa(x + 6, y - 13, w, hh);
     ocupado.push(best);
-    s += '<text x="' + (best.x + 1).toFixed(1) + '" y="' + (best.y + 9).toFixed(1) + '" font-size="10.5" font-weight="700" fill="'
-      + t.p.cor + '" stroke="#fff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">' + esc(txt) + '</text>';
+    const halo = '" stroke="#fff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">';
+    s += '<text x="' + (best.x + 1).toFixed(1) + '" y="' + (best.y + 10).toFixed(1) + '" font-size="11.5" font-weight="700" fill="'
+      + t.p.cor + halo + esc(l1) + '</text>'
+      + '<text x="' + (best.x + 1).toFixed(1) + '" y="' + (best.y + 21).toFixed(1) + '" font-size="9.5" font-weight="600" fill="'
+      + t.p.cor + halo + esc(l2) + '</text>';
   });
   S.forEach(z => {
     const [x, y] = z.xy;
@@ -6429,7 +6434,7 @@ function legendaPlano(pc){
     + '<path d="M4 7l2.2 2.4l4-4.6" fill="none" stroke="#15803D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> coletado (ocupação encerrada)</span>'
     + '<span><svg width="14" height="14" viewBox="0 0 14 14" style="vertical-align:middle"><circle cx="7" cy="7" r="5.5" fill="#FDE68A" stroke="#555" stroke-width="2"/>'
     + '<circle cx="7" cy="7" r="1.8" fill="#B45309"/></svg> em coleta (ocupação aberta)</span>'
-    + '<span><b>2.3 · 0037A</b> = dia 2 da equipe, 3º ponto do dia · ponto 0037A</span>'
+    + '<span><b>0037A</b> sobre <b style="font-size:11px">2.3</b> = ponto 0037A; dia 2 da equipe, 3º ponto do dia</span>'
     + (pc.equipes.some(e => e.dias.some(d => (d.trechos || []).length)) ? '<span><b style="letter-spacing:-1px">—</b> caminho de carro do dia (opção 1 de cada trecho)</span>' : '')
     + '<span><i class="q"></i>hotel' + (pc.hotel.semHotel ? ' (não informado: posto na mediana)' : '') + '</span>'
     + '<span><i class="o"></i>baricentro</span><span><b style="font-size:15px">+</b> mediana geométrica</span>'

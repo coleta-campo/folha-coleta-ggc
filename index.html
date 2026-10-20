@@ -1852,6 +1852,10 @@ function coordPonto(p){
   if (p.lat != null && p.lon != null) return {lat: p.lat, lon: p.lon, h: p.h, fonte: 'rinex', rotulo: 'RINEX, cabeçalho (aproximada)'};
   if (p.coord_cel && p.coord_cel.lat != null) return {lat: p.coord_cel.lat, lon: p.coord_cel.lon, h: p.coord_cel.h, hacc: p.coord_cel.hacc, fonte: 'celular',
     rotulo: 'PROVISÓRIA do celular medida no ponto (média de ' + p.coord_cel.n + ' leitura(s), ± ' + Math.round(p.coord_cel.acc) + ' m) — substituir pela do RINEX/PPP'};
+  // a posição de campo na chegada ao ponto (boa precisão) vale mais que a do gabinete
+  const chOk = p.chegada && p.chegada.lat != null && (p.chegada.precisao_m == null || p.chegada.precisao_m <= 15);
+  if (chOk && p.planejado) return {lat: p.chegada.lat, lon: p.chegada.lon, fonte: 'celular',
+    rotulo: 'PROVISÓRIA do celular (de campo, na chegada ao ponto, ± ' + Math.round(p.chegada.precisao_m || 0) + ' m) — substituir pela do RINEX/PPP'};
   if (p.planejado && p.planejado.lat != null) return {lat: p.planejado.lat, lon: p.planejado.lon, fonte: 'gabinete', rotulo: ROT_GAB};
   if (p.chegada && p.chegada.lat != null) return {lat: p.chegada.lat, lon: p.chegada.lon, fonte: 'celular',
     rotulo: 'PROVISÓRIA do celular ' + (p.campo ? '(ponto escolhido em campo' : '(na chegada') + ', ± ' + Math.round(p.chegada.precisao_m || 0) + ' m) — substituir pela do RINEX/PPP'};
@@ -7956,6 +7960,14 @@ async function coordenadaDoCelular(p, d){
              if (q) r = {lat: q.lat, lon: q.lon, acc: q.acc, n: 1, quando: new Date().toISOString()}; }
   } finally { b.disabled = false; b.textContent = antes; }
   if (!r) return marca('sem posição do celular — libere a localização e tente ao ar livre');
+  // longe demais do ponto (cartão de outro ponto aberto por engano?): pergunta antes de gravar
+  const ref = p.chegada && p.chegada.lat != null ? {c: p.chegada, o: 'de onde a equipe chegou a este ponto'}
+    : p.planejado && p.planejado.lat != null ? {c: p.planejado, o: 'do ponto planejado'} : null;
+  if (ref){
+    const dd = geodInversa(r.lat, r.lon, ref.c.lat, ref.c.lon).s;
+    if (dd > Math.max(30, 3 * (r.acc || 0)) && !confirm('A posição do celular está a ' + _metros(dd) + ' ' + ref.o + ' (' + (p.id || 'este ponto')
+        + ').\n\nEste é mesmo o cartão do ponto em que você está? Gravar esta coordenada mesmo assim?')) return marca('coordenada do celular não gravada');
+  }
   r.lat = Math.round(r.lat * 1e7) / 1e7; r.lon = Math.round(r.lon * 1e7) / 1e7; r.acc = Math.round(r.acc * 10) / 10;
   if (r.h != null) r.h = Math.round(r.h * 10) / 10; else delete r.h;
   if (r.hacc != null) r.hacc = Math.round(r.hacc * 10) / 10; else delete r.hacc;

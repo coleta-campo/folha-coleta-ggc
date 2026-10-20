@@ -1,8 +1,8 @@
-/* service worker da folha de coleta de pontos (GGC/SES-CE) — versão 202610201923
+/* service worker da folha de coleta de pontos (GGC/SES-CE) — versão 202610201940
    Os arquivos da folha: rede primeiro (4 s, sempre conferindo a versão), guardando a cópia;
    sem rede, a cópia guardada.
    Pedidos a outros endereços (mapas, IBGE-PPP, receptor do Drive) passam direto. */
-const CACHE = 'folha-202610201923';
+const CACHE = 'folha-202610201940';
 const ARQS = ['./', './index.html', './planejador.html', './manifest.webmanifest', './icone-192.png', './icone-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARQS)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(L => Promise.all(L.filter(k => k !== CACHE).map(k => caches.delete(k))))

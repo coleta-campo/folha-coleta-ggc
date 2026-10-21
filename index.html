@@ -6558,18 +6558,64 @@ function _hotelDaTela(){
   const nome = String(($('#pc_hotel_nome') || {}).value || '').trim(), link = String(($('#pc_hotel_link') || {}).value || '').trim();
   return {nome: nome, link: /^https:\/\//i.test(link) ? link : ''};
 }
+/* nome e coordenadas a partir do endereço longo do Google Maps (…/maps/place/<nome>/…!3d<lat>!4d<lon>) */
+function _lerUrlMaps(url){
+  const o = {url: url, nome: '', pino: false};
+  const pl = url.match(/\/maps\/place\/([^\/@?]+)/);
+  if (pl){ let n = pl[1]; try { n = decodeURIComponent(n.replace(/\+/g, ' ')); } catch (e){} n = n.trim(); if (/^-?\d|°/.test(n)) o.pino = true; else o.nome = n; }
+  const sr = url.match(/\/maps\/search\/(-?\d+(?:\.\d+)?),(?:\+|%20|\s)*(-?\d+(?:\.\d+)?)/);
+  if (sr){ o.pino = true; o.lat = +sr[1]; o.lon = +sr[2]; }
+  else { const c = coordDeTexto(url); if (c){ o.lat = c.lat; o.lon = c.lon; } }
+  return o;
+}
+async function expandeLinkMaps(link){
+  if (!/^https:\/\/(maps\.app\.goo\.gl|goo\.gl)\//i.test(link)) return _lerUrlMaps(link);
+  const c = _coord();
+  if (!c) throw new Error('o link curto só se abre pelo receptor do Drive, e falta o código da coordenação (Folhas das equipes > Envio ao Drive)');
+  const ac = new AbortController(), to = setTimeout(() => ac.abort(), 30000);
+  let j;
+  try {
+    const r = await fetch(c.url, {method: 'POST', redirect: 'follow', signal: ac.signal,
+      body: JSON.stringify({acao: 'expande', chave: await _hmacHex(c.seg, 'COORD|expande'), u: link})});
+    j = await r.json();
+  } finally { clearTimeout(to); }
+  if (!j || !j.ok) throw new Error(j && /chave/.test(j.erro || '') ? 'o receptor do Drive ainda é o 1.1 — atualize para o 1.2 (Nova versão da implantação)' : (j && j.erro) || 'sem resposta do receptor');
+  return _lerUrlMaps(j.url);
+}
+async function aplicaLinkHotel(t){
+  const av = $('#pc_hotel_link_aviso'), hi = $('#pc_hotel'), ni = $('#pc_hotel_nome'), pc = F.campanha.planoCampanha;
+  const diz = (h, cor) => { if (av) av.innerHTML = '<span style="color:' + cor + '">' + h + '</span>'; };
+  const guarda = () => { if (pc && pc.hotel){ Object.assign(pc.hotel, _hotelDaTela()); grava(); } };
+  if (!t){ if (av) av.innerHTML = ''; guarda(); return; }
+  if (!/^https:\/\//i.test(t)) return diz('Cole o link completo (começa com https://).', '#B91C1C');
+  guarda();
+  if (!_MAPS_RE.test(t)) return diz('Não parece um link do Google Maps; foi guardado, mas o nome e as coordenadas não saem dele.', '#B45309');
+  diz('Abrindo o link…', '#374151');
+  let o;
+  try { o = await expandeLinkMaps(t); }
+  catch (e){ return diz('Link guardado, mas não consegui abri-lo: ' + esc(e.message) + '. Cole as coordenadas abaixo.', '#B45309'); }
+  if ((($('#pc_hotel_link') || {}).value || '').trim() !== t) return;          // trocaram o link enquanto abria
+  const partes = [];
+  if (o.lat != null){
+    const novo = o.lat.toFixed(6) + ', ' + o.lon.toFixed(6), antes = hi ? hi.value.trim() : '';
+    if (hi && antes !== novo){ hi.value = novo; hi.dispatchEvent(new Event('change')); }
+    partes.push('coordenadas ' + novo + (pc && pc.hotel && !pc.hotel.semHotel && Math.abs(pc.hotel.lat - o.lat) + Math.abs(pc.hotel.lon - o.lon) > 2e-4
+      ? ' — <b>diferentes das do plano: planeje de novo</b>' : ''));
+  }
+  if (o.nome && ni && !ni.value.trim()){ ni.value = o.nome; }
+  if (o.nome) partes.unshift('<b>' + esc(o.nome) + '</b>');
+  guarda();
+  if (o.pino) return diz('Este link é de um <b>ponto marcado por coordenadas</b>, não da ficha do hotel: quem abrir não verá nome, avaliações nem vagas. '
+    + (partes.length ? 'Do link: ' + partes.join(' · ') + '. ' : '') + 'No Google Maps, busque o hotel pelo nome, abra a ficha dele e use Compartilhar → Copiar link.', '#B45309');
+  if (!partes.length) return diz('Link guardado, mas sem nome nem coordenadas nele — cole as coordenadas abaixo.', '#B45309');
+  diz('✓ Do link: ' + partes.join(' · ') + '. O link vai no plano, no PDF e na folha das equipes.', '#15803D');
+}
 function ligaCamposHotel(){
   ligaCampoCoord('#pc_hotel', '#pc_hotel_aviso', '#b_hotel_maps', '#b_hotel_aqui', 'o hotel');
   const hi = $('#pc_hotel'), li = $('#pc_hotel_link'), av = $('#pc_hotel_link_aviso');
   // link colado no campo das coordenadas: guarda também como link do hotel
   if (hi && li) hi.addEventListener('input', () => { const t = hi.value.trim(); if (_MAPS_RE.test(t) && !li.value.trim()){ li.value = t; li.dispatchEvent(new Event('change')); } });
-  if (li) li.addEventListener('change', () => {
-    const t = li.value.trim(), pc = F.campanha.planoCampanha;
-    if (av) av.innerHTML = !t ? '' : !/^https:\/\//i.test(t) ? '<span style="color:#B91C1C">Cole o link completo (começa com https://).</span>'
-      : _MAPS_RE.test(t) ? '<span style="color:#15803D">✓ Link do hotel guardado — vai no plano, no PDF e na folha das equipes.</span>'
-      : '<span style="color:#B45309">Não parece um link do Google Maps, mas será guardado.</span>';
-    if (pc && pc.hotel){ Object.assign(pc.hotel, _hotelDaTela()); grava(); }
-  });
+  if (li) li.addEventListener('change', () => aplicaLinkHotel(li.value.trim()));
   const ni = $('#pc_hotel_nome');
   if (ni) ni.addEventListener('change', () => { const pc = F.campanha.planoCampanha; if (pc && pc.hotel){ Object.assign(pc.hotel, _hotelDaTela()); grava(); } });
 }
@@ -7177,18 +7223,19 @@ function pintaPlanoCampanha(){
     + 'em regiões <b>sem sobreposição</b> (setores em volta do hotel comum), e monta os dias com o número de pontos '
     + 'que você indicar. Cada dia começa pelo círculo pendente mais distante do hotel (equipe descansada) e leva os mais '
     + 'próximos dele — ou o contrário. B, C e D seguem o círculo da A. Planejar de novo considera só o que falta.</p>'
-    + '<div class="lin"><label for="pc_hotel">Hotel</label><input type="text" id="pc_hotel" style="flex:1;min-width:10em" '
-    + 'placeholder="coordenadas ou link do Google Maps; vazio = mediana dos pontos" value="' + esc(pc && pc.hotel.txt || '') + '"></div>'
+    + '<div class="lin"><label for="pc_hotel_link">Link do hotel</label><input type="url" id="pc_hotel_link" style="flex:1;min-width:10em" '
+    + 'placeholder="https://maps.app.goo.gl/… (ficha do hotel no Google Maps)" value="' + esc(pc && pc.hotel.link || '') + '"></div>'
+    + '<p class="leg" id="pc_hotel_link_aviso" style="margin-top:2px">No Google Maps, busque o hotel <b>pelo nome</b>, abra a ficha dele e toque em '
+    + '<b>Compartilhar → Copiar link</b>; cole aqui: o nome e as coordenadas saem do link. O link vai no plano, no PDF e na folha das equipes, '
+    + 'para quem for conferir o hotel, as vagas e o contato.</p>'
+    + '<div class="lin"><label for="pc_hotel">Coordenadas</label><input type="text" id="pc_hotel" style="flex:1;min-width:10em" '
+    + 'placeholder="lat, lon do hotel; vazio = mediana dos pontos" value="' + esc(pc && pc.hotel.txt || '') + '"></div>'
     + '<div class="lin"><button type="button" class="btn sec peq" id="b_hotel_maps">Achar no Google Maps</button>'
     + '<button type="button" class="btn sec peq" id="b_hotel_aqui">Usar a minha localização</button></div>'
-    + '<p class="leg" id="pc_hotel_aviso" style="margin-top:2px">No Google Maps, clique com o botão direito sobre o hotel: a primeira linha do menu '
-    + 'são as coordenadas — clique nelas para copiar e cole aqui. Também serve colar o link da página do hotel.</p>'
+    + '<p class="leg" id="pc_hotel_aviso" style="margin-top:2px">Preenchidas pelo link; ou, no Google Maps, clique com o botão direito sobre o hotel: '
+    + 'a primeira linha do menu são as coordenadas — clique nelas para copiar e cole aqui.</p>'
     + '<div class="lin"><label for="pc_hotel_nome">Nome do hotel</label><input type="text" id="pc_hotel_nome" style="flex:1;min-width:10em" '
-    + 'placeholder="opcional" value="' + esc(pc && pc.hotel.nome || '') + '"></div>'
-    + '<div class="lin"><label for="pc_hotel_link">Link do hotel</label><input type="url" id="pc_hotel_link" style="flex:1;min-width:10em" '
-    + 'placeholder="https://maps.app.goo.gl/… (página do hotel no Google Maps)" value="' + esc(pc && pc.hotel.link || '') + '"></div>'
-    + '<p class="leg" id="pc_hotel_link_aviso" style="margin-top:2px">No Google Maps, abra o hotel e toque em <b>Compartilhar → Copiar link</b>. '
-    + 'O link vai no plano, no PDF e na folha das equipes, para quem for conferir que o hotel existe, as vagas e o contato.</p>'
+    + 'placeholder="preenchido pelo link (ou digite)" value="' + esc(pc && pc.hotel.nome || '') + '"></div>'
     + '<div class="lin"><label for="pc_n">Pontos por dia</label><input type="number" id="pc_n" min="1" max="15" value="' + val('porDia', 5) + '">'
     + '<label for="pc_eq">Equipes</label><input type="number" id="pc_eq" min="1" max="4" value="' + eqN + '"></div>'
     + '<div class="lin"><label for="pc_ocup">Ocupação (min/ponto)</label><input type="number" id="pc_ocup" min="5" max="240" value="' + val('ocup', 40) + '">'

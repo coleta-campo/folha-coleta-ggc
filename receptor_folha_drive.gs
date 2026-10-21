@@ -39,8 +39,14 @@
  *     parte única: grava direto; várias partes (arquivo > 6 MB): envio retomável
  *     da API do Drive, uma parte por pedido, sem juntar o arquivo na memória.
  *   Arquivo com o mesmo nome na mesma pasta é substituído (o anterior vai à lixeira).
+ *   {acao:'expande', chave, u}                             -> {ok, url, nome, lat, lon}
+ *     abre o link curto do Google Maps (maps.app.goo.gl) do hotel e devolve o endereço
+ *     longo, de onde saem o nome e as coordenadas (o navegador não pode segui-lo: CORS).
+ *     Chave: a da coordenação (HMAC do SEGREDO com "COORD|expande") ou a de uma equipe.
+ *     Só segue links do Google Maps; não grava nada. Pede a permissão "Conectar a um
+ *     serviço externo" (UrlFetchApp) na primeira execução.
  */
-const VERSAO_RECEPTOR = '1.1';
+const VERSAO_RECEPTOR = '1.2';
 const PARTE_MAX = 8 * 1024 * 1024;                 // bytes por pedido (a folha manda 6 MB)
 const INICIO_OK = /^(LC[0-9X]{1,6}|_registros)$/;  // primeira pasta aceita no caminho
 
@@ -49,6 +55,12 @@ function doGet(){ return _json({ok: true, servico: 'receptor da folha de coleta 
 function doPost(e){
   try {
     const q = JSON.parse(e && e.postData && e.postData.contents || '{}');
+    if (q.acao === 'expande'){
+      const seg = PropertiesService.getScriptProperties().getProperty('SEGREDO');
+      if (!(seg && _iguais(_chaveDe(seg, 'COORD', 'expande'), String(q.chave || ''))) && !_equipe(q))
+        return _json({ok: false, erro: 'chave não reconhecida'});
+      return _json(_expande(String(q.u || '')));
+    }
     const eq = _equipe(q);
     if (!eq) return _json({ok: false, erro: 'chave da equipe não reconhecida'});
     if (q.acao === 'ping') return _json({ok: true, equipe: eq.equipe, lc: eq.lc || '', pasta: _raiz().getName(), versao: VERSAO_RECEPTOR});
@@ -58,6 +70,31 @@ function doPost(e){
     console.error(err);
     return _json({ok: false, erro: String(err && err.message || err)});
   }
+}
+
+/* link do Google Maps -> {url longo, nome do lugar, lat, lon} */
+const MAPS_OK = /^https:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|(www\.)?google\.[a-z.]+\/maps|maps\.google\.[a-z.]+)\//i;
+function _expande(u){
+  if (!MAPS_OK.test(u) || u.length > 2000) return {ok: false, erro: 'não é um link do Google Maps'};
+  let url = u;
+  for (let i = 0; i < 6 && /^https:\/\/(maps\.app\.goo\.gl|goo\.gl)\//i.test(url); i++){
+    const r = UrlFetchApp.fetch(url, {followRedirects: false, muteHttpExceptions: true});
+    const h = r.getHeaders(), loc = h.Location || h.location;
+    if (!loc) break;
+    url = String(loc);
+    const cont = url.match(/^https:\/\/consent\.google\.[a-z.]+\/.*[?&]continue=([^&]+)/i);   // tela de consentimento
+    if (cont) url = decodeURIComponent(cont[1]);
+  }
+  if (!MAPS_OK.test(url)) return {ok: false, erro: 'o link não levou ao Google Maps'};
+  const o = {ok: true, url: url, nome: '', lat: null, lon: null};
+  const pl = url.match(/\/maps\/place\/([^\/@?]+)/);
+  if (pl){ const n = decodeURIComponent(pl[1].replace(/\+/g, ' ')).trim(); if (!/^-?\d|°/.test(n)) o.nome = n; }
+  const m = url.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/)
+    || url.match(/\/maps\/search\/(-?\d+(?:\.\d+)?),\+?(-?\d+(?:\.\d+)?)/)
+    || url.match(/[?&](?:q|query|ll)=(-?\d+(?:\.\d+)?)(?:,|%2C)\+?(-?\d+(?:\.\d+)?)/i)
+    || url.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+  if (m){ o.lat = +m[1]; o.lon = +m[2]; }
+  return o;
 }
 
 function _json(o){ return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
@@ -197,6 +234,11 @@ function codigoCoordenacao(){
   console.log('código da coordenação (cole no planejador, uma vez): ' + c);
   return c;
 }
+/* teste da expansão de link (rode uma vez para autorizar o acesso externo) */
+function testeExpande(){
+  console.log(JSON.stringify(_expande('https://maps.app.goo.gl/nujvZh17dyaN4QbQ7')));
+}
+
 function testeReceptor(){
   const r = _raiz();
   const n = Object.keys(JSON.parse(PropertiesService.getScriptProperties().getProperty('CHAVES') || '{}')).length;

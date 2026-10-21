@@ -186,6 +186,27 @@ body:not(.semrede) .semrede_aviso{display:none}
 .dplano .d{border-bottom:1px solid var(--lin);padding:5px 0;font-size:12.5px} .dplano .d.feito{opacity:.5}
 .dplano .pts{display:flex;flex-wrap:wrap;gap:2px 12px;margin-top:2px} .dplano .pts span.ok{color:#15803D} .dplano .pts span.and{color:#B45309} .dplano .pts span{white-space:nowrap;font-variant-numeric:tabular-nums}
 #impressao .dplano .d{break-inside:avoid}
+
+/* calendário do plano e do realizado */
+table.cal{border-collapse:collapse;width:100%;table-layout:fixed;font-size:10.5px;margin:6px 0}
+table.cal th{font-size:10px;text-transform:none;letter-spacing:0;color:var(--cz);text-align:center;padding:2px;border:0;font-weight:600}
+table.cal td{border:1px solid var(--lin);vertical-align:top;padding:2px 3px;height:46px;overflow-wrap:anywhere;text-align:left}
+table.cal td.fora{opacity:.35}
+table.cal td.folga{background:#F3F4F6} table.cal td.fer{background:#FEF3C7}
+table.cal td.hoje{outline:2px solid #1D4ED8;outline-offset:-2px}
+table.cal .dn{font-weight:700;font-size:11px} table.cal .dn small{font-weight:400;color:var(--cz)}
+table.cal .mot{display:block;color:#92400E;font-size:9.5px;line-height:1.15}
+table.cal .eq{display:block;border-left:4px solid;padding:0 0 0 3px;margin-top:2px;line-height:1.2}
+table.cal .eq.feito{background:#DCFCE7}
+table.cal .ids{display:block;color:#374151}
+table.cal .ids .ok{color:#15803D} table.cal .ids .ext{color:#6B21A8}
+table.cal .rz{display:block;margin-top:2px;line-height:1.2;color:#15803D}
+table.cal .qt{display:none}
+@media (max-width:520px){ table.cal .ids, table.cal .lng{display:none} table.cal .mot{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden} table.cal .qt{display:inline} table.cal td{height:40px;font-size:9.5px} }
+#impressao table.cal td,#impressao table.cal th{padding:2px 3px;font-size:9.5px} #impressao table.cal tr{break-inside:avoid}
+table.cal,.calleg{-webkit-print-color-adjust:exact;print-color-adjust:exact} #impressao table.cal td.hoje{outline:0} #impressao .calleg .ehoje{display:none}
+.calleg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:var(--cz);margin:2px 0 8px}
+.calleg i{display:inline-block;width:11px;height:11px;border:1px solid #9CA3AF;vertical-align:-1px;margin-right:3px}
 .kit{margin:10px 0;padding:8px 10px;background:rgba(0,0,0,.02);border-radius:6px} .kit h4{margin:0 0 6px;font-size:15px}
 body.planejador #c_veic_box, body.planejador .abas, body.planejador #cart_aparelho, body.planejador #plano_dia, body.planejador .wrap > details.ajuda{display:none!important}
 body.equipe #b_alvos, body.equipe #b_traj, body.equipe #b_alvos_tira, body.equipe #b_distrib{display:none!important}
@@ -4203,6 +4224,8 @@ function montaImpressaoCampanha(fotos, tempos){
     + '<h2>Os dias da campanha</h2><table><tr><th>dia</th><th>local</th>'
     + '<th>pontos</th><th>controle</th><th>checagem</th><th>sem altura</th></tr>'
     + (dias || '<tr><td colspan="6">nenhum dia registrado</td></tr>') + '</table>'
+    + (function(){ const pcR = F.campanha.planoCampanha, cal = calendarioPlano(pcR, null); return cal ? '<h2>Calendário: plano e realizado</h2>'
+        + (pcR ? '<p class="ocor">Plano: ' + esc(resumoCalendario(pcR)) + '</p>' : '<p class="ocor">Sem plano da campanha: só o realizado.</p>') + cal : ''; })()
     + '<h2>Os pontos da campanha</h2>'
     + (todos.length ? _tabelaPontos(todos, true) : '<p>nenhum ponto registrado</p>')
     + '<h2>A campanha em números</h2><table>' + nums + '</table>'
@@ -6960,10 +6983,80 @@ function _datasNaCampanha(pc){
   F.campanha.inicio = _isoDia(D[0]); F.campanha.fim = _isoDia(D[D.length - 1]);
   try { pintaCampos(); } catch (e){}
 }
+/* ---------- calendário: o plano (equipe, Dia N, pontos) e o realizado em cada data ----------
+   Semanas de domingo a sábado; cinza = fim de semana sem atividades, amarelo = feriado ou ponto
+   facultativo sem atividades. Realizado: ocupações deste aparelho e as juntadas de outras equipes. */
+function _realizadoPorData(){
+  const R = {}, eu = (equipeDoPlano() || {}).nome || nomeEquipe();
+  const poe = (data, eq, id, prop) => { if (!data || !id) return; const iso = String(data).slice(0, 10);
+    const L = (R[iso] = R[iso] || []); if (!L.some(x => x.id === id)) L.push({eq: eq, id: id, prop: prop}); };
+  for (const d of F.dias || []) for (const p of d.pontos || []) poe(d.data, eu, chaveOcup(p), true);
+  for (const p of F.dia.pontos || []) poe(F.dia.data || String(p.ocup_ini || '').slice(0, 10), eu, chaveOcup(p), true);
+  for (const e of Object.values(F.campanha.externas || {})) for (const o of e.ocup || []) poe(o.data || String(o.ini || '').slice(0, 10), e.equipe, o.id, false);
+  return R;
+}
+function _ondePlanejado(pc, id){
+  if (!pc) return null; const c = 'c' + (circuloDe(id) || '');
+  for (let i = 0; i < pc.equipes.length; i++){ const e = pc.equipes[i];
+    for (let j = 0; j < e.dias.length; j++){ const d = e.dias[j]; if (d.ids.includes(id) || d.ks.includes(c)) return {i: i, e: e, j: j}; } }
+  return null;
+}
+function calendarioPlano(pc, so){
+  const Et = estadosColeta(), RZ = _realizadoPorData(), c = (pc && pc.calendario) || {};
+  const PL = {}; let ini = null, fim = null;
+  const lim = d => { if (!ini || d < ini) ini = new Date(d); if (!fim || d > fim) fim = new Date(d); };
+  if (pc) pc.equipes.forEach((e, i) => { if (so && e !== so) return;
+    const DT = datasDoPlano(pc, e.dias.length); if (!DT) return;
+    DT.forEach((d, j) => { const iso = _isoDia(d); (PL[iso] = PL[iso] || []).push({e: e, j: j, d: e.dias[j]}); lim(d); }); });
+  const soNome = so && so.nome;
+  Object.keys(RZ).forEach(iso => { if (soNome) RZ[iso] = RZ[iso].filter(x => { const o = _ondePlanejado(pc, x.id); return x.prop || (o ? o.e === so : x.eq === soNome); });
+    if (RZ[iso].length) lim(_diaDe(iso)); else delete RZ[iso]; });
+  if (!ini) return '';
+  const a = new Date(ini); a.setUTCDate(a.getUTCDate() - a.getUTCDay());
+  const b = new Date(fim); b.setUTCDate(b.getUTCDate() + 6 - b.getUTCDay());
+  const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const hoje = _isoDia(new Date(new Date().toISOString().slice(0, 10) + 'T12:00:00Z'));
+  const corDe = (id, eq) => { const o = _ondePlanejado(pc, id); return o ? o.e.cor : '#6B7280'; };
+  let h = '<table class="cal"><tr>' + ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'].map(t => '<th>' + t + '</th>').join('') + '</tr>';
+  for (let d = new Date(a); d <= b; ){
+    h += '<tr>';
+    for (let k = 0; k < 7; k++, d.setUTCDate(d.getUTCDate() + 1)){
+      const iso = _isoDia(d), mf = pc && pc.calendario ? motivoFolga(d, c) : (d.getUTCDay() % 6 === 0 ? {tipo: 'fds'} : null);
+      const P = PL[iso] || [], R = RZ[iso] || [], dentro = d >= ini && d <= fim;
+      const cls = [!dentro && !P.length && !R.length ? 'fora' : '', mf ? (mf.tipo === 'fds' ? 'folga' : 'fer') : '', iso === hoje ? 'hoje' : ''].filter(Boolean).join(' ');
+      h += '<td' + (cls ? ' class="' + cls + '"' : '') + '><span class="dn">' + d.getUTCDate()
+        + (d.getUTCDate() === 1 || iso === _isoDia(a) || iso === _isoDia(ini) ? ' <small>' + MES[d.getUTCMonth()] + '</small>' : '') + '</span>';
+      { const md = iso.slice(5), fl = (c.locais || []).find(x => x.md === md && (!x.ano || x.ano === d.getUTCFullYear())), fn = fl ? {nome: fl.nome} : feriadosDoAno(d.getUTCFullYear(), c.uf || F.campanha.uf)[iso];
+        if (fn) h += '<span class="mot">' + esc(fn.nome) + (fn.tipo === 'facultativo' ? '<span class="lng"> (ponto facultativo)</span>' : '') + '</span>'; }
+      P.forEach(x => {
+        const f = _feitosDia(x.d, Et), n = x.d.ids.length;
+        h += '<span class="eq' + (f === n ? ' feito' : '') + '" style="border-color:' + x.e.cor + '"><b style="color:' + x.e.cor + '">'
+          + (so ? 'Dia ' + (x.j + 1) : '<span class="lng">' + esc(x.e.nome.replace(/^EQUIPE\s*/i, 'Eq. ')) + ' · </span>D' + (x.j + 1)) + '</b>'
+          + (f ? ' <small>✓' + f + '/' + n + '</small>' : ' <span class="qt">' + n + '</span>') + '<span class="ids">'
+          + x.d.ids.map((id, i) => { const u = estadoDaUnidade(x.d.ks[i], id, Et); return '<span' + (u && u.st === 'coletado' ? ' class="ok"' : '') + '>' + esc(id) + '</span>'; }).join(' ')
+          + '</span></span>';
+      });
+      if (R.length){
+        const fora = R.filter(x => { const o = _ondePlanejado(pc, x.id); return !o || !P.some(y => y.e === o.e && y.j === o.j); });
+        h += '<span class="rz">✓ ' + R.length + '<span class="lng"> coletado(s)' + (mf ? ' <b style="color:#B45309">em dia sem atividades previstas</b>' : '')
+          + (fora.length && P.length ? ' · ' + fora.length + ' de outro dia' : '') + '</span>' + (mf ? '<b class="qt" style="color:#B45309"> !</b>' : '') + '<span class="ids">: '
+          + R.map(x => '<span style="color:' + corDe(x.id) + '">' + esc(String(x.id).replace('campo:', 'campo ')) + '</span>').join(' ') + '</span></span>';
+      }
+      h += '</td>';
+    }
+    h += '</tr>';
+  }
+  h += '</table><div class="calleg">' + (pc ? pc.equipes.filter(e => !so || e === so).map(e => '<span><i style="background:' + e.cor + '"></i>' + esc(e.nome) + '</span>').join('')
+          + '<span>D3 = dia 3 do plano da equipe; ✓2/5 = 2 dos 5 pontos do dia coletados; número sozinho = pontos do dia</span>' : '')
+    + '<span><i style="background:#DCFCE7"></i>dia do plano todo coletado</span><span>✓ n = coletados na data (data da ocupação); ! = coleta em dia sem atividades previstas</span>'
+    + '<span><i style="background:#F3F4F6"></i>fim de semana sem atividades</span><span><i style="background:#FEF3C7"></i>feriado ou ponto facultativo sem atividades</span>'
+    + '<span class="ehoje"><i style="outline:2px solid #1D4ED8;border:0"></i>hoje</span></div>';
+  return h;
+}
 function tabelaPlano(pc, so){
   const p = paramTempo(), Et = estadosColeta();
   let h = '';
-  h += '<p class="leg" style="margin:4px 0"><b>Calendário:</b> ' + esc(resumoCalendario(pc)) + '</p>';
+  h += '<p class="leg" style="margin:4px 0"><b>Calendário:</b> ' + esc(resumoCalendario(pc)) + '</p>' + calendarioPlano(pc, so);
   pc.equipes.filter(e => !so || e === so).forEach(e => {
     const H = e.dias.map(d => horarioDia(p, d.pernas, d.ids.length)), DT = datasDoPlano(pc, e.dias.length);
     const kmT = H.reduce((s, x) => s + (x ? x.km : 0), 0), carT = H.reduce((s, x) => s + (x ? x.car : 0), 0);
@@ -7152,7 +7245,7 @@ function montaImpressaoPlano(){
        ['distâncias do hotel', pc.fonteDist], ['rotas dos dias', pc.rotas]]
       .map(r => '<tr><th style="width:30%">' + r[0] + '</th><td>' + esc(String(r[1])) + '</td></tr>').join('') + '</table>'
     + '<h2>Regiões e dias</h2>' + svgPlanoCampanha(pc, 700) + legendaPlano(pc)
-    + '<h2>Dias por equipe</h2>' + tabelaPlano(pc)
+    + '<h2>Calendário e dias por equipe</h2>' + tabelaPlano(pc)
     + '<p class="ocor">' + esc(notaHorario(pc)) + ' '
     + 'Se a opção A não puder ser ocupada, a equipe segue para B, C e D do mesmo círculo, nessa ordem.</p>'
     + '<h2>Hospedagem</h2>' + textoHospedagem(pc)

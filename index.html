@@ -6543,7 +6543,36 @@ function montaDias(G, H, x, ordem, dH){
 /* Ajuda a obter as coordenadas do hotel: pesquisa no Google Maps, link colado, ou a
    posição deste aparelho. No computador a posição vem da rede (Wi-Fi ou IP), não de GNSS:
    serve quando se planeja já no hotel, e a precisão informada pelo navegador é mostrada. */
-function ligaCamposHotel(){ ligaCampoCoord('#pc_hotel', '#pc_hotel_aviso', '#b_hotel_maps', '#b_hotel_aqui', 'o hotel'); }
+const _MAPS_RE = /^https:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|(www\.)?google\.[a-z.]+\/maps|maps\.google\.[a-z.]+)/i;
+/* o hotel no Google Maps: o link informado (a página do hotel, com avaliações, fotos e contato) ou, sem ele, as coordenadas */
+function linkHotel(h){ return !h || h.semHotel && !h.link ? '' : h.link || 'https://www.google.com/maps/search/?api=1&query=' + h.lat.toFixed(6) + '%2C' + h.lon.toFixed(6); }
+function htmlHotel(h, curto){
+  if (!h || h.semHotel && !h.link) return 'não informado — usada a mediana geométrica';
+  const l = linkHotel(h);
+  return (h.nome ? '<b>' + esc(h.nome) + '</b> · ' : '') + (h.semHotel ? '' : h.lat.toFixed(5) + ', ' + h.lon.toFixed(5) + ' · ')
+    + '<a href="' + esc(l) + '" target="_blank" rel="noopener">' + (h.link ? 'página do hotel no Google Maps' : 'local no Google Maps') + '</a>'
+    + (curto ? '' : h.link ? ' (conferir vagas, preço e contato)' : ' (sem o link da página do hotel)')
+    + (curto || !h.link ? '' : '<br><small style="overflow-wrap:anywhere">' + esc(h.link) + '</small>');
+}
+function _hotelDaTela(){
+  const nome = String(($('#pc_hotel_nome') || {}).value || '').trim(), link = String(($('#pc_hotel_link') || {}).value || '').trim();
+  return {nome: nome, link: /^https:\/\//i.test(link) ? link : ''};
+}
+function ligaCamposHotel(){
+  ligaCampoCoord('#pc_hotel', '#pc_hotel_aviso', '#b_hotel_maps', '#b_hotel_aqui', 'o hotel');
+  const hi = $('#pc_hotel'), li = $('#pc_hotel_link'), av = $('#pc_hotel_link_aviso');
+  // link colado no campo das coordenadas: guarda também como link do hotel
+  if (hi && li) hi.addEventListener('input', () => { const t = hi.value.trim(); if (_MAPS_RE.test(t) && !li.value.trim()){ li.value = t; li.dispatchEvent(new Event('change')); } });
+  if (li) li.addEventListener('change', () => {
+    const t = li.value.trim(), pc = F.campanha.planoCampanha;
+    if (av) av.innerHTML = !t ? '' : !/^https:\/\//i.test(t) ? '<span style="color:#B91C1C">Cole o link completo (começa com https://).</span>'
+      : _MAPS_RE.test(t) ? '<span style="color:#15803D">✓ Link do hotel guardado — vai no plano, no PDF e na folha das equipes.</span>'
+      : '<span style="color:#B45309">Não parece um link do Google Maps, mas será guardado.</span>';
+    if (pc && pc.hotel){ Object.assign(pc.hotel, _hotelDaTela()); grava(); }
+  });
+  const ni = $('#pc_hotel_nome');
+  if (ni) ni.addEventListener('change', () => { const pc = F.campanha.planoCampanha; if (pc && pc.hotel){ Object.assign(pc.hotel, _hotelDaTela()); grava(); } });
+}
 function ligaCampoCoord(sInp, sAv, sMaps, sAqui, oQue){
   const hi = $(sInp), av = $(sAv); if (!hi) return;
   const diz = (h, cor) => { if (av) av.innerHTML = cor ? '<span style="color:' + cor + '">' + h + '</span>' : h; };
@@ -6605,7 +6634,7 @@ async function planejaCampanha(){
   let H = null;
   if (txt){
     H = coordDeTexto(txt);
-    if (!H) return marca('plano da campanha: não entendi o hotel — cole as coordenadas (lat, lon) ou o link do Google Maps');
+    if (!H) return marca('plano da campanha: o hotel precisa das coordenadas (lat, lon) — o link curto do Google Maps não as traz; ele fica no campo "Link do hotel"');
   }
   const semHotel = !H;
   if (!H) H = med;
@@ -6694,7 +6723,7 @@ async function planejaCampanha(){
   }
   F.campanha.planoCampanha = {criado: new Date().toISOString(), porDia: x, ordem: ordem, ocup: ocup, jornada: jornada,
     velUrb: velUrb, velRod: velRod, saida: saida, almoco: almoco, divisao: divisao, compara: compara,
-    hotel: {lat: +H.lat.toFixed(6), lon: +H.lon.toFixed(6), txt: txt, semHotel: semHotel},
+    hotel: Object.assign({lat: +H.lat.toFixed(6), lon: +H.lon.toFixed(6), txt: txt, semHotel: semHotel}, _hotelDaTela()),
     baricentro: {lat: +bar.lat.toFixed(6), lon: +bar.lon.toFixed(6)}, mediana: {lat: +med.lat.toFixed(6), lon: +med.lon.toFixed(6)},
     cortes: div.cortes, fonteDist: fonteD, rotas: rotas ? 'OSRM, até 3 caminhos por trecho — dados © colaboradores do OpenStreetMap' : 'sem rotas (sem internet)',
     nUnid: U.length, equipes: equipes, avisos: avisos};
@@ -6858,7 +6887,8 @@ function legendaPlano(pc){
 function textoHospedagem(pc){
   const g = p => p.lat.toFixed(5) + ', ' + p.lon.toFixed(5);
   const busca = p => 'https://www.google.com/maps/search/hot%C3%A9is/@' + p.lat.toFixed(5) + ',' + p.lon.toFixed(5) + ',13z';
-  return '<p><b>Baricentro</b> (média das coordenadas dos ' + pc.nUnid + ' círculos pendentes): ' + g(pc.baricentro)
+  return (pc.hotel && !(pc.hotel.semHotel && !pc.hotel.link) ? '<p><b>Hotel do plano:</b> ' + htmlHotel(pc.hotel) + '</p>' : '')
+    + '<p><b>Baricentro</b> (média das coordenadas dos ' + pc.nUnid + ' círculos pendentes): ' + g(pc.baricentro)
     + ' · <a href="' + busca(pc.baricentro) + '" target="_blank" rel="noopener">hotéis perto</a><br>'
     + '<b>Mediana geométrica</b> (menor soma das distâncias em linha reta até os círculos; Weiszfeld, 1937): '
     + g(pc.mediana) + ' · <a href="' + busca(pc.mediana) + '" target="_blank" rel="noopener">hotéis perto</a></p>'
@@ -7135,6 +7165,7 @@ function pintaPlanoCampanha(){
     el.innerHTML = '<h4>Plano da campanha' + (EQ ? ' — ' + esc(EQ.nome) : '') + '</h4>'
       + '<p class="leg" style="margin:0 0 6px">Feito no escritório em ' + new Date(pc.criado).toLocaleString('pt-BR').slice(0, 17)
       + '. O <b>Plano do dia</b>, logo abaixo, usa só a região desta equipe, na ordem destes dias, e refaz a cada rodada com o que falta.</p>'
+      + '<p class="leg" style="margin:0 0 6px"><b>Hotel:</b> ' + htmlHotel(pc.hotel, true) + '</p>'
       + svgPlanoCampanha(pc, 420) + legendaPlano(pc) + tabelaPlano(pc, EQ) + '<p class="leg">' + esc(notaHorario(pc)) + '</p>'
       + '<details class="ajuda"><summary>Onde se hospedar</summary>' + textoHospedagem(pc) + '</details>';
     return;
@@ -7152,6 +7183,12 @@ function pintaPlanoCampanha(){
     + '<button type="button" class="btn sec peq" id="b_hotel_aqui">Usar a minha localização</button></div>'
     + '<p class="leg" id="pc_hotel_aviso" style="margin-top:2px">No Google Maps, clique com o botão direito sobre o hotel: a primeira linha do menu '
     + 'são as coordenadas — clique nelas para copiar e cole aqui. Também serve colar o link da página do hotel.</p>'
+    + '<div class="lin"><label for="pc_hotel_nome">Nome do hotel</label><input type="text" id="pc_hotel_nome" style="flex:1;min-width:10em" '
+    + 'placeholder="opcional" value="' + esc(pc && pc.hotel.nome || '') + '"></div>'
+    + '<div class="lin"><label for="pc_hotel_link">Link do hotel</label><input type="url" id="pc_hotel_link" style="flex:1;min-width:10em" '
+    + 'placeholder="https://maps.app.goo.gl/… (página do hotel no Google Maps)" value="' + esc(pc && pc.hotel.link || '') + '"></div>'
+    + '<p class="leg" id="pc_hotel_link_aviso" style="margin-top:2px">No Google Maps, abra o hotel e toque em <b>Compartilhar → Copiar link</b>. '
+    + 'O link vai no plano, no PDF e na folha das equipes, para quem for conferir que o hotel existe, as vagas e o contato.</p>'
     + '<div class="lin"><label for="pc_n">Pontos por dia</label><input type="number" id="pc_n" min="1" max="15" value="' + val('porDia', 5) + '">'
     + '<label for="pc_eq">Equipes</label><input type="number" id="pc_eq" min="1" max="4" value="' + eqN + '"></div>'
     + '<div class="lin"><label for="pc_ocup">Ocupação (min/ponto)</label><input type="number" id="pc_ocup" min="5" max="240" value="' + val('ocup', 40) + '">'
@@ -7188,6 +7225,7 @@ function pintaPlanoCampanha(){
       + '<option value="">— escolha —</option>'
       + pc.equipes.map((e, i) => '<option value="' + i + '"' + (eu === i ? ' selected' : '') + '>' + esc(e.nome) + '</option>').join('')
       + '</select><small>o plano do dia usa só a região e a ordem desta equipe</small></div>'
+      + '<p class="leg" style="margin:4px 0"><b>Hotel:</b> ' + htmlHotel(pc.hotel, true) + '</p>'
       + '<p class="leg" style="margin:4px 0">Planejado em ' + new Date(pc.criado).toLocaleString('pt-BR').slice(0, 17)
       + ' · ' + pc.porDia + ' ponto(s)/dia · ' + pc.ocup + ' min por ocupação · jornada ' + _numBR(pc.jornada) + ' h · '
       + (pc.ordem === 'perto' ? 'do mais próximo para o mais distante' : 'do mais distante para o mais próximo') + ' · distâncias ' + esc(pc.fonteDist)
@@ -7241,9 +7279,9 @@ function montaImpressaoPlano(){
        ['jornada', _numBR(pc.jornada) + ' h + ' + pc.almoco + ' min de almoço, saída às ' + pc.saida],
        ['velocidades médias', 'urbano/vicinal ' + pc.velUrb + ' km/h · rodovia ' + pc.velRod + ' km/h'], ['divisão entre as equipes', pc.divisao === 'vazios' ? 'nos maiores vazios entre os pontos' : pc.divisao === 'manual' ? 'manual (escolhida pelo planejador)' : 'equilibrada pelo tempo de trabalho'],
        ['ordem dos dias e dos pontos', pc.ordem === 'perto' ? 'do mais próximo para o mais distante do hotel' : 'do mais distante para o mais próximo do hotel'],
-       ['hotel', pc.hotel.semHotel ? 'não informado — usada a mediana geométrica' : pc.hotel.lat.toFixed(5) + ', ' + pc.hotel.lon.toFixed(5)],
+       ['hotel', {html: htmlHotel(pc.hotel)}],
        ['distâncias do hotel', pc.fonteDist], ['rotas dos dias', pc.rotas]]
-      .map(r => '<tr><th style="width:30%">' + r[0] + '</th><td>' + esc(String(r[1])) + '</td></tr>').join('') + '</table>'
+      .map(r => '<tr><th style="width:30%">' + r[0] + '</th><td>' + (r[1] && r[1].html ? r[1].html : esc(String(r[1]))) + '</td></tr>').join('') + '</table>'
     + '<h2>Regiões e dias</h2>' + svgPlanoCampanha(pc, 700) + legendaPlano(pc)
     + '<h2>Calendário e dias por equipe</h2>' + tabelaPlano(pc)
     + '<p class="ocor">' + esc(notaHorario(pc)) + ' '

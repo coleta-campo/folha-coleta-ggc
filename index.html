@@ -187,6 +187,14 @@ body:not(.semrede) .semrede_aviso{display:none}
 .dplano .pts{display:flex;flex-wrap:wrap;gap:2px 12px;margin-top:2px} .dplano .pts span.ok{color:#15803D} .dplano .pts span.and{color:#B45309} .dplano .pts span{white-space:nowrap;font-variant-numeric:tabular-nums}
 #impressao .dplano .d{break-inside:avoid}
 
+/* cofre: PIN da folha */
+#cofre{position:fixed;inset:0;z-index:9999;background:#F4F7FB;display:flex;align-items:center;justify-content:center;padding:16px}
+#cofre .cx{background:#fff;border:1px solid var(--lin);border-radius:14px;max-width:380px;width:100%;padding:20px;box-shadow:0 8px 30px rgba(0,0,0,.08)}
+#cofre h2{font-size:19px;margin:0 0 6px;color:#004282} #cofre p{font-size:13.5px;margin:6px 0;color:#374151}
+#cofre input{font-size:26px;letter-spacing:.35em;text-align:center;width:100%;margin:6px 0;padding:8px;font-variant-numeric:tabular-nums}
+#cofre .msg{min-height:1.3em;font-size:13px;color:#B91C1C} #cofre .ok{color:#15803D}
+#cofre button{width:100%;margin-top:6px} #cofre .esq{background:none;border:0;color:#6B7280;text-decoration:underline;font-size:12.5px;margin-top:14px}
+
 /* calendário do plano e do realizado */
 table.cal{border-collapse:collapse;width:100%;table-layout:fixed;font-size:10.5px;margin:6px 0}
 table.cal th{font-size:10px;text-transform:none;letter-spacing:0;color:var(--cz);text-align:center;padding:2px;border:0;font-weight:600}
@@ -372,6 +380,10 @@ você cabe o que nenhum arquivo registra.</p>
   números, os textos e a conferência — as fotos e os relatórios de ponto prontos
   só saem no registro e no PDF daquele dia, então <b>exporte o dia antes de
   arquivar</b>.</p>
+  <p class="so_folha_pin"><b>PIN da folha.</b> A folha de campo abre com o PIN de 6 dígitos da equipe, criado na primeira
+  abertura; com ele, registro, integrantes, fotos, arquivos do receptor e trilha ficam criptografados no celular. Ela se
+  tranca sozinha (10 min sem uso, 2 min fora da tela) ou pelo botão <b>Trancar</b>. Esquecido o PIN, o que não foi enviado
+  ao Drive se perde. Detalhes e troca do PIN: aba Fechar o dia, quadro <b>PIN da folha</b>.</p>
   <p>Tudo fica gravado neste aparelho, neste navegador, e nada sai dele sozinho.
   Trocando de aparelho, exporte o registro completo e abra-o no outro — ele leva
   junto os dias já arquivados.</p>
@@ -811,6 +823,7 @@ você cabe o que nenhum arquivo registra.</p>
       <button type="button" class="btn sec peq" id="b_srv_teste">Testar a ligação</button>
       <button type="button" class="btn sec peq" id="b_srv_falta">O que falta enviar?</button>
       <button type="button" class="btn sec peq" id="b_srv_envia">Enviar ao servidor</button>
+      <button type="button" class="btn sec peq" id="b_srv_limpa">Apagar do celular o que já está no Drive</button>
     </div>
     <p class="leg semrede_aviso">Sem internet agora: os botões aparecem quando o aparelho se conectar.</p>
     <p class="leg" id="srv_res"></p>
@@ -868,6 +881,21 @@ você cabe o que nenhum arquivo registra.</p>
     <input type="file" id="f_abrir" accept=".json,.zip,.html,.htm,application/json,application/zip,text/html" class="oculto">
     <input type="file" id="f_recfotos" accept=".zip,application/zip" class="oculto">
   </details>
+  <details class="ajuda naoimprime" id="cofre_pin_box">
+    <summary>PIN da folha</summary>
+    <p>Os dados desta folha ficam <b>criptografados</b> no celular (AES-256, com chave derivada do PIN por PBKDF2-SHA-256,
+    600 mil iterações): o registro do dia e da campanha (com os integrantes e a chave de envio), as fotos, os arquivos
+    do receptor, a trilha e as sugestões dos campos. A folha se tranca sozinha depois de 10 minutos sem uso ou de 2 minutos
+    fora da tela; o botão <b>Trancar</b>, na barra de baixo, tranca na hora. Sem o PIN, ninguém abre a folha — nem a equipe:
+    esquecido o PIN, o que ainda não foi enviado ao Drive se perde.</p>
+    <p class="leg">O PIN não protege o que sai do aparelho: arquivos exportados (ZIP, PDF, CSV, cópia completa) ficam
+    abertos na pasta Download — envie e apague. O mapa da área e os trajetos planejados não são criptografados.</p>
+    <div class="lin"><label for="pin_atual">PIN atual</label><input type="password" id="pin_atual" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+    <div class="lin"><label for="pin_novo">PIN novo</label><input type="password" id="pin_novo" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+    <div class="lin"><label for="pin_novo2">Repita o PIN novo</label><input type="password" id="pin_novo2" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+    <div class="acoes"><button type="button" class="btn sec peq" id="b_pin_troca">Trocar o PIN</button></div>
+    <p class="leg" id="pin_res"></p>
+  </details>
 </section>
 
 <!-- registro para impressão: montado na hora, é o que vira o PDF A4 -->
@@ -875,6 +903,7 @@ você cabe o que nenhum arquivo registra.</p>
 
 <div class="barra naoimprime">
   <span id="estado">pronta</span>
+  <button type="button" class="btn sec peq" id="b_trancar" title="Trancar a folha (pede o PIN para abrir)">Trancar</button>
   <button type="button" class="btn sec peq" id="b_salvar">Cópia completa</button>
 </div>
 </div>
@@ -896,6 +925,233 @@ const LOGO_IMG = new Image(); LOGO_IMG.src = LOGO_IBGE;
 function cabIBGE(titulo, sub){
   return '<div class="cabibge"><div><h1>' + titulo + '</h1><p class="ident" style="margin:0">' + sub + '</p></div>'
     + '<img src="' + LOGO_IBGE + '" alt="IBGE"></div>';
+}
+
+/* ---------- cofre: os dados da folha criptografados no aparelho ----------
+   Só na folha de campo (o planejador do escritório não pede PIN). Uma chave de dados
+   aleatória (AES-GCM, 256 bits) criptografa o registro, as fotos, os arquivos do
+   receptor, a trilha e as sugestões; ela fica guardada embrulhada pela chave do PIN,
+   derivada por PBKDF2-HMAC-SHA-256 com 600 000 iterações e sal aleatório (OWASP, 2023;
+   NIST SP 800-132). Trocar o PIN só reembrulha a chave de dados. Um PIN de 6 dígitos
+   segura quem pega o celular desbloqueado; não segura um ataque de laboratório ao
+   aparelho, que tem de ser barrado pela criptografia e pelo bloqueio do próprio Android. */
+const COFRE = {k: null, ativo: !MODO_PLAN, iter: 600000, cfg: CHAVE + '_cofre', erros: CHAVE + '_cofre_erros',
+               trancado: false, ultimo: Date.now(), saiu: 0, ocioso: 10 * 60e3, fora: 2 * 60e3};
+function _b64(u8){ let t = ''; for (let i = 0; i < u8.length; i += 0x8000) t += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(t); }
+function _deB64(t){ const x = atob(t), u = new Uint8Array(x.length); for (let i = 0; i < x.length; i++) u[i] = x.charCodeAt(i); return u; }
+function _cofreCfg(){ try { return JSON.parse(localStorage.getItem(COFRE.cfg) || 'null'); } catch (e){ return null; } }
+async function _kekDoPin(pin, sal, iter){
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name: 'PBKDF2', salt: sal, iterations: iter, hash: 'SHA-256'}, base, {name: 'AES-GCM', length: 256}, false, ['encrypt', 'decrypt']);
+}
+async function _embrulha(pin, bruta, criado){
+  const sal = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const kek = await _kekDoPin(pin, sal, COFRE.iter);
+  const wk = new Uint8Array(await crypto.subtle.encrypt({name: 'AES-GCM', iv: iv}, kek, bruta));
+  const c = _cofreCfg() || {};
+  localStorage.setItem(COFRE.cfg, JSON.stringify({v: 1, iter: COFRE.iter, sal: _b64(sal), iv: _b64(iv), wk: _b64(wk),
+    criado: criado || c.criado || new Date().toISOString(), trocado: criado ? '' : new Date().toISOString(), migrado: !!c.migrado}));
+}
+async function _desembrulha(pin){
+  const c = _cofreCfg(); if (!c) return null;
+  const kek = await _kekDoPin(pin, _deB64(c.sal), c.iter || COFRE.iter);
+  try { return new Uint8Array(await crypto.subtle.decrypt({name: 'AES-GCM', iv: _deB64(c.iv)}, kek, _deB64(c.wk))); }
+  catch (e){ return null; }
+}
+async function cofreCria(pin){
+  const bruta = crypto.getRandomValues(new Uint8Array(32));
+  await _embrulha(pin, bruta, new Date().toISOString());
+  COFRE.k = await crypto.subtle.importKey('raw', bruta, 'AES-GCM', false, ['encrypt', 'decrypt']);
+  bruta.fill(0);
+}
+async function cofreAbre(pin){
+  const bruta = await _desembrulha(pin); if (!bruta) return false;
+  COFRE.k = await crypto.subtle.importKey('raw', bruta, 'AES-GCM', false, ['encrypt', 'decrypt']);
+  bruta.fill(0); return true;
+}
+async function cofreTrocaPin(atual, novo){
+  const bruta = await _desembrulha(atual); if (!bruta) return false;
+  await _embrulha(novo, bruta); bruta.fill(0); return true;
+}
+/* PIN aceito: 6 dígitos, sem todos iguais nem sequência (000000, 123456, 654321) */
+function pinFraco(p){
+  if (!/^\d{6}$/.test(p)) return 'o PIN tem 6 dígitos';
+  if (/^(\d)\1{5}$/.test(p)) return 'PIN com todos os dígitos iguais';
+  if ('0123456789'.includes(p) || '9876543210'.includes(p)) return 'PIN em sequência';
+  return '';
+}
+/* valor -> envelope criptografado (texto, arquivo ou objeto) e de volta */
+async function cofrePara(v){
+  if (!COFRE.ativo || v == null) return v;
+  const K = COFRE.k || COFRE._guardada;
+  if (!K) throw new Error('folha trancada');
+  const iv = crypto.getRandomValues(new Uint8Array(12)), te = new TextEncoder();
+  const cifra = async u => crypto.subtle.encrypt({name: 'AES-GCM', iv: iv}, K, u);
+  if (typeof v === 'string') return {cofre: 1, t: 's', iv: iv, d: await cifra(te.encode(v))};
+  if (v instanceof Blob) return {cofre: 1, t: 'b', iv: iv, ty: v.type || '', n: v.name != null ? v.name : null,
+                                 lm: v.lastModified || 0, d: await cifra(new Uint8Array(await v.arrayBuffer()))};
+  return {cofre: 1, t: 'j', iv: iv, d: await cifra(te.encode(JSON.stringify(v)))};
+}
+async function cofreDe(v){
+  if (!v || v.cofre !== 1) return v;
+  const K = COFRE.k || COFRE._guardada;
+  if (!K) throw new Error('folha trancada');
+  const b = await crypto.subtle.decrypt({name: 'AES-GCM', iv: v.iv}, K, v.d);
+  if (v.t === 's') return new TextDecoder().decode(b);
+  if (v.t === 'j') return JSON.parse(new TextDecoder().decode(b));
+  return v.n != null ? new File([b], v.n, {type: v.ty, lastModified: v.lm}) : new Blob([b], {type: v.ty});
+}
+/* banco do cofre: o registro e as sugestões (o armazenamento simples do navegador não guarda binário) */
+let _idbCofre = null;
+function idbCofre(){
+  return _idbCofre || (_idbCofre = new Promise((ok, erro) => {
+    const r = indexedDB.open('folha_pontos_cofre', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('c');
+    r.onsuccess = () => ok(r.result); r.onerror = () => erro(r.error);
+  }));
+}
+function _txCofre(modo, fn){
+  return idbCofre().then(d => new Promise((ok, erro) => {
+    const t = d.transaction('c', modo); let res;
+    const q = fn(t.objectStore('c')); if (q) q.onsuccess = () => { res = q.result; };
+    t.oncomplete = () => ok(res); t.onerror = () => erro(t.error);
+  }));
+}
+async function cofreLe(k){ return cofreDe(await _txCofre('readonly', l => l.get(k))); }
+async function cofrePoe(k, v){ const e = await cofrePara(v); return _txCofre('readwrite', l => l.put(e, k)); }
+/* gravações do registro em fila: a última sempre vence */
+let _filaCofre = Promise.resolve();
+function cofreGuardaRegistro(txt){
+  _filaCofre = _filaCofre.then(() => cofrePoe('registro', txt)).catch(e => marca('não consegui gravar neste navegador — ' + e.message));
+  return _filaCofre;
+}
+/* o registro gravado no aparelho: criptografado (folha) ou no armazenamento simples (planejador) */
+function gravaRegistroJa(){
+  const txt = JSON.stringify(F);
+  if (COFRE.ativo) return cofreGuardaRegistro(txt);
+  localStorage.setItem(CHAVE, txt); return Promise.resolve();
+}
+/* dados de antes do PIN: tudo passa para o cofre (uma vez) */
+async function _cofreMigra(){
+  const c = _cofreCfg(); if (!c || c.migrado) return;
+  marca('protegendo os dados já guardados neste celular…');
+  const t = localStorage.getItem(CHAVE);
+  if (t && !(await _txCofre('readonly', l => l.get('registro')))){ await cofrePoe('registro', t); }
+  try { localStorage.removeItem(CHAVE); } catch (e){}
+  const mm = localStorage.getItem(MEM_CHAVE);
+  if (mm){ await cofrePoe('mem', mm); try { localStorage.removeItem(MEM_CHAVE); } catch (e){} }
+  const cripta = async (abre, loja, filtro) => {
+    const d = await abre(), chaves = await new Promise((ok, er) => { const q = d.transaction(loja, 'readonly').objectStore(loja).getAllKeys(); q.onsuccess = () => ok(q.result); q.onerror = () => er(q.error); });
+    let n = 0;
+    for (const k of chaves){
+      if (filtro && !filtro(k)) continue;
+      const v = await new Promise((ok, er) => { const q = d.transaction(loja, 'readonly').objectStore(loja).get(k); q.onsuccess = () => ok(q.result); q.onerror = () => er(q.error); });
+      if (v == null || v.cofre === 1) continue;
+      const e = await cofrePara(v);
+      await new Promise((ok, er) => { const t = d.transaction(loja, 'readwrite'); t.objectStore(loja).put(e, k); t.oncomplete = ok; t.onerror = () => er(t.error); });
+      if (++n % 10 === 0) marca('protegendo os dados já guardados neste celular… ' + n);
+    }
+    return n;
+  };
+  const nf = await cripta(idb, IDB_LOJA);
+  const nt = await cripta(idbTraj, 't', k => /^trilha_/.test(String(k)));
+  const c2 = _cofreCfg(); c2.migrado = true; localStorage.setItem(COFRE.cfg, JSON.stringify(c2));
+  if (nf || nt) marca('dados deste celular protegidos: ' + nf + ' imagem(ns) e arquivo(s), ' + nt + ' trilha(s)');
+}
+/* "esqueci o PIN": apaga os dados da folha neste celular (o mapa da área e os blocos de imagem ficam) */
+async function cofreApagaTudo(){
+  try { await _txCofre('readwrite', l => l.clear()); } catch (e){}
+  try { await idbLimpa(); } catch (e){}
+  try { await _txTraj('readwrite', l => l.clear()); } catch (e){}
+  for (const k of [COFRE.cfg, COFRE.erros, CHAVE, MEM_CHAVE, CHAVE + '_envios']) try { localStorage.removeItem(k); } catch (e){}
+}
+/* tela do PIN: criar (primeira vez) ou abrir */
+function cofrePortao(emCima){
+  return new Promise(pronto => {
+    const cfg = _cofreCfg(), cria = !cfg;
+    const d = document.createElement('div'); d.id = 'cofre';
+    d.innerHTML = '<div class="cx"><h2>' + (cria ? 'Crie o PIN da folha' : 'Folha trancada') + '</h2>'
+      + (cria ? '<p>O PIN protege os dados desta folha <b>neste celular</b>: registro, integrantes, fotos, arquivos do receptor e trilha '
+              + 'ficam criptografados. Escolha 6 dígitos que a equipe saiba e mais ninguém.</p>'
+              + '<p><b>Guarde o PIN.</b> Esquecido, o que ainda não foi enviado ao Drive se perde — não há como recuperar.</p>'
+              + '<input type="password" id="cofre_p1" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••" aria-label="PIN">'
+              + '<input type="password" id="cofre_p2" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="repita" aria-label="repita o PIN">'
+              + '<button type="button" class="btn" id="cofre_ok">Criar o PIN</button>'
+            : '<p>Digite o PIN da equipe para abrir a folha.</p>'
+              + '<input type="password" id="cofre_p1" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••" aria-label="PIN">'
+              + '<button type="button" class="btn" id="cofre_ok">Abrir</button>')
+      + '<div class="msg" id="cofre_msg"></div>'
+      + (cria ? '' : '<button type="button" class="esq" id="cofre_esq">Esqueci o PIN</button>') + '</div>';
+    document.body.appendChild(d);
+    const p1 = d.querySelector('#cofre_p1'), p2 = d.querySelector('#cofre_p2'), msg = d.querySelector('#cofre_msg'), ok = d.querySelector('#cofre_ok');
+    const diz = (t, bom) => { msg.textContent = t; msg.className = 'msg' + (bom ? ' ok' : ''); };
+    setTimeout(() => p1.focus(), 50);
+    const espera = () => { const e = JSON.parse(localStorage.getItem(COFRE.erros) || '{"n":0,"t":0}');
+      const s = e.n >= 5 ? Math.min(300, 30 * Math.pow(2, e.n - 5)) : 0; return Math.max(0, Math.ceil((e.t + s * 1000 - Date.now()) / 1000)); };
+    const vai = async () => {
+      const a = p1.value.trim();
+      if (cria){
+        const f = pinFraco(a); if (f) return diz(f + ' — escolha outro.');
+        if (a !== p2.value.trim()) return diz('os dois PINs não são iguais.');
+        ok.disabled = true; diz('criando…', true);
+        await cofreCria(a); await _cofreMigra().catch(e => marca('proteção dos dados antigos: ' + e.message));
+      } else {
+        const w = espera(); if (w) return diz('muitas tentativas: aguarde ' + w + ' s.');
+        if (!/^\d{6}$/.test(a)) return diz('o PIN tem 6 dígitos.');
+        ok.disabled = true; diz('abrindo…', true);
+        if (!(await cofreAbre(a))){
+          const e = JSON.parse(localStorage.getItem(COFRE.erros) || '{"n":0,"t":0}'); e.n++; e.t = Date.now();
+          localStorage.setItem(COFRE.erros, JSON.stringify(e)); ok.disabled = false; p1.value = ''; p1.focus();
+          return diz('PIN errado' + (e.n >= 5 ? ' — aguarde ' + espera() + ' s para tentar de novo.' : ' (' + e.n + 'ª tentativa).'));
+        }
+        localStorage.removeItem(COFRE.erros);
+        await _cofreMigra().catch(e => marca('proteção dos dados antigos: ' + e.message));
+      }
+      d.remove(); COFRE.trancado = false; COFRE.ultimo = Date.now(); pronto();
+    };
+    ok.addEventListener('click', vai);
+    [p1, p2].forEach(x => x && x.addEventListener('keydown', e => { if (e.key === 'Enter') vai(); }));
+    const esq = d.querySelector('#cofre_esq');
+    if (esq) esq.addEventListener('click', async () => {
+      if (!confirm('Esqueceu o PIN?\n\nSem ele não há como abrir os dados desta folha. A saída é APAGAR a folha deste celular '
+          + '(registro, fotos, arquivos do receptor e trilha) e começar de novo com um PIN novo. O que já foi enviado ao Drive continua lá; '
+          + 'o que não foi, se perde.\n\nApagar?')) return;
+      if (!confirm('Confirma: apagar os dados da folha neste celular?')) return;
+      await cofreApagaTudo(); location.reload();
+    });
+  });
+}
+/* trancar: com envio ou trilha em andamento, só cobre a tela (a chave fica, o trabalho segue);
+   sem nada rodando, recarrega a página — a chave sai da memória */
+async function cofreTranca(){
+  if (!COFRE.ativo || COFRE.trancado || !COFRE.k) return;
+  COFRE.trancado = true;
+  const rodando = (typeof ENVIO !== 'undefined' && ENVIO.rodando) || (typeof TRILHA_VIGIA !== 'undefined' && TRILHA_VIGIA != null);
+  if (rodando){
+    const k = COFRE.k; COFRE.k = null;
+    const d0 = document.getElementById('cofre'); if (d0) d0.remove();
+    // a tela pede o PIN; enquanto isso, a gravação do que está rodando usa a chave guardada aqui
+    COFRE._guardada = k;
+    await cofrePortao();
+    COFRE._guardada = null;
+    return;
+  }
+  clearTimeout(TIMER);
+  try { await gravaRegistroJa(); } catch (e){}
+  location.reload();
+}
+if (COFRE.ativo){
+  const mexeu = () => { COFRE.ultimo = Date.now(); };
+  ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(ev => document.addEventListener(ev, mexeu, {passive: true, capture: true}));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden'){ COFRE.saiu = Date.now(); if (COFRE.k){ clearTimeout(TIMER); gravaRegistroJa().catch(() => {}); } }
+    else if (COFRE.saiu && Date.now() - COFRE.saiu > COFRE.fora) cofreTranca();
+  });
+  setInterval(() => {
+    if (document.visibilityState !== 'visible' || COFRE.trancado || !COFRE.k) return;
+    const navAberta = typeof NAV !== 'undefined' && NAV.el && !NAV.el.classList.contains('oculto');
+    if (!navAberta && Date.now() - COFRE.ultimo > COFRE.ocioso) cofreTranca();
+  }, 20000);
 }
 
 /* ---------- estado ----------
@@ -987,7 +1243,7 @@ function grava(){
     for (const q of F.dia.pontos || [])
       if (q.declinacao == null && q.lat != null && q.lon != null && typeof declinacaoEm === 'function')
         q.declinacao = declinacaoEm(q.lat, q.lon, q.rx_ini || q.ocup_ini || F.dia.data);
-    try { localStorage.setItem(CHAVE, JSON.stringify(F));
+    try { gravaRegistroJa();
           const uc = F.config && F.config.ultimaCopia;
           marca('gravada no aparelho ' + new Date().toLocaleTimeString('pt-BR').slice(0,5)
             + (uc ? ' · cópia ' + new Date(uc).toLocaleString('pt-BR').slice(0, 17).replace(',', '')
@@ -996,9 +1252,9 @@ function grava(){
   }, 400);
 }
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e){}
-function carrega(){
+async function carrega(){
   try {
-    const t = localStorage.getItem(CHAVE);
+    const t = COFRE.ativo ? await cofreLe('registro') : localStorage.getItem(CHAVE);
     if (t) F = Object.assign(folhaNova(), JSON.parse(t));
     renomeiaPontos();
     if (!Array.isArray(F.dias)) F.dias = [];   // folha gravada antes do arquivo
@@ -1357,10 +1613,15 @@ const MEM_CAMPOS_FORA = ['id', 'nome', 'lat', 'lon'];   // são únicos por regi
 let MEM = {};
 
 function memCarrega(){
+  if (COFRE.ativo) return;                       // na folha, vem do cofre depois do PIN (memCarregaCofre)
   try { MEM = JSON.parse(localStorage.getItem(MEM_CHAVE)) || {}; }
   catch (e){ MEM = {}; }
 }
+async function memCarregaCofre(){
+  try { MEM = JSON.parse((await cofreLe('mem')) || '{}') || {}; } catch (e){ MEM = {}; }
+}
 function memGrava(){
+  if (COFRE.ativo){ cofrePoe('mem', JSON.stringify(MEM)).catch(() => {}); return; }
   try { localStorage.setItem(MEM_CHAVE, JSON.stringify(MEM)); }
   catch (e){ /* aparelho sem armazenamento: a folha segue, só não sugere */ }
 }
@@ -1421,6 +1682,7 @@ function memLiga(raiz){
 function memEsquece(){
   MEM = {};
   try { localStorage.removeItem(MEM_CHAVE); } catch (e){}
+  if (COFRE.ativo) _txCofre('readwrite', l => l.delete('mem')).catch(() => {});
   document.querySelectorAll('#listas datalist').forEach(d => d.remove());
   document.querySelectorAll('input[list]:not([data-lista-fixa])').forEach(e => e.removeAttribute('list'));
 }
@@ -1636,6 +1898,7 @@ function idb(){
   return _idb;
 }
 async function idbPoe(k, v){
+  v = await cofrePara(v);
   const d = await idb();
   return new Promise((ok, erro) => {
     const t = d.transaction(IDB_LOJA, 'readwrite');
@@ -1649,6 +1912,13 @@ async function idbPega(k){
     const t = d.transaction(IDB_LOJA, 'readonly');
     const q = t.objectStore(IDB_LOJA).get(k);
     q.onsuccess = () => ok(q.result); q.onerror = () => erro(q.error);
+  }).then(cofreDe);
+}
+async function idbTira(k){
+  const d = await idb();
+  return new Promise((ok, erro) => {
+    const t = d.transaction(IDB_LOJA, 'readwrite'); t.objectStore(IDB_LOJA).delete(k);
+    t.oncomplete = ok; t.onerror = () => erro(t.error);
   });
 }
 async function idbLimpa(){
@@ -4492,6 +4762,10 @@ async function _idbTudo(){
     const c = t.objectStore(IDB_LOJA).openCursor();
     c.onsuccess = () => { const k = c.result; if (k){ out.push([k.key, k.value]); k.continue(); } };
     t.oncomplete = () => ok(out); t.onerror = () => erro(t.error);
+  }).then(async L => {
+    // arquivos (fotos originais, RINEX) não entram na cópia: ficam fechados
+    for (const e of L) if (e[1] && e[1].cofre === 1 && e[1].t !== 'b') e[1] = await cofreDe(e[1]);
+    return L;
   });
 }
 async function copiaCompleta(){
@@ -4514,7 +4788,7 @@ async function copiaCompleta(){
   const nome = nomeSaida('copia_completa') + '.zip';
   const arq = new File([z], nome, {type: 'application/zip'});
   F.config = F.config || {}; F.config.ultimaCopia = new Date().toISOString(); EXPORTADO = true;
-  try { localStorage.setItem(CHAVE, JSON.stringify(F)); } catch (e){}
+  try { gravaRegistroJa(); } catch (e){}
   const info = (F.dia.pontos || []).length + ' ponto(s) do dia, ' + nf + ' imagem(ns), '
     + Math.round(z.size / 1e5) / 10 + ' MB';
   if (navigator.canShare && navigator.canShare({files: [arq]})){
@@ -4799,6 +5073,7 @@ $('#b_limpar').addEventListener('click', () => {
   if (!confirm(m)) return;
   F = folhaNova();
   try { localStorage.removeItem(CHAVE); } catch (e){}
+  if (COFRE.ativo) _txCofre('readwrite', l => l.delete('registro')).catch(() => {});
   idbLimpa().catch(()=>{});                  // as fotos vão junto
   mapaPoe(null).then(carregaArea).catch(()=>{});   // o mapa da área é da campanha
   blocoLimpa().then(contaBlocos).catch(()=>{});     // blocos de imagem/ruas baixados para a campanha
@@ -8775,7 +9050,7 @@ let TRILHA = [], TRILHA_VIGIA = null, TRILHA_TRAVA = null, _trilhaT = null;
 async function carregaTrilha(){
   TRILHA = [];
   if (F.dia.trilha_id){
-    try { TRILHA = (await _txTraj('readonly', l => l.get(F.dia.trilha_id))) || []; }
+    try { TRILHA = (await cofreDe(await _txTraj('readonly', l => l.get(F.dia.trilha_id)))) || []; }
     catch (e){ TRILHA = []; }
   }
   pintaTrilha();
@@ -8795,7 +9070,8 @@ function guardaTrilha(ja){
   clearTimeout(_trilhaT);
   const faz = () => {
     if (!F.dia.trilha_id) F.dia.trilha_id = 'trilha_' + Date.now();
-    _txTraj('readwrite', l => l.put(TRILHA, F.dia.trilha_id)).catch(() => {});
+    const tid = F.dia.trilha_id;
+    cofrePara(TRILHA.slice()).then(v => _txTraj('readwrite', l => l.put(v, tid))).catch(() => {});
     resumoTrilha(); grava(); pintaTrilha();
   };
   if (ja) faz(); else _trilhaT = setTimeout(faz, 3000);
@@ -8827,7 +9103,7 @@ function alternaTrilha(){
     navigator.geolocation.clearWatch(TRILHA_VIGIA); TRILHA_VIGIA = null;
     if (TRILHA_TRAVA){ TRILHA_TRAVA.release().catch(() => {}); TRILHA_TRAVA = null; }
     F.dia.trilha_ligada = false;
-    try { localStorage.setItem(CHAVE, JSON.stringify(F)); } catch (e){}
+    try { gravaRegistroJa(); } catch (e){}
     guardaTrilha(true); pintaTrilhaNav(); marca('gravação da trilha pausada'); return;
   }
   ligaTrilha(true);
@@ -10020,6 +10296,7 @@ $('#b_ptcon').addEventListener('click', () => {
   $('#b_srv_qr').addEventListener('click', () => leQRReceptor().catch(erro));
   $('#b_srv_envia').addEventListener('click', () => enviaAoServidor().catch(erro));
   $('#b_srv_falta').addEventListener('click', () => { try { _confereSrv(); } catch (e){ return erro(e); } estimaEnvio().catch(erro); });
+  $('#b_srv_limpa').addEventListener('click', () => { if (ENVIO.rodando) return marca('aguarde o fim do envio'); limpaConferidos().catch(erro); });
   if (s.pendente === true) _srvRes('<b style="color:#B45309">O último envio não terminou</b> (a folha foi fechada no meio). '
     + 'Com internet, toque em <b>Enviar ao servidor</b>: vai só o que falta.');
 })();
@@ -10201,7 +10478,7 @@ async function _listaEnvio(){
   }
   const L = [], falhas = [], m = _enviados(), url = _srv().url.trim();
   for (const it of P.itens.concat(itens)){
-    try { const u = await _bytesDe(it.dados); L.push({nome: it.nome, u: u, igual: m[url + '|' + it.nome] === u.length + ':' + _fnv(u)}); }
+    try { const u = await _bytesDe(it.dados); L.push({nome: it.nome, u: u, igual: m[url + '|' + it.nome] === u.length + ':' + _fnv(u), src: it.src}); }
     catch (e){ falhas.push(it.nome + ': ' + e.message); }
   }
   L.sort((a, b) => a.u.length - b.u.length);         // os pequenos primeiro: o essencial chega mesmo se a conexão cair
@@ -10222,6 +10499,50 @@ async function estimaEnvio(){
       : 'estimativa inicial: 1 Mbit/s') + '; a previsão se corrige durante o envio).'
     : 'Nada a enviar: os ' + q.ig + ' arquivo(s) já estão no servidor sem mudança.');
   marca('servidor: falta enviar ' + q.n + ' arquivo(s)');
+}
+/* ---------- limpeza do aparelho depois do envio conferido ----------
+   Dos dias já ARQUIVADOS: as fotos originais da câmera e os arquivos do receptor (RINEX)
+   dos pontos que já têm o resultado do IBGE-PPP, quando cada cópia no Drive foi conferida
+   pelo tamanho e pela assinatura (FNV-1a) do que o receptor confirmou ter gravado. As fotos
+   de 1280 px ficam: são elas que montam os relatórios e os PDFs, e assim nada do que vai de
+   novo ao Drive sai pior. Princípio da necessidade (Lei nº 13.709/2018, art. 6º, III). */
+let LIMPA_LISTA = [];
+function _limpaveis(L, m, url){
+  const conf = {}, nao = new Set();
+  for (const x of L) if (x.src){
+    if (m[url + '|' + x.nome] === x.u.length + ':' + _fnv(x.u)) conf[x.src] = Math.max(conf[x.src] || 0, x.u.length);
+    else nao.add(x.src);
+  }
+  const ok = k => conf[k] && !nao.has(k), out = [];
+  for (const d of F.dias || []) for (const p of d.pontos || []){
+    const temPPP = !!(p.ppp_coord || ((p.arqs || {}).ppp || []).length);
+    for (const o of Object.values(p.fotos_orig || {})) if (o && o.chave && ok(o.chave)) out.push({p: p, tipo: 'foto', chave: o.chave, bytes: conf[o.chave], ref: o});
+    if (temPPP) for (const a of (p.arqs && p.arqs.rinex) || []) if (ok(a.chave)) out.push({p: p, tipo: 'rinex', chave: a.chave, bytes: conf[a.chave], ref: a});
+  }
+  return out;
+}
+function _txtLimpa(L){
+  const nf = L.filter(x => x.tipo === 'foto').length, nr = L.length - nf, mb = L.reduce((t, x) => t + x.bytes, 0) / 1e6;
+  return [nf ? nf + ' foto(s) original(is)' : '', nr ? nr + ' arquivo(s) do receptor' : ''].filter(Boolean).join(' e ')
+    + ' (' + mb.toFixed(1).replace('.', ',') + ' MB)';
+}
+async function apagaConferidos(L){
+  if (!L || !L.length) return marca('nada a apagar: nenhum arquivo dos dias arquivados conferido no Drive');
+  if (!confirm('Apagar deste celular ' + _txtLimpa(L) + ' dos dias já arquivados?\n\n'
+      + 'Cada um foi conferido no Drive pelo tamanho e pela assinatura do arquivo. Os do receptor só saem dos pontos que já têm o resultado do IBGE-PPP. '
+      + 'Ficam no celular as fotos de 1280 px, que montam os relatórios.\n\nDepois de apagados, esses arquivos existem só no Drive. Apagar?')) return;
+  let n = 0;
+  for (const x of L){ try { await idbTira(x.chave); x.ref.no_drive = new Date().toISOString(); n++; } catch (e){} }
+  F.config = F.config || {}; (F.config.limpezas = F.config.limpezas || []).push({quando: new Date().toISOString(), n: n, txt: _txtLimpa(L)});
+  grava(); LIMPA_LISTA = [];
+  _srvRes('Apagados deste celular: ' + _txtLimpa(L) + '. Estão no Drive.');
+  marca('celular limpo: ' + n + ' arquivo(s) já conferidos no Drive');
+}
+async function limpaConferidos(){
+  _confereSrv();
+  marca('servidor: conferindo o que já está no Drive…');
+  const r = await _listaEnvio(); if (!r) return;
+  await apagaConferidos(_limpaveis(r.L, r.m, _srv().url.trim()));
 }
 async function enviaAoServidor(){
   if (ENVIO.rodando) return marca('servidor: o envio já está em andamento');
@@ -10287,6 +10608,15 @@ async function enviaAoServidor(){
       + ' com falha</b> — toque de novo para repetir só esses:<br>' + falhas.map(f => '· ' + esc(f)).join('<br>') : '.')
       + (P.faltas.length ? '<br>Pendências do pacote: ' + P.faltas.length + ' (veja em Pacote da campanha).' : ''));
     marca('servidor: ' + env + ' enviado(s), ' + ig + ' sem mudança' + (falhas.length ? ', ' + falhas.length + ' falha(s)' : ''));
+    if (!falhas.length){
+      LIMPA_LISTA = _limpaveis(R_.L, m, _srv().url.trim());
+      if (LIMPA_LISTA.length){
+        const res = $('#srv_res');
+        if (res){ res.insertAdjacentHTML('beforeend', '<br><button type="button" class="btn sec peq" id="b_srv_limpa_ja">Apagar do celular '
+          + esc(_txtLimpa(LIMPA_LISTA)) + ' já conferidos no Drive</button>');
+          $('#b_srv_limpa_ja').addEventListener('click', () => apagaConferidos(LIMPA_LISTA).catch(e => marca('limpeza: ' + e.message))); }
+      }
+    }
   } finally { ENVIO.rodando = false; try { _travaEnvio && _travaEnvio.release(); } catch (e){} _travaEnvio = null; }
 }
 
@@ -11078,7 +11408,7 @@ const OSM_TILES = {nome: 'OpenStreetMap', zmax: 19, url: 'https://tile.openstree
 async function trilhaDoDia(d){
   if (d === F.dia) return TRILHA;
   if (!d.trilha_id) return [];
-  try { return (await _txTraj('readonly', l => l.get(d.trilha_id))) || []; } catch (e){ return []; }
+  try { return (await cofreDe(await _txTraj('readonly', l => l.get(d.trilha_id)))) || []; } catch (e){ return []; }
 }
 function resumoTrechosDia(T, d){
   const s = segmentaTrilha(T, d.trechos || []);
@@ -11315,8 +11645,8 @@ async function exportaLC(op){
     if (rx.length) comRinex++; else faltas.push(num + ': sem os arquivos do receptor (leia os RINEX do dia na folha)');
     for (const a of rx){
       const b = await idbPega(a.chave); if (!b) continue;
-      itens.push({nome: dd + 'Dados_GNSS/Originais/' + a.nome, dados: b});
-      itens.push({nome: dd + 'Dados_GNSS/Renomeados/' + nomeRinexLC(num, ddd, a.nome), dados: b});
+      itens.push({nome: dd + 'Dados_GNSS/Originais/' + a.nome, dados: b, src: a.chave});
+      itens.push({nome: dd + 'Dados_GNSS/Renomeados/' + nomeRinexLC(num, ddd, a.nome), dados: b, src: a.chave});
     }
     const pp = (p.arqs && p.arqs.ppp) || [];
     if (p.ppp_coord && p.ppp_coord.orbita) orbitas.add(p.ppp_coord.orbita.toLowerCase().replace('ultra-rápida', 'ultrarrápida'));
@@ -11350,10 +11680,13 @@ async function exportaLC(op){
     for (let j = 0; j < fo.length; j++){
       const k = fo[j][0]; if (!p.fotos || !p.fotos[k]) { if (j < 4) faltas.push(num + ': sem a foto F' + (j + 1)); continue; }
       const o = p.fotos_orig && p.fotos_orig[k];
+      // original apagado do celular depois de conferido no Drive (no_drive): o nome continua reservado,
+      // para os outros não mudarem de nome, e a editada não é refeita (a do Drive saiu do original)
       if (o){ const b = await idbPega(o.chave);
-        if (b){ let nm = o.nome, k2 = 2; while (usados.has(dd + nm)) nm = o.nome.replace(/\.jpg$/i, '') + '_' + (k2++) + '.jpg';
-                usados.add(dd + nm); itens.push({nome: dd + 'Fotos/Originais/' + nm, dados: b}); } }
+        if (b || o.no_drive){ let nm = o.nome, k2 = 2; while (usados.has(dd + nm)) nm = o.nome.replace(/\.jpg$/i, '') + '_' + (k2++) + '.jpg';
+                usados.add(dd + nm); if (b) itens.push({nome: dd + 'Fotos/Originais/' + nm, dados: b, src: o.chave}); } }
       else if (j < 4) faltas.push(num + ': F' + (j + 1) + ' sem o original da câmera (foto anterior a esta versão)');
+      if (o && o.no_drive) continue;
       const ed = await fotoEditadaLC(p, k, 'PONTO ' + num + '_F' + (j + 1)).catch(() => null);
       if (ed) itens.push({nome: dd + 'Fotos/Editadas/' + num + '_F' + (j + 1) + '.jpg', dados: ed});
     }
@@ -11376,7 +11709,7 @@ async function exportaLC(op){
   const trilhas = [];
   for (const d of (F.dias || []).concat([F.dia])){
     let T = d === F.dia ? TRILHA : null;
-    if (!T && d.trilha_id){ try { T = await _txTraj('readonly', l => l.get(d.trilha_id)); } catch (e){ T = null; } }
+    if (!T && d.trilha_id){ try { T = await cofreDe(await _txTraj('readonly', l => l.get(d.trilha_id))); } catch (e){ T = null; } }
     if (T && T.length > 1){
       const r = feicoesTracking(T, d, lc, F.campanha.equipe);
       trilhas.push(...r.f);
@@ -12253,20 +12586,44 @@ function aplicaModo(){
   }
 }
 
-if (MODO_PLAN) montaPlanejador();
-carrega();
-carregaArea();
-contaBlocos();
-carregaTrajetos();
-carregaTrilha().then(() => { if (F.dia.trilha_ligada) ligaTrilha(false); });
-if (!F.dia.data){
-  F.dia.data = new Date().toISOString().slice(0, 10);
-  F.dia.data_auto = true;                          // ainda é palpite: o voo corrige
+async function inicia(){
+  if (MODO_PLAN) montaPlanejador();
+  if (COFRE.ativo){
+    if (!(window.crypto && crypto.subtle)){ marca('este navegador não tem criptografia: abra a folha no Chrome atualizado'); return; }
+    await cofrePortao(); await memCarregaCofre();
+  }
+  await carrega();
+  carregaArea();
+  contaBlocos();
+  carregaTrajetos();
+  carregaTrilha().then(() => { if (F.dia.trilha_ligada) ligaTrilha(false); });
+  if (!F.dia.data){
+    F.dia.data = new Date().toISOString().slice(0, 10);
+    F.dia.data_auto = true;                          // ainda é palpite: o voo corrige
+  }
+  monta();
+  marca(F.dia.voos.length ? F.dia.voos.length + ' voo(s) nesta folha' : 'folha vazia');
+  aplicaModo();
+  aplicaKit().then(a => { aplicaModo(); if (a) pintaAlvos(); pintaConviteKit(); }).catch(e => marca('folha da equipe: ' + e.message));
+  ligaCofreUI();
 }
-monta();
-marca(F.dia.voos.length ? F.dia.voos.length + ' voo(s) nesta folha' : 'folha vazia');
-aplicaModo();
-aplicaKit().then(a => { aplicaModo(); if (a) pintaAlvos(); pintaConviteKit(); }).catch(e => marca('folha da equipe: ' + e.message));
+function ligaCofreUI(){
+  const bt = $('#b_trancar'), box = $('#cofre_pin_box');
+  if (!COFRE.ativo){ if (bt) bt.remove(); if (box) box.remove(); $$('.so_folha_pin').forEach(e => e.remove()); return; }
+  if (bt && !bt._ok){ bt._ok = 1; bt.addEventListener('click', () => cofreTranca()); }
+  const tb = $('#b_pin_troca');
+  if (tb && !tb._ok){ tb._ok = 1; tb.addEventListener('click', async () => {
+    const r = $('#pin_res'), a = $('#pin_atual').value.trim(), n1 = $('#pin_novo').value.trim(), n2 = $('#pin_novo2').value.trim();
+    const f = pinFraco(n1);
+    if (f){ r.textContent = 'PIN novo: ' + f + '.'; return; }
+    if (n1 !== n2){ r.textContent = 'os dois PINs novos não são iguais.'; return; }
+    r.textContent = 'trocando…';
+    if (!(await cofreTrocaPin(a, n1))){ r.textContent = 'PIN atual errado.'; return; }
+    ['#pin_atual', '#pin_novo', '#pin_novo2'].forEach(s => { $(s).value = ''; });
+    r.textContent = 'PIN trocado em ' + new Date().toLocaleString('pt-BR').slice(0, 17) + '. Avise a equipe.';
+  }); }
+}
+inicia().catch(e => marca('abertura da folha: ' + e.message));
 </script>
 <script>
 /* publicação web: a folha fica guardada no aparelho (service worker) e abre sem internet;

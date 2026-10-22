@@ -52,6 +52,8 @@ pelo Drive, Teams ou WhatsApp.
 **Equipe de campo:** abre `https://coleta-campo.github.io/folha-coleta-ggc/` no Chrome do
 celular. Com a folha vazia, aparece **Abrir a folha da equipe**: a equipe escolhe o
 `.html` recebido, e pontos, mapa e código do receptor passam para o aparelho.
+Na primeira abertura, a folha pede para **criar o PIN de 6 dígitos da equipe**; daí em diante, pede o PIN a
+cada abertura e depois de 10 minutos sem uso (ver *Segurança dos dados no celular*, no fim).
 
 **Replanejamento:** o escritório gera de novo a folha da equipe e a envia. No celular,
 no alto da folha: *Abrir a folha nova da equipe*. Sendo a mesma campanha e a mesma
@@ -138,3 +140,19 @@ retomável da API Microsoft Graph. A definição é com a DTI.
 KRAWCZYK, H.; BELLARE, M.; CANETTI, R. **HMAC**: keyed-hashing for message
 authentication. RFC 2104. [S. l.]: IETF, 1997. Disponível em:
 https://www.rfc-editor.org/rfc/rfc2104. Acesso em: 20 out. 2026.
+
+## Calendário do campo (fim de semana e feriados)
+- No planejador: **Início do campo**, **Fim de semana** (padrão: sem atividades; opções sábado, sábado e domingo), **Feriados** (padrão: sem atividades em feriados e pontos facultativos federais; opções: ponto facultativo é dia de campo; trabalho também em feriados) e **Feriados municipais da área** (um por linha, `dd/mm` ou `dd/mm/aaaa Nome`).
+- Nacionais calculados: Lei nº 662/1949 (red. Lei nº 10.607/2002), Lei nº 6.802/1980, Lei nº 14.759/2023, Lei nº 9.093/1995 (Sexta-feira da Paixão; Páscoa por Meeus/Jones/Butcher). Pontos facultativos: Carnaval, Cinzas, Corpus Christi, 28/10, 24 e 31/12 e as emendas da portaria do ano (2026: Portaria MGI nº 11.460/2025, 20/04 e 05/06). Conferir a portaria de cada ano novo.
+- Estaduais pela UF da campanha: CE 25/03 (Data Magna); RN 03/10 (Lei estadual nº 8.913/2006). Outras UF: informar na lista municipal.
+- Os dias do plano recebem data; início e fim da campanha são preenchidos; no celular, o Plano do dia avisa fim de semana/feriado ou mostra "Hoje é o Dia N".
+- O calendário vai na folha da equipe: gerar de novo as folhas das equipes depois de mudá-lo.
+
+## Segurança dos dados no celular (PIN da folha)
+- A folha de campo (não o planejador) pede um PIN de 6 dígitos na primeira abertura e a cada abertura. Sem PIN fraco (todos iguais ou em sequência).
+- Criptografados no aparelho (AES-256-GCM; chave de dados aleatória, embrulhada pela chave do PIN — PBKDF2-HMAC-SHA-256, 600 000 iterações, sal aleatório): registro (campanha, integrantes, veículo, chave de envio), fotos, originais, RINEX/PPP, trilhas, sugestões dos campos. Não criptografados: mapa da área, blocos Esri, trajetos planejados.
+- Tranca sozinha: 10 min sem uso (não com a navegação aberta) ou 2 min fora da tela; botão Trancar na barra. Com envio ou trilha rodando, só cobre a tela (o trabalho segue).
+- 5 PINs errados: espera de 30 s, dobrando até 5 min. "Esqueci o PIN" apaga os dados da folha no celular (o kit da equipe reaplica o plano ao reabrir).
+- Dados antigos sem PIN são criptografados na criação do PIN.
+- Limpeza após envio conferido: dos dias arquivados, apaga fotos originais e RINEX (só de pontos com PPP) cuja cópia no Drive foi confirmada (tamanho + FNV-1a). Fotos de 1280 px ficam. Nomes reservados e editadas não refeitas, para nada no Drive ser sobrescrito.
+- Continua exposto: arquivos exportados na pasta Download e o próprio HTML da folha da equipe (traz o plano e os integrantes).

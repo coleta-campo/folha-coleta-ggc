@@ -555,7 +555,9 @@ você cabe o que nenhum arquivo registra.</p>
     de fato foi usado e conferir os trajetos planejados. Guarda um ponto a cada 20 m
     percorridos (ou a cada 2 min parado) quando a precisão do celular é melhor que
     50 m. <b>Só grava com esta folha aberta e a tela ligada</b> — a tela fica acesa
-    enquanto grava, o que gasta bateria. Para gravar com o celular no bolso, use um
+    enquanto grava, o que gasta bateria. <b>Durante a ocupação de um ponto a trilha pausa
+    sozinha</b> (o carro está parado; a tela pode apagar) e volta a gravar quando a ocupação
+    é encerrada. Para gravar com o celular no bolso, use um
     aplicativo registrador de trilha e junte o GPX aqui no fim do dia.</p>
     <p class="leg"><b>OsmAnd em segundo plano</b> (grava o dia todo, com a tela apagada):
     os botões abaixo mandam o OsmAnd começar e parar a gravação. Antes, uma vez: no OsmAnd,
@@ -3326,7 +3328,7 @@ function cartaoPonto(p, k){
       if (!confirm('A ocupação de ' + (p.id || 'este ponto') + ' ainda está correndo. Encerrar agora e seguir?')) return;
       p.ocup_fim = new Date().toISOString();
     }
-    grava(); pintaOcupacao(d, p); try { pintaPlanoCampanha(); } catch (e){} proximoNavegar(p);
+    grava(); trilhaNaOcupacao(); pintaOcupacao(d, p); try { pintaPlanoCampanha(); } catch (e){} proximoNavegar(p);
   });
   d.querySelector('[data-ppparq]').addEventListener('click', () => pedePPPdoPonto(p));
   d.querySelector('[data-tempbtn]').addEventListener('click', async () => {
@@ -3470,7 +3472,7 @@ function pintaOcupacao(d, p){
     }
     else if (o === 'reabre'){ p.ocup_fim = ''; }
     else if (o === 'navega'){ grava(); return proximoNavegar(p); }
-    grava(); pintaOcupacao(d, p);
+    grava(); trilhaNaOcupacao(); pintaOcupacao(d, p);
     try { pintaPlanoCampanha(); } catch (e){}
   };
   cx.onchange = e => {
@@ -9098,15 +9100,33 @@ function pintaTrilha(){
   b.textContent = TRILHA_VIGIA != null ? 'Pausar a gravação' : 'Gravar a trilha';
   b.classList.toggle('on', TRILHA_VIGIA != null);
 }
+function pausaTrilha(){
+  if (TRILHA_VIGIA == null) return false;
+  navigator.geolocation.clearWatch(TRILHA_VIGIA); TRILHA_VIGIA = null;
+  if (TRILHA_TRAVA){ TRILHA_TRAVA.release().catch(() => {}); TRILHA_TRAVA = null; }
+  F.dia.trilha_ligada = false;
+  try { gravaRegistroJa(); } catch (e){}
+  guardaTrilha(true); pintaTrilhaNav(); return true;
+}
 function alternaTrilha(){
   if (TRILHA_VIGIA != null){
-    navigator.geolocation.clearWatch(TRILHA_VIGIA); TRILHA_VIGIA = null;
-    if (TRILHA_TRAVA){ TRILHA_TRAVA.release().catch(() => {}); TRILHA_TRAVA = null; }
-    F.dia.trilha_ligada = false;
-    try { gravaRegistroJa(); } catch (e){}
-    guardaTrilha(true); pintaTrilhaNav(); marca('gravação da trilha pausada'); return;
+    pausaTrilha(); F.dia.trilha_pausa_ocup = false; grava();
+    marca('gravação da trilha pausada'); return;
   }
   ligaTrilha(true);
+}
+/* Durante a ocupação o carro está parado: a trilha pausa sozinha (GPS desligado e a
+   tela livre para apagar, o que poupa bateria) e volta sozinha quando a última
+   ocupação aberta é encerrada — só se foi a ocupação que a pausou. */
+function trilhaNaOcupacao(){
+  const aberta = (F.dia.pontos || []).some(q => q.ocup_ini && !q.ocup_fim);
+  if (aberta && TRILHA_VIGIA != null){
+    pausaTrilha(); F.dia.trilha_pausa_ocup = true; grava();
+    setTimeout(() => marca('trilha pausada durante a ocupação: a tela pode apagar; ela volta ao encerrar'), 700);
+  } else if (!aberta && F.dia.trilha_pausa_ocup){
+    F.dia.trilha_pausa_ocup = false; grava(); ligaTrilha(true);
+    setTimeout(() => marca('ocupação encerrada: a trilha voltou a gravar'), 700);
+  }
 }
 /* A trilha liga sozinha ao abrir a navegação e volta sozinha se a página for
    recarregada (o Chrome às vezes descarta a aba em segundo plano): o estado

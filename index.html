@@ -6532,9 +6532,9 @@ function pintaPlano(){
     if (hj){
       const EQh = equipeDoPlano();
       h += '<p class="leg" style="margin:6px 0;padding:6px 8px;border-radius:8px;background:' + (hj.util === false ? '#FEF3C7' : '#EFF6FF') + '">'
-        + (hj.antes ? (pcH.calendario.ida ? 'A campanha começa em ' + _ddmm(_diaDe(pcH.calendario.ida)) + ' (ida); a coleta, em ' + _ddmm(_diaDe(pcH.calendario.inicio)) + '.'
+        + (hj.antes ? (pcH.calendario.ida ? 'A campanha começa em ' + _ddmm(_diaDe(pcH.calendario.ida)) + (_nIda(pcH.calendario) ? ' (ida)' : '') + '; a coleta, em ' + _ddmm(_diaDe(pcH.calendario.inicio)) + '.'
                       : 'O campo começa em ' + _ddmm(_diaDe(pcH.calendario.inicio)) + '.')
-          : hj.depois ? 'A campanha terminou em ' + _ddmm(_diaDe(pcH.calendario.volta)) + ' (volta).'
+          : hj.depois ? 'A campanha terminou em ' + _ddmm(_diaDe(pcH.calendario.volta)) + '.'
           : hj.util === false && (hj.motivo.tipo === 'ida' || hj.motivo.tipo === 'volta') ? '<b>' + _ddmm(hj.data) + ': ' + esc(textoFolga(hj.motivo)) + '</b> — sem coleta prevista.'
           : hj.util === false ? '<b>' + _ddmm(hj.data) + ': ' + esc(textoFolga(hj.motivo)) + ' — pelo plano, sem atividades de campo</b> ('
             + esc(hj.motivo.tipo === 'fds' ? FDS_TXT[pcH.calendario.fds || 'sem'] : FER_TXT[pcH.calendario.feriados || 'sem']) + ').'
@@ -7283,8 +7283,7 @@ function lerFeriadosLocais(txt){
 /* por que o dia não é de campo (null = é dia de campo) */
 function motivoFolga(d, c){
   c = c || {}; const w = d.getUTCDay(), fds = c.fds || 'sem', regra = c.feriados || 'sem';
-  if (c.ida && _isoDia(d) === c.ida) return {tipo: 'ida', nome: 'deslocamento de ida'};
-  if (c.volta && _isoDia(d) === c.volta) return {tipo: 'volta', nome: 'deslocamento de volta'};
+  { const dz = _desloc(c, _isoDia(d)); if (dz) return dz; }
   if (w === 0 && fds !== 'ambos') return {tipo: 'fds', nome: 'domingo'};
   if (w === 6 && fds === 'sem') return {tipo: 'fds', nome: 'sábado'};
   if (regra === 'trabalha') return null;
@@ -7300,14 +7299,31 @@ function textoFolga(f){
   return f.tipo === 'ida' || f.tipo === 'volta' ? 'dia de ' + f.nome : f.tipo === 'fds' ? 'fim de semana' : f.tipo === 'facultativo' ? 'ponto facultativo — ' + f.nome
     : f.tipo === 'nacional' ? 'feriado nacional — ' + f.nome : f.tipo === 'estadual' ? f.nome : 'feriado municipal — ' + f.nome;
 }
-/* dia seguinte (ISO) */
+/* dia seguinte (ISO) e n dias depois */
 function _diaSeg(iso){ const d = _diaDe(iso); d.setUTCDate(d.getUTCDate() + 1); return _isoDia(d); }
+function _maisDias(iso, n){ const d = _diaDe(iso); d.setUTCDate(d.getUTCDate() + n); return _isoDia(d); }
+/* O período vai do início (c.ida) ao fim (c.volta) da campanha. Os primeiros nIda dias são de
+   deslocamento de ida e os últimos nVolta, de volta (0 = sem deslocamento; campanha antiga sem
+   esses números = 1 e 1). Deslocamento conta dia corrido, inclusive fim de semana e feriado. */
+function _nIda(c){ return c && c.nIda != null ? c.nIda : 1; }
+function _nVolta(c){ return c && c.nVolta != null ? c.nVolta : 1; }
+function _desloc(c, iso){
+  if (!c || !c.ida || !c.volta) return null;
+  const ni = _nIda(c), nv = _nVolta(c);
+  if (ni && iso >= c.ida && iso < _maisDias(c.ida, ni))
+    return {tipo: 'ida', nome: 'deslocamento de ida' + (ni > 1 ? ' (' + (Math.round((_diaDe(iso) - _diaDe(c.ida)) / 864e5) + 1) + 'º de ' + ni + ')' : '')};
+  if (nv && iso <= c.volta && iso > _maisDias(c.volta, -nv))
+    return {tipo: 'volta', nome: 'deslocamento de volta' + (nv > 1 ? ' (' + (nv - Math.round((_diaDe(c.volta) - _diaDe(iso)) / 864e5)) + 'º de ' + nv + ')' : '')};
+  return null;
+}
 function _calDaTela(){
   const ida = ($('#pc_ida') || {}).value || '', volta = ($('#pc_volta') || {}).value || '';
   const pc0 = F.campanha.planoCampanha, c0 = (pc0 && pc0.calendario) || {};
   const res = Math.max(0, Math.min(5, parseInt(($('#pc_res') || {}).value, 10) || 0));
-  return {ida: ida, volta: volta && (!ida || volta > ida) ? volta : '', reserva: res,
-    inicio: ida ? _diaSeg(ida) : (c0.ida ? '' : c0.inicio || ''), fds: ($('#pc_fds') || {}).value || 'sem',
+  const num = (sel, def) => { const v = parseInt(($(sel) || {}).value, 10); return Math.max(0, Math.min(5, isNaN(v) ? def : v)); };
+  const nIda = num('#pc_nida', 1), nVolta = num('#pc_nvolta', 1);
+  return {ida: ida, volta: volta && (!ida || volta >= ida) ? volta : '', nIda: nIda, nVolta: nVolta, reserva: res,
+    inicio: ida ? _maisDias(ida, nIda) : (c0.ida ? '' : c0.inicio || ''), fds: ($('#pc_fds') || {}).value || 'sem',
     feriados: ($('#pc_fer') || {}).value || 'sem', uf: F.campanha.uf || '',
     locaisTxt: ($('#pc_ferloc') || {}).value || '', locais: lerFeriadosLocais(($('#pc_ferloc') || {}).value)};
 }
@@ -7315,8 +7331,9 @@ function _calDaTela(){
    Os últimos `reserva` dias úteis antes da volta ficam de reserva (manutenção do carro ou
    remedições) — o plano usa os outros. {uteis, reserva, plano} em ISO, ou null sem ida e volta. */
 function periodoCampanha(c){
-  if (!c || !c.ida || !c.volta || c.volta <= c.ida) return null;
-  const U = []; for (let d = _diaDe(_diaSeg(c.ida)); _isoDia(d) < c.volta; d.setUTCDate(d.getUTCDate() + 1)) if (diaDeTrabalho(d, c)) U.push(_isoDia(d));
+  if (!c || !c.ida || !c.volta || c.volta < c.ida) return null;
+  const a = _maisDias(c.ida, _nIda(c)), b = _maisDias(c.volta, -_nVolta(c));   // primeiro e último dia fora do deslocamento
+  const U = []; for (let d = _diaDe(a); _isoDia(d) <= b; d.setUTCDate(d.getUTCDate() + 1)) if (diaDeTrabalho(d, c)) U.push(_isoDia(d));
   const r = Math.min(U.length, c.reserva | 0);
   return {uteis: U, reserva: U.slice(U.length - r), plano: U.slice(0, U.length - r)};
 }
@@ -7330,18 +7347,21 @@ function datasDoPlano(pc, n){
 /* resumo do período: do início ao último dia de campo da equipe com mais dias */
 function resumoCalendario(pc){
   const c = pc && pc.calendario, n = Math.max(0, ...((pc && pc.equipes) || []).map(e => e.dias.length));
-  if (!c || !c.inicio) return 'Sem período: os dias do plano não têm data (informe a ida e a volta da campanha).';
+  if (!c || !c.inicio) return 'Sem período: os dias do plano não têm data (informe o início e o fim da campanha).';
   const D = datasDoPlano(pc, n); if (!D || !D.length) return '';
   const PE = periodoCampanha(c);
   let per = '';
   if (PE){
     const dd = iso => _ddmm(_diaDe(iso));
-    per = 'Campanha de ' + dd(c.ida) + ' (ida) a ' + dd(c.volta) + ' (volta): ' + PE.uteis.length + ' dia(s) úteis de campo'
+    const ni = _nIda(c), nv = _nVolta(c);
+    const desl = (n, ini, nome) => n ? n + ' dia(s) de deslocamento na ' + nome + ' (' + Array.from({length: n}, (_, k) => dd(_maisDias(ini, k))).join(', ') + ')' : 'sem deslocamento na ' + nome;
+    per = 'Campanha de ' + dd(c.ida) + ' a ' + dd(c.volta) + ': ' + desl(ni, c.ida, 'ida') + ', ' + desl(nv, _maisDias(c.volta, 1 - nv), 'volta') + '; '
+      + PE.uteis.length + ' dia(s) úteis de campo'
       + (PE.reserva.length ? ', ' + PE.reserva.length + ' de reserva para manutenção do carro ou remedições (' + PE.reserva.map(dd).join(', ') + ')'
          + ' e ' + PE.plano.length + ' para o plano' : '') + '. ';
     const L = (pc.equipes || []).map(e => {
       const k = e.dias.length;
-      return k > PE.uteis.length ? e.nome + ' precisa de ' + k + ' dias e passa da volta'
+      return k > PE.uteis.length ? e.nome + ' precisa de ' + k + ' dias e passa do fim da campanha'
         : k > PE.plano.length ? e.nome + ' precisa de ' + k + ' dias e ocupa a reserva' : '';
     }).filter(Boolean);
     if (L.length) per += '⚠ ' + L.join('; ') + ': aumente os pontos por dia, mude a divisão ou reduza a reserva. ';
@@ -7427,7 +7447,7 @@ function calendarioPlano(pc, so){
         if (fn) h += '<span class="mot">' + esc(fn.nome) + (fn.tipo === 'facultativo' ? '<span class="lng"> (ponto facultativo)</span>' : '') + '</span>'; }
       if (mf && (mf.tipo === 'ida' || mf.tipo === 'volta')) h += '<span class="dsl">' + (mf.tipo === 'ida' ? 'Ida' : 'Volta') + '<span class="lng"> — deslocamento</span></span>';
       if (resv) h += '<span class="dsl">Reserva<span class="lng"> — manutenção do carro ou remedições</span>' + (P.length ? ' <b style="color:#B91C1C">⚠ ocupada pelo plano</b>' : '') + '</span>';
-      if (PE && c.volta && iso > c.volta && P.length) h += '<span class="dsl" style="color:#B91C1C">⚠ depois da volta</span>';
+      if (PE && c.volta && iso > c.volta && P.length) h += '<span class="dsl" style="color:#B91C1C">⚠ depois do fim da campanha</span>';
       P.forEach(x => {
         const f = _feitosDia(x.d, Et), n = x.d.ids.length;
         h += '<span class="eq' + (f === n ? ' feito' : '') + '" style="border-color:' + x.e.cor + '"><b style="color:' + x.e.cor + '">'
@@ -7569,10 +7589,13 @@ function pintaPlanoCampanha(){
     + '<label for="pc_vr">Rodovia (km/h)</label><input type="number" id="pc_vr" min="20" max="110" value="' + val('velRod', 60) + '"></div>'
     + '<div class="lin"><label for="pc_saida">Saída do hotel</label><input type="time" id="pc_saida" value="' + esc(val('saida', '07:00')) + '">'
     + '<label for="pc_almoco">Almoço (min)</label><input type="number" id="pc_almoco" min="0" max="180" value="' + val('almoco', 60) + '"></div>'
-    + '<div class="lin"><label for="pc_ida">Ida (deslocamento)</label><input type="date" id="pc_ida" value="' + esc((pc && pc.calendario && pc.calendario.ida) || '') + '">'
-    + '<label for="pc_volta">Volta (deslocamento)</label><input type="date" id="pc_volta" value="' + esc((pc && pc.calendario && pc.calendario.volta) || '') + '"></div>'
+    + '<div class="lin"><label for="pc_ida">Início da campanha</label><input type="date" id="pc_ida" value="' + esc((pc && pc.calendario && pc.calendario.ida) || '') + '">'
+    + '<label for="pc_volta">Fim da campanha</label><input type="date" id="pc_volta" value="' + esc((pc && pc.calendario && pc.calendario.volta) || '') + '"></div>'
+    + '<div class="lin"><label for="pc_nida">Dias de deslocamento na ida</label><input type="number" id="pc_nida" min="0" max="5" value="' + _nIda(pc && pc.calendario) + '">'
+    + '<label for="pc_nvolta">na volta</label><input type="number" id="pc_nvolta" min="0" max="5" value="' + _nVolta(pc && pc.calendario) + '">'
+    + '<small>os primeiros e os últimos dias do período, corridos; 0 = sem deslocamento</small></div>'
     + '<div class="lin"><label for="pc_res">Dias de reserva</label><input type="number" id="pc_res" min="0" max="5" value="' + ((pc && pc.calendario && pc.calendario.reserva != null) ? pc.calendario.reserva : 1) + '">'
-    + '<small>manutenção do carro ou remedições: os últimos dias úteis antes da volta, fora do plano</small></div>'
+    + '<small>manutenção do carro ou remedições: os últimos dias úteis antes do deslocamento de volta (ou do fim), fora do plano</small></div>'
     + '<div class="lin"><label for="pc_fds">Fim de semana</label><select id="pc_fds">'
     + Object.entries(FDS_TXT).map(([k, t]) => '<option value="' + k + '"' + (((pc && pc.calendario && pc.calendario.fds) || 'sem') === k ? ' selected' : '') + '>' + t + '</option>').join('')
     + '</select></div>'
@@ -7613,10 +7636,16 @@ function pintaPlanoCampanha(){
   $('#b_pc').addEventListener('click', () => planejaCampanha().catch(e => marca('plano da campanha: ' + e.message)));
   ligaCamposHotel();
   // início e fim de semana mudam só as datas: não precisa planejar de novo
-  ['#pc_ida', '#pc_volta', '#pc_res', '#pc_fds', '#pc_fer', '#pc_ferloc'].forEach(s => { const e = $(s); if (e) e.addEventListener('change', () => {
+  // redesenha depois que o foco passou ao campo seguinte e devolve o foco a ele (o quadro é refeito)
+  ['#pc_ida', '#pc_volta', '#pc_nida', '#pc_nvolta', '#pc_res', '#pc_fds', '#pc_fer', '#pc_ferloc'].forEach(s => { const e = $(s); if (e) e.addEventListener('change', () => {
     const pc2 = F.campanha.planoCampanha; if (!pc2) return;
     pc2.calendario = _calDaTela();
-    _datasNaCampanha(pc2); grava(); pintaPlanoCampanha(); }); });
+    _datasNaCampanha(pc2); grava();
+    setTimeout(() => {
+      const fo = document.activeElement && document.activeElement.id;
+      pintaPlanoCampanha();
+      if (fo){ const e2 = document.getElementById(fo); if (e2 && e2 !== document.activeElement) try { e2.focus(); } catch (er){} }
+    }, 0); }); });
   if (pc){
     $$('[data-atrib]').forEach(sel => sel.addEventListener('change', () => {
       F.campanha.atribEquipes = F.campanha.atribEquipes || {};

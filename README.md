@@ -142,7 +142,7 @@ authentication. RFC 2104. [S. l.]: IETF, 1997. Disponível em:
 https://www.rfc-editor.org/rfc/rfc2104. Acesso em: 20 out. 2026.
 
 ## Calendário do campo (fim de semana e feriados)
-- No planejador: **Início do campo**, **Fim de semana** (padrão: sem atividades; opções sábado, sábado e domingo), **Feriados** (padrão: sem atividades em feriados e pontos facultativos federais; opções: ponto facultativo é dia de campo; trabalho também em feriados) e **Feriados municipais da área** (um por linha, `dd/mm` ou `dd/mm/aaaa Nome`).
+- No planejador: **Início** e **Fim da campanha**, **Dias de deslocamento** na ida e na volta (0 a 5, dias corridos no começo e no fim do período; 0 = sem deslocamento), **Dias de reserva** (manutenção do carro ou remedições: os últimos dias úteis antes da volta), **Fim de semana** (padrão: sem atividades; opções sábado, sábado e domingo), **Feriados** (padrão: sem atividades em feriados e pontos facultativos federais; opções: ponto facultativo é dia de campo; trabalho também em feriados) e **Feriados municipais da área** (um por linha, `dd/mm` ou `dd/mm/aaaa Nome`).
 - Nacionais calculados: Lei nº 662/1949 (red. Lei nº 10.607/2002), Lei nº 6.802/1980, Lei nº 14.759/2023, Lei nº 9.093/1995 (Sexta-feira da Paixão; Páscoa por Meeus/Jones/Butcher). Pontos facultativos: Carnaval, Cinzas, Corpus Christi, 28/10, 24 e 31/12 e as emendas da portaria do ano (2026: Portaria MGI nº 11.460/2025, 20/04 e 05/06). Conferir a portaria de cada ano novo.
 - Estaduais pela UF da campanha: CE 25/03 (Data Magna); RN 03/10 (Lei estadual nº 8.913/2006). Outras UF: informar na lista municipal.
 - Os dias do plano recebem data; início e fim da campanha são preenchidos; no celular, o Plano do dia avisa fim de semana/feriado ou mostra "Hoje é o Dia N".

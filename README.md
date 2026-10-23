@@ -156,3 +156,9 @@ https://www.rfc-editor.org/rfc/rfc2104. Acesso em: 20 out. 2026.
 - Dados antigos sem PIN são criptografados na criação do PIN.
 - Limpeza após envio conferido: dos dias arquivados, apaga fotos originais e RINEX (só de pontos com PPP) cuja cópia no Drive foi confirmada (tamanho + FNV-1a). Fotos de 1280 px ficam. Nomes reservados e editadas não refeitas, para nada no Drive ser sobrescrito.
 - Continua exposto: arquivos exportados na pasta Download e o próprio HTML da folha da equipe (traz o plano e os integrantes).
+
+## Formulário de campo da CCAR (versão 6)
+- A folha preenche o formulário "Determinações GNSS – registro de dados de campo" (versão 6) com o que registrou e o grava no pacote como `Formulários/PPPP_Form.jpg`; também sai em PDF ou imagem pelo cartão do ponto (quadro *Formulário de campo*).
+- Do registro: projeto, campanha, estação, arquivo de dados, localidade, município/UF, operadores, data, dia juliano, receptor e antena com nº de série (cabeçalho do RINEX), taxa, estático/PPP, tipo de ponto (checagem marca o controle conforme o uso), horários, altura no início e no fim, descrição, fotos, croqui e situação.
+- Digitado no cartão: PDOP de início e fim, coordenada de término lida na tela do receptor (ou a do celular, com observação) e o diagrama de altura da antena.
+- Faixa, Foto e Folha MI ficam em branco (outro tipo de planejamento). O relatório do ponto segue no PDF dos relatórios dos pontos.

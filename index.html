@@ -845,8 +845,8 @@ você cabe o que nenhum arquivo registra.</p>
     e, em <span class="marca">Equipe_NN\Dia_DDD\</span> (dia juliano):
     <span class="marca">Dados_GNSS\Originais</span>, <span class="marca">Renomeados\PPPPDDD.YYo</span>,
     <span class="marca">Coordenadas_calculadas_PPP</span>;
-    <span class="marca">Formulários\PPPP_Form.jpg</span> (o relatório do ponto; não montado, a folha o monta na hora,
-    se houver coordenada medida no ponto);
+    <span class="marca">Formulários\PPPP_Form.jpg</span> (o formulário da CCAR "Determinações GNSS — registro de dados de campo",
+    versão 6, preenchido pela folha; o relatório do ponto vai no PDF dos relatórios dos pontos);
     <span class="marca">Fotos\Originais</span> e <span class="marca">Fotos\Editadas\PPPP_F1.jpg</span>
     (800 px, com a tarja); <span class="marca">Recorte\PPPP_R.png</span> (200 m).</p>
   </details>
@@ -1379,8 +1379,8 @@ function leCabecalhoRinex(txt){
       r.sat_sis = (l.slice(40,41) || '').trim().toUpperCase();
     }
     else if (rot === 'MARKER NAME') r.marcador = l.slice(0,60).trim();
-    else if (rot === 'REC # / TYPE / VERS') r.receptor = l.slice(20,40).trim();
-    else if (rot === 'ANT # / TYPE') r.antena = l.slice(20,40).trim();
+    else if (rot === 'REC # / TYPE / VERS'){ r.receptor = l.slice(20,40).trim(); r.receptor_sn = l.slice(0,20).trim(); }
+    else if (rot === 'ANT # / TYPE'){ r.antena = l.slice(20,40).trim(); r.antena_sn = l.slice(0,20).trim(); }
     else if (rot === 'ANTENNA: DELTA H/E/N'){
       r.altura = _num(l.slice(0,14)); r.dEste = _num(l.slice(14,28));
       r.dNorte = _num(l.slice(28,42));
@@ -2626,6 +2626,198 @@ function exportaRelatorio(p, formato){
   marca('PDF exportado: ' + _nomeRelatorio(p, 'pdf'));
 }
 
+/* ---------- formulário de campo da CCAR (Determinações GNSS — registro de dados de campo, versão 6) ----------
+   A folha preenche o formulário oficial com o que já registrou: nada se copia à mão. Faixa,
+   Foto e Folha MI são de outro tipo de planejamento e ficam em branco. O que o formulário pede
+   e só a tela do receptor mostra (PDOP, coordenada de término) vem do cartão do ponto. */
+const CCAR_DIAG = {esq: 'o da esquerda no formulário', dir: 'o da direita no formulário'};
+function _ccarTipo(p){
+  const s = (p.serve || '') + ' ' + (p.tipo || '');
+  return /altim[eé]tric/i.test(s) && !/planialt|planim/i.test(s) ? 'alt' : 'planialt';
+}
+function _ccarDiagrama(x, X, Y, s, base){
+  // trípé desenhado como no formulário: prato da antena no alto, pernas, eixo e cotas
+  x.save(); x.strokeStyle = '#111'; x.fillStyle = '#111'; x.lineWidth = 1.6;
+  const topo = Y + 20 * s, chao = Y + 200 * s, cx = X + 55 * s;
+  x.beginPath(); x.ellipse(cx, topo - 4 * s, 22 * s, 5 * s, 0, 0, 6.2832); x.stroke();
+  x.beginPath(); x.moveTo(cx - 48 * s, chao); x.lineTo(cx, topo); x.lineTo(cx + 48 * s, chao); x.moveTo(cx, topo); x.lineTo(cx, chao); x.stroke();
+  x.beginPath(); x.moveTo(cx - 70 * s, chao); x.lineTo(cx + 85 * s, chao); x.stroke();
+  const dx = cx + 70 * s, seta = (ya, yb) => { x.beginPath(); x.moveTo(dx, ya); x.lineTo(dx, yb);
+    x.moveTo(dx - 5 * s, ya + 6 * s); x.lineTo(dx, ya); x.lineTo(dx + 5 * s, ya + 6 * s);
+    x.moveTo(dx - 5 * s, yb - 6 * s); x.lineTo(dx, yb); x.lineTo(dx + 5 * s, yb - 6 * s); x.stroke();
+    x.beginPath(); x.moveTo(cx + 22 * s, ya); x.lineTo(dx + 8 * s, ya); x.moveTo(cx + 2 * s, yb); x.lineTo(dx + 8 * s, yb); x.stroke(); };
+  if (base){
+    const bt = chao - 30 * s;
+    x.fillRect(cx - 12 * s, bt, 24 * s, 14 * s); x.fillRect(cx - 22 * s, bt + 14 * s, 44 * s, 16 * s);
+    seta(topo, bt); seta(bt, chao);
+  } else seta(topo, chao);
+  x.restore();
+}
+async function formularioCCAR(p, o){
+  o = o || {};
+  const W = CRO.W, H = CRO.H, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const x = cv.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.textBaseline = 'alphabetic';
+  const L = 30, R = W - 30, AZ = '#0A2E52', fnt = (px, peso) => { x.font = (peso ? peso + ' ' : '') + px + 'px Arial, Helvetica, sans-serif'; };
+  const caixa = (x0, y0, x1, y1, lw) => { x.lineWidth = lw || 1.4; x.strokeStyle = '#111'; x.strokeRect(x0, y0, x1 - x0, y1 - y0); };
+  const linhaV = (xx, y0, y1) => { x.beginPath(); x.moveTo(xx, y0); x.lineTo(xx, y1); x.lineWidth = 1.2; x.strokeStyle = '#111'; x.stroke(); };
+  const linhaH = (x0, x1, yy) => { x.beginPath(); x.moveTo(x0, yy); x.lineTo(x1, yy); x.lineWidth = 1.2; x.strokeStyle = '#111'; x.stroke(); };
+  const corta = (t, w) => { t = String(t || ''); if (x.measureText(t).width <= w) return t; while (t.length > 1 && x.measureText(t + '…').width > w) t = t.slice(0, -1); return t + '…'; };
+  // rótulo + valor numa célula
+  const cel = (rot, val, x0, x1, yy) => { fnt(17); x.fillStyle = '#111'; x.fillText(rot, x0 + 7, yy);
+    const w = x.measureText(rot + ' ').width; fnt(17, '700'); x.fillStyle = AZ; x.fillText(corta(val, x1 - x0 - w - 14), x0 + 7 + w, yy); };
+  const marcaX = (bx, by, on, rot) => { x.lineWidth = 1.3; x.strokeStyle = '#111'; x.strokeRect(bx, by - 15, 15, 15);
+    if (on){ x.strokeStyle = AZ; x.lineWidth = 2.6; x.beginPath(); x.moveTo(bx + 3, by - 12); x.lineTo(bx + 12, by - 3); x.moveTo(bx + 12, by - 12); x.lineTo(bx + 3, by - 3); x.stroke(); }
+    if (rot){ fnt(17); x.fillStyle = '#111'; x.fillText(rot, bx + 24, by - 1); } };
+  const num = o.num || p.id || '', data = o.data || null, ddd = o.ddd || (data ? _diaJuliano(data) : '');
+  const ints = integrantes().map(m => m.nome).filter(Boolean);
+  const rx = ((p.arqs && p.arqs.rinex) || []).map(a => o.ddd && o.num ? nomeRinexLC(o.num, o.ddd, a.nome) : a.nome);
+  // ---- cabeçalho
+  caixa(L, 30, R, 140);
+  try { await LOGO_IMG.decode(); let lh = 50, lw = lh * LOGO_IMG.width / LOGO_IMG.height; if (lw > 220){ lw = 220; lh = lw * LOGO_IMG.height / LOGO_IMG.width; }
+        x.drawImage(LOGO_IMG, L + (250 - lw) / 2, 40 + (50 - lh) / 2, lw, lh); } catch (e){}
+  fnt(15, 'italic'); x.fillStyle = '#003C78'; x.fillText('Diretoria de Geociências', L + 40, 122);
+  linhaV(L + 250, 30, 140);
+  fnt(22, '700'); x.fillStyle = '#111'; x.fillText('DETERMINAÇÕES GNSS – REGISTRO DE DADOS DE CAMPO', L + 270, 60);
+  fnt(15); x.fillText('- versão 6', L + 270 + (fnt(22, '700'), x.measureText('DETERMINAÇÕES GNSS – REGISTRO DE DADOS DE CAMPO ').width), 60);
+  linhaH(L + 250, R, 70); linhaV(L + 760, 70, 140);
+  fnt(17); x.fillStyle = '#111'; x.fillText('Projeto', L + 257, 90); x.fillText('Campanha', L + 767, 90);
+  fnt(18, '700'); x.fillStyle = AZ;
+  x.fillText(corta(F.campanha.ptcon_projeto || F.campanha.nome || '', 490), L + 257, 125);
+  x.fillText(corta([F.campanha.ptcon_lc, F.campanha.nome].filter(Boolean).join(' — '), 400), L + 767, 125);
+  // ---- identificação
+  let y = 150; caixa(L, y, R, y + 105);
+  const r1 = y + 23, r2 = y + 58, r3 = y + 93; linhaH(L, R, y + 35); linhaH(L, R, y + 70);
+  linhaV(L + 240, y, y + 35); linhaV(L + 680, y, y + 35); linhaV(L + 895, y, y + 35);
+  cel('Estação:', num, L, L + 240, r1); cel('Arquivo de dados:', rx.join(', '), L + 240, L + 680, r1); cel('Faixa:', '', L + 680, L + 895, r1); cel('Foto:', '', L + 895, R, r1);
+  linhaV(L + 190, y + 35, y + 70); linhaV(L + 560, y + 35, y + 70); linhaV(L + 985, y + 35, y + 70);
+  cel('Folha MI:', '', L, L + 190, r2); cel('Localidade:', p.localidade || '', L + 190, L + 560, r2); cel('Município:', p.municipio || '', L + 560, L + 985, r2); cel('UF:', p.uf || F.campanha.uf || '', L + 985, R, r2);
+  linhaV(L + 560, y + 70, y + 105); linhaV(L + 860, y + 70, y + 105);
+  cel('Operadores:', ints.join(', '), L, L + 560, r3); cel('Data:', data ? _br(data) : '', L + 560, L + 860, r3); cel('Dia Juliano:', ddd, L + 860, R, r3);
+  // ---- equipamento, método, tipo, coordenada
+  y = 265; caixa(L, y, R, y + 300); linhaV(L + 610, y, y + 58);
+  const rec = String(p.receptor || F.campanha.ponto_receptor || '').trim(), mm = rec.split(/\s+/);
+  fnt(14); x.fillStyle = '#111'; x.fillText('Marca', L + 145, y + 17); x.fillText('Modelo', L + 275, y + 17); x.fillText('N.º de série', L + 420, y + 17);
+  x.fillText('Modelo', L + 700, y + 17); x.fillText('N.º de série', L + 960, y + 17);
+  fnt(17); x.fillText('Receptor:', L + 7, y + 48); x.fillText('Antena:', L + 617, y + 48);
+  fnt(17, '700'); x.fillStyle = AZ;
+  x.fillText(corta(mm.length > 1 ? mm[0] : '', 120), L + 145, y + 48); x.fillText(corta(mm.length > 1 ? mm.slice(1).join(' ') : rec, 140), L + 275, y + 48);
+  x.fillText(corta(p.receptor_sn || '', 170), L + 420, y + 48);
+  fnt(16, '700'); x.fillText(corta(String(p.antena || F.campanha.ponto_antena || '').replace(/\s+/g, ' ').trim(), 250), L + 700, y + 48);
+  x.fillText(corta(p.antena_sn || '', 180), L + 960, y + 48);
+  linhaH(L, R, y + 58); linhaV(L + 540, y + 58, y + 93);
+  cel('Taxa de rastreio:', (p.intervalo ? String(p.intervalo).replace('.', ',') + ' segundo(s)' : '           segundo(s)'), L, L + 540, y + 83);
+  linhaH(L, R, y + 93);
+  linhaV(L + 250, y + 93, y + 228); linhaV(L + 470, y + 93, y + 228);
+  fnt(17); x.fillStyle = '#111'; x.fillText('Posicionamento GNSS', L + 10, y + 115); x.fillText('Cálculo', L + 320, y + 115); x.fillText('Tipo de Ponto', L + 790, y + 115);
+  marcaX(L + 12, y + 140, true, 'Estático'); marcaX(L + 12, y + 165, false, 'Cinemático'); marcaX(L + 12, y + 190, false, 'Semicinemático');
+  marcaX(L + 262, y + 140, true, 'PPP'); marcaX(L + 262, y + 165, false, 'Instantâneo'); marcaX(L + 262, y + 190, false, 'Média'); marcaX(L + 262, y + 215, false, 'Relativo');
+  const tp = _ccarTipo(p);
+  marcaX(L + 490, y + 160, tp === 'planialt', 'Controle planialtimétrico'); marcaX(L + 490, y + 185, tp === 'alt', 'Controle altimétrico');
+  marcaX(L + 860, y + 160, false, 'Base Local'); marcaX(L + 860, y + 185, false, 'Est. Geodésica');
+  if (p.tipo === 'checagem'){ fnt(14, 'italic'); x.fillStyle = AZ; x.fillText('ponto de checagem — ' + (tp === 'alt' ? 'altimétrica' : 'planialtimétrica'), L + 490, y + 215); }
+  linhaH(L, R, y + 228); linhaV(L + 160, y + 228, y + 300); linhaV(L + 520, y + 228, y + 300); linhaV(L + 880, y + 228, y + 300);
+  fnt(17); x.fillStyle = '#111'; x.fillText('Coordenada', L + 7, y + 255); x.fillText('de Término', L + 7, y + 285);
+  x.fillText('Latitude', L + 167, y + 250); x.fillText('Longitude', L + 527, y + 250); x.fillText('Altitude', L + 887, y + 250);
+  let tLat = p.term_lat || '', tLon = p.term_lon || '', tAlt = p.term_alt || '', tNota = '';
+  if (!tLat && !tLon){
+    const c = p.coord_cel && p.coord_cel.lat != null ? p.coord_cel : (p.chegada && p.chegada.lat != null ? p.chegada : null);
+    if (c){ tLat = gms(c.lat, 'lat'); tLon = gms(c.lon, 'lon'); if (!tAlt && c.h != null) tAlt = String(Math.round(c.h)); tNota = 'posição do celular (não é a do receptor)'; }
+  } else if (p.term_fonte === 'celular') tNota = 'posição do celular (não é a do receptor)';
+  fnt(18, '700'); x.fillStyle = AZ;
+  x.fillText(corta(tLat, 340), L + 167, y + 285); x.fillText(corta(tLon, 340), L + 527, y + 285);
+  x.fillText(corta(tAlt ? String(tAlt).replace('.', ',') + ' m' : '', 300), L + 887, y + 285);
+  if (tNota){ fnt(13, 'italic'); x.fillText(tNota, L + 887, y + 252 + 0); }
+  // ---- sessões
+  y = 580; const cw = (R - (L + 230)) / 6, c0 = L + 230;
+  caixa(L, y, R, y + 165); linhaH(c0 + 2 * cw, R, y + 32); linhaV(c0 + 2 * cw, y, y + 32);
+  fnt(17); x.fillStyle = '#111'; x.fillText('REGISTRO PARA MÚLTIPLAS SESSÕES DE RASTREIO', c0 + 2 * cw + 60, y + 23);
+  linhaH(L, R, y + 32); linhaH(c0, R, y + 62); linhaV(c0, y + 32, y + 165);
+  for (let k = 1; k < 6; k++){ if (k % 2 === 0) linhaV(c0 + k * cw, y + 32, y + 165); else { x.setLineDash([3, 3]); linhaV(c0 + k * cw, y + 62, y + 165); x.setLineDash([]); } }
+  fnt(16); x.fillText('Sessão Única (ou Nº        )', c0 + 8, y + 54); x.fillText('Sessão Nº', c0 + 2 * cw + 8, y + 54); x.fillText('Sessão Nº', c0 + 4 * cw + 8, y + 54);
+  for (let k = 0; k < 6; k++){ x.fillText(k % 2 ? 'Fim' : 'Início', c0 + k * cw + cw / 2 - 18, y + 80 - 0); }
+  linhaH(L, R, y + 85); linhaH(L, R, y + 125);
+  fnt(17); x.fillText('Horário Observado', L + 7, y + 112); x.fillText('Alt. Vertical da Antena', L + 7, y + 150);
+  linhaH(L, R, y + 165);
+  caixa(L, y + 165, R, y + 205); linhaV(c0, y + 165, y + 205);
+  for (let k = 1; k < 6; k++){ if (k % 2 === 0) linhaV(c0 + k * cw, y + 165, y + 205); else { x.setLineDash([3, 3]); linhaV(c0 + k * cw, y + 165, y + 205); x.setLineDash([]); } }
+  x.fillText('PDOP', L + 7, y + 192);
+  const hh = t => t ? String(t).slice(0, 8) : '';
+  const altF = p.altura_fim != null && p.altura_fim !== '' ? p.altura_fim : (p.altura_fim_ok ? p.altura : '');
+  fnt(18, '700'); x.fillStyle = AZ;
+  x.fillText(hh(p.ini), c0 + 10, y + 112); x.fillText(hh(p.fim), c0 + cw + 10, y + 112);
+  x.fillText(p.altura ? String(p.altura).replace('.', ',') + ' m' : '', c0 + 10, y + 150); x.fillText(altF ? String(altF).replace('.', ',') + ' m' : '', c0 + cw + 10, y + 150);
+  x.fillText(String(p.pdop_ini || '').replace('.', ','), c0 + 10, y + 192); x.fillText(String(p.pdop_fim || '').replace('.', ','), c0 + cw + 10, y + 192);
+  if (p.ini){ fnt(12, 'italic'); x.fillText('tempo GPS (RINEX)', c0 + 10, y + 123); }
+  // ---- descrição e diagrama
+  y = 800; const xd = L + 680; caixa(L, y, R, y + 340); linhaV(xd, y, y + 340);
+  fnt(17); x.fillStyle = '#111'; x.fillText('Descrição/Observações:', L + 7, y + 22);
+  const escolhido = !!(p.campo || p.alvo === ALVO_CAMPO);
+  marcaX(L + 430, y + 48, escolhido, 'Ponto escolhido em campo');
+  const linhasD = [];
+  if (p.tipo === 'checagem') linhasD.push('Ponto de checagem' + (p.serve ? ' (' + p.serve.replace(/^checagem — /, '') + ')' : '') + '.');
+  for (const [rot, v] of descricaoPadrao(p)) linhasD.push(rot.split(' — ')[0] + ': ' + v);
+  fnt(15); x.fillStyle = AZ; let yy = y + 75; const largD = xd - L - 20;
+  for (const t of linhasD){
+    const pal = t.split(/\s+/); let lin = '';
+    for (const w of pal){ const tt = lin ? lin + ' ' + w : w; if (x.measureText(tt).width > largD){ if (yy < y + 225) x.fillText(lin, L + 10, yy); yy += 19; lin = w; } else lin = tt; }
+    if (lin && yy < y + 225){ x.fillText(lin, L + 10, yy); yy += 19; }
+  }
+  if (yy >= y + 225){ fnt(13, 'italic'); x.fillText('(continua no relatório do ponto)', L + 10, y + 236); }
+  fnt(17); x.fillStyle = '#111'; x.fillText('Arquivos de Fotos:', L + 7, y + 262);
+  const fotosN = [];
+  FOTOS.forEach((f, j) => { if (p.fotos && p.fotos[f[0]]) fotosN.push(num + '_F' + (j + 1) + '.jpg'); });
+  if (p.fotos && p.fotos.arp) fotosN.push(num + ' vista de cima (ARP)');
+  for (let k = 0; k < 6; k++){
+    const cx0 = L + 20 + (k % 2) * 320, yk = y + 290 + (k >> 1) * 22;
+    fnt(16); x.fillStyle = '#111'; x.fillText((k + 1) + '-', cx0, yk);
+    linhaH(cx0 + 22, cx0 + 290, yk + 3);
+    fnt(15, '700'); x.fillStyle = AZ; x.fillText(corta(fotosN[k] || '', 260), cx0 + 26, yk - 2);
+  }
+  fnt(17); x.fillStyle = '#111'; x.fillText('Diagrama de Altura da Antena', xd + 120, y + 32);
+  _ccarDiagrama(x, xd + 50, y + 55, 1.15, false); _ccarDiagrama(x, xd + 280, y + 55, 1.15, true);
+  marcaX(xd + 105, y + 325, p.diagrama === 'esq', ''); marcaX(xd + 335, y + 325, p.diagrama === 'dir', '');
+  // ---- croquis: imagem perto do ponto e mapa de situação, ambos com o norte para cima
+  y = 1155; const xm = L + 590; caixa(L, y, R, H - 30); linhaV(xm, y, H - 30);
+  const c = coordPonto(p);
+  // rosa do norte no canto, como no formulário: círculo, cruz e a ponta norte cheia
+  const rosa = (cx, cy) => { x.save(); x.strokeStyle = '#111'; x.fillStyle = '#111'; x.lineWidth = 1.6;
+    x.beginPath(); x.arc(cx, cy, 13, 0, 6.2832); x.stroke();
+    x.beginPath(); x.moveTo(cx - 19, cy); x.lineTo(cx + 19, cy); x.moveTo(cx, cy + 19); x.lineTo(cx, cy); x.stroke();
+    x.beginPath(); x.moveTo(cx, cy - 24); x.lineTo(cx - 6, cy); x.lineTo(cx + 6, cy); x.closePath(); x.fill();
+    fnt(12, '700'); x.fillText('N', cx - 4, cy - 27); x.restore(); };
+  // de onde cada foto foi tirada: seta do fotógrafo para o ponto, no azimute medido (ou no rumo da foto)
+  const setasFotos = (cx, cy) => { FOTOS.forEach((f, j) => { if (!(p.fotos && p.fotos[f[0]])) return;
+      const az = (p.fotos_az && p.fotos_az[f[0]] != null ? +p.fotos_az[f[0]] : f[2]) * Math.PI / 180, ux = Math.sin(az), uy = -Math.cos(az);
+      const x1 = cx - ux * 70, y1 = cy - uy * 70, x2 = cx - ux * 24, y2 = cy - uy * 24;
+      x.save(); x.strokeStyle = '#FFD400'; x.fillStyle = '#FFD400'; x.lineWidth = 3.2;
+      x.beginPath(); x.moveTo(x1, y1); x.lineTo(x2, y2); x.stroke();
+      const a = Math.atan2(y2 - y1, x2 - x1); x.beginPath(); x.moveTo(x2, y2);
+      x.lineTo(x2 - 11 * Math.cos(a - 0.45), y2 - 11 * Math.sin(a - 0.45)); x.lineTo(x2 - 11 * Math.cos(a + 0.45), y2 - 11 * Math.sin(a + 0.45)); x.closePath(); x.fill();
+      fnt(16, '700'); x.lineWidth = 4; x.strokeStyle = '#000'; const tx = x1 - ux * 14 - 9, ty = y1 - uy * 14 + 6;
+      x.strokeText('F' + (j + 1), tx, ty); x.fillText('F' + (j + 1), tx, ty); x.restore(); }); };
+  const quadro = async (srv, z, x0, x1, rot, comFotos) => {
+    const top = y + 14, hq = H - 30 - top - 30, cx = x0 + 10 + (x1 - x0 - 20) / 2, cy = top + hq / 2;
+    if (c){ try { const n = await mosaico(x, srv.url, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top);
+      if (n) alvoNoMapa(x, cx, cy, 12); } catch (e){} }
+    if (c && comFotos) setasFotos(cx, cy);
+    x.strokeStyle = '#999'; x.lineWidth = 1; x.strokeRect(x0 + 10, top, x1 - x0 - 20, hq);
+    x.fillStyle = 'rgba(255,255,255,.85)'; x.fillRect(x1 - 62, top + 4, 50, 56); rosa(x1 - 37, top + 38);
+    fnt(13, 'italic'); x.fillStyle = '#333'; x.fillText(rot, x0 + 12, H - 40);
+  };
+  await quadro(SRV_DETALHE, Math.min(SRV_DETALHE.zmax || 19, 18), L, xm, 'Croqui: imagem ' + SRV_DETALHE.nome + ' em volta do ponto; F1–F4: de onde cada foto foi tirada', true);
+  await quadro(SRV_MAPA, 13, xm, R, 'Situação: mapa ' + SRV_MAPA.nome);
+  fnt(12); x.fillStyle = '#555';
+  x.fillText('Preenchido pela folha de coleta de pontos (GGC/SES-CE) em ' + new Date().toLocaleString('pt-BR').slice(0, 17) + ' — a partir do registro digital do ponto.', L, H - 10);
+  return cv;
+}
+async function exportaFormulario(p, formato){
+  const c = await formularioCCAR(p, {num: p.id, data: (function(){ const t = String(p.rx_ini || p.ocup_ini || F.dia.data || ''); return t ? new Date(t.slice(0, 10) + 'T12:00:00') : null; })()});
+  const nome = nomeSaida('formulario_CCAR_' + _parteNome(p.id || 'ponto', 20), p.localidade || F.dia.local);
+  const jpeg = _bytesDeDataURL(c.toDataURL('image/jpeg', 0.9)); c.width = c.height = 1;
+  if (formato === 'jpg'){ _baixa(new Blob([jpeg], {type: 'image/jpeg'}), nome + '.jpg'); return marca('formulário exportado: ' + nome + '.jpg'); }
+  _baixa(new Blob([pdfDeJpeg(jpeg, CRO.W, CRO.H)], {type: 'application/pdf'}), nome + '.pdf'); marca('formulário exportado: ' + nome + '.pdf');
+}
+
 /* Desenha o quadro de detalhe no canto superior esquerdo do croqui. Devolve o
    texto do rodapé, ou null quando não houve imagem. */
 async function quadroDetalhe(x, f, url, lat, lon, ladoM, px, py, lado){
@@ -3047,6 +3239,8 @@ function aplicaRinex(o, r){
   if (o.relatorio_coord === 'celular' || o.relatorio_coord === 'gabinete'){ o.relatorio = ''; delete o.relatorio_coord; }
   if (r.receptor) o.receptor = r.receptor;
   if (r.antena) o.antena = r.antena;
+  if (r.receptor_sn) o.receptor_sn = r.receptor_sn;
+  if (r.antena_sn) o.antena_sn = r.antena_sn;
   if (r.altura != null && r.altura !== 0) o.altura = String(r.altura);
   /* hhmm() está definida duas vezes no arquivo e a segunda, que vale, espera
      texto: com um Date ela devolvia a data inteira por extenso. */
@@ -3161,6 +3355,30 @@ function cartaoPonto(p, k){
     + 'data-munbusca>Município pela coordenada (precisa de rede)</button></div>'
     + campoGnss(p, 'p')
     + '<div class="ocup" data-ocup></div>'
+    + '<details class="bloco" data-ccarbloco><summary>Formulário de campo (CCAR, versão 6)<span class="conta">'
+    + ([p.pdop_ini, p.pdop_fim, p.term_lat, p.diagrama].filter(Boolean).length ? 'em preenchimento' : 'o resto sai sozinho') + '</span></summary><div class="itens">'
+    + '<p class="leg">A folha preenche o formulário <b>Determinações GNSS – registro de dados de campo</b> com o que já registrou '
+    + '(estação, arquivo, receptor e antena do RINEX, taxa, horários, altura, município, operadores, descrição, fotos e croquis). '
+    + 'Aqui ficam só os itens que a tela do receptor mostra e a montagem da antena. Faixa, Foto e Folha MI não se aplicam.</p>'
+    + '<div class="lin2"><div><label class="c">PDOP no início</label><input type="text" inputmode="decimal" data-p="pdop_ini" value="' + esc(p.pdop_ini || '') + '"></div>'
+    + '<div><label class="c">PDOP no fim</label><input type="text" inputmode="decimal" data-p="pdop_fim" value="' + esc(p.pdop_fim || '') + '"></div></div>'
+    + '<div class="lin2"><div><label class="c">Altura vertical da antena ao terminar (m)</label><input type="number" step="0.001" data-p="altura_fim" value="' + esc(p.altura_fim || '') + '" placeholder="se mudou"></div><div></div></div>'
+    + '<p class="leg"><b>Coordenada de término</b>, lida na tela do receptor ao terminar o rastreio (graus decimais ou GMS):</p>'
+    + '<div class="lin2"><div><label class="c">Latitude</label><input type="text" data-p="term_lat" value="' + esc(p.term_lat || '') + '"></div>'
+    + '<div><label class="c">Longitude</label><input type="text" data-p="term_lon" value="' + esc(p.term_lon || '') + '"></div></div>'
+    + '<div class="lin2"><div><label class="c">Altitude (m)</label><input type="text" inputmode="decimal" data-p="term_alt" value="' + esc(p.term_alt || '') + '"></div>'
+    + '<div><label class="c">&nbsp;</label><button type="button" class="btn sec peq" data-termcel>Usar a posição do celular</button></div></div>'
+    + '<p class="leg" data-termnota>' + (p.term_fonte === 'celular' ? 'Posição do celular: sai no formulário com essa observação.' : 'Em branco, o formulário usa a posição do celular medida no ponto, com essa observação.') + '</p>'
+    + '<label class="c">Diagrama de altura da antena</label><div class="lin2 ccar_diag">'
+    + ['esq', 'dir'].map(k => '<label style="display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid var(--lin);border-radius:8px;padding:6px;text-align:center">'
+        + '<canvas data-diagcv="' + k + '" width="130" height="150" style="max-width:100%"></canvas>'
+        + '<span style="display:flex;gap:6px;align-items:center"><input type="radio" name="diag_' + k + '_' + esc(p.id || 'x') + '" data-diag="' + k + '"' + (p.diagrama === k ? ' checked' : '') + '>'
+        + '<small>' + CCAR_DIAG[k] + '</small></span></label>').join('') + '</div>'
+    + '<div class="acoes naoimprime"><button type="button" class="btn sec peq" data-ccar="pdf">Formulário em PDF</button>'
+    + '<button type="button" class="btn sec peq" data-ccar="jpg">Formulário em imagem</button></div>'
+    + '<p class="leg">No pacote da campanha, o formulário preenchido é o <span class="marca">Formulários/PPPP_Form.jpg</span>; '
+    + 'o relatório do ponto segue no PDF dos relatórios dos pontos.</p>'
+    + '</div></details>'
     + '<p class="tempmod" data-tempmod>' + esc(textoTempModelo(p)) + '</p>'
     + '<div class="acoes naoimprime so_rede"><button type="button" class="btn sec peq" data-tempbtn>'
     + 'Temperatura do ar estimada por modelo (internet)</button></div>'
@@ -3367,6 +3585,21 @@ function cartaoPonto(p, k){
       abreFotoDirigida(p, b.dataset.foto).catch(e => marca('foto: ' + e.message));
     else pedeFoto(f => guardaFoto(p, b.dataset.foto, f));
   }));
+  d.querySelectorAll('[data-diagcv]').forEach(cv => { const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); _ccarDiagrama(g, 5, 0, 0.65, cv.dataset.diagcv === 'dir'); });
+  d.querySelectorAll('[data-diag]').forEach(r => r.addEventListener('change', () => { d.querySelectorAll('[data-diag]').forEach(q => { q.checked = q === r; }); p.diagrama = r.dataset.diag; grava(); }));
+  const btc = d.querySelector('[data-termcel]');
+  if (btc) btc.addEventListener('click', () => {
+    const c = p.coord_cel && p.coord_cel.lat != null ? p.coord_cel : (p.chegada && p.chegada.lat != null ? p.chegada : null);
+    if (!c) return marca('sem posição do celular neste ponto: use "Coordenada pela posição do celular" acima');
+    p.term_lat = gms(c.lat, 'lat'); p.term_lon = gms(c.lon, 'lon'); if (c.h != null) p.term_alt = String(Math.round(c.h)); p.term_fonte = 'celular';
+    ['term_lat', 'term_lon', 'term_alt'].forEach(k => { const e = d.querySelector('[data-p="' + k + '"]'); if (e) e.value = p[k] || ''; });
+    const n = d.querySelector('[data-termnota]'); if (n) n.textContent = 'Posição do celular: sai no formulário com essa observação.';
+    grava(); });
+  ['term_lat', 'term_lon', 'term_alt'].forEach(k => { const e = d.querySelector('[data-p="' + k + '"]'); if (e) e.addEventListener('input', () => { p.term_fonte = 'receptor'; }); });
+  d.querySelectorAll('[data-ccar]').forEach(b => b.addEventListener('click', async () => {
+    const antes = b.textContent; b.textContent = 'montando…'; b.disabled = true;
+    try { await exportaFormulario(p, b.dataset.ccar); } catch (e){ marca('formulário: ' + e.message); }
+    b.textContent = antes; b.disabled = false; }));
   d.querySelector('[data-marcaarp]').addEventListener('click', () =>
     abreMarcaARP(p).catch(e => marca('vista de cima: ' + e.message)));
   d.querySelector('[data-croqui]').addEventListener('click', async () => {
@@ -10684,7 +10917,7 @@ async function enviaAoServidor(){
          Dados_GNSS/Originais/                   os arquivos do receptor, com o nome de origem
          Dados_GNSS/Renomeados/PPPPDDD.YYo/.YYn/.YYg
          Dados_GNSS/Coordenadas_calculadas_PPP/PPPPDDD.YYo.pdf/.sum/.pos/.kml/.txt + _LEIAME.txt
-         Formulários/PPPP_Form.jpg                (o relatório do ponto faz as vezes do formulário)
+         Formulários/PPPP_Form.jpg                (formulário CCAR v6 preenchido pela folha: formularioCCAR)
          Fotos/Originais/AAAAMMDD_hhmmss.jpg
          Fotos/Editadas/PPPP_F1..F4.jpg           800 px, tarja "PONTO PPPP_Fn"
          Recorte/PPPP_R.png                       2362 px, 200 m, norte, círculo no ponto
@@ -11721,9 +11954,15 @@ async function exportaLC(op){
       } catch (e){ rel = ''; }
       if (rc === undefined) delete p.relatorio_coord; else p.relatorio_coord = rc;
     }
-    if (rel){ rel = await _jpegDeDataURL(rel).catch(() => rel); reg[i].rel = rel;
-              itens.push({nome: dd + 'Formulários/' + num + '_Form.jpg', dados: _bytesDeDataURL(rel)}); }
-    else faltas.push(num + ': relatório do ponto não montado (sem ' + num + '_Form.jpg)');
+    if (rel){ rel = await _jpegDeDataURL(rel).catch(() => rel); reg[i].rel = rel; }
+    else faltas.push(num + ': relatório do ponto não montado');
+    // formulário de campo da CCAR (v6), preenchido pela folha
+    try { marca('pacote ' + lc + ': formulário de campo ' + num + '…');
+          const fc = await formularioCCAR(p, {num: num, ddd: ddd, data: reg[i].data});
+          itens.push({nome: dd + 'Formulários/' + num + '_Form.jpg', dados: _bytesDeDataURL(fc.toDataURL('image/jpeg', 0.9))}); fc.width = fc.height = 1;
+          if (!p.pdop_ini || !p.pdop_fim) faltas.push(num + ': formulário sem o PDOP de início e fim (cartão do ponto › Formulário de campo)');
+          if (!p.diagrama) faltas.push(num + ': formulário sem o diagrama de altura da antena marcado');
+    } catch (e){ faltas.push(num + ': formulário de campo não montado (' + e.message + ')'); }
     // fotos
     const fo = FOTOS.concat([FOTO_ARP]);
     for (let j = 0; j < fo.length; j++){

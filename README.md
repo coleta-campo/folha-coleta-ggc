@@ -46,8 +46,13 @@ internet, seguem para o receptor do Drive institucional (ver abaixo).
 **Escritório:** abre `https://coleta-campo.github.io/folha-coleta-ggc/planejador.html` no
 Chrome do computador e não baixa nada. Carrega os pontos, prepara o mapa offline,
 planeja a campanha e gera a **folha de cada equipe**, um arquivo `.html` com os
-pontos, o mapa da região e o código do receptor. Esse arquivo segue para a equipe
-pelo Drive, Teams ou WhatsApp.
+pontos, o mapa da região e o código do receptor. Gerada a folha, o botão
+**Compartilhar a folha da equipe** abre a janela de compartilhar do Windows com o arquivo
+já anexado e um texto com as instruções de abertura: escolha o **Teams** (o arquivo fica no
+OneDrive institucional, só para quem está no chat) ou o Outlook, e os destinatários. Os
+destinatários não vêm preenchidos e o envio é seu. Em navegador sem esse recurso, o botão não
+aparece e vale o arquivo baixado. O anexo não é protegido pelo PIN: a equipe o apaga depois de
+abrir a folha no celular.
 
 **Equipe de campo:** abre `https://coleta-campo.github.io/folha-coleta-ggc/` no Chrome do
 celular. Com a folha vazia, aparece **Abrir a folha da equipe**: a equipe escolhe o

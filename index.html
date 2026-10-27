@@ -5232,6 +5232,7 @@ $('#f_abrir').addEventListener('change', async e => {
   if (!f) return;
   let j;
   if (/\.html?$/i.test(f.name) || f.type === 'text/html'){
+    if (MODO_PLAN) return marca('esse arquivo é a folha de uma equipe, para o celular; no planejador, abra a Cópia completa do planejamento (ZIP)');
     marca('lendo a folha da equipe…');
     try { const k = kitDeHTML(await f.text()); if (await aplicaKit(k)){ aplicaModo(); pintaAlvos(); pintaConviteKit(); } }
     catch (err){ marca(err.message); }
@@ -5875,7 +5876,7 @@ function pintaAlvos(){
     : circs.length ? Object.keys(at).length + ' de ' + circs.length + ' círculos atendidos'
     : feitos + ' de ' + A.length + ' ocupados';
   $('#alvos_conta').classList.toggle('cheio', A.length > 0 && (circs.length ? Object.keys(at).length === circs.length : feitos === A.length));
-  if (!A.length){ al.innerHTML = '<p class="leg">Nenhum ponto planejado carregado.</p>'; return; }
+  if (!A.length){ al.innerHTML = '<p class="leg">Nenhum ponto planejado carregado.</p>'; try { pintaKits(); } catch (e){} return; }
   const f = F.campanha.alvos_fonte;
   const linha = (a, i) => {
     const op = opcaoDe(a.id), c = circuloDe(a.id);
@@ -13032,6 +13033,7 @@ function kitDeHTML(txt){
   return k;
 }
 async function aplicaKit(kitDoArquivo){
+  if (MODO_PLAN) return false;                       // o planejador nunca vira folha de equipe
   if (!KIT_EL && !kitDoArquivo) return false;
   let kit = kitDoArquivo;
   if (!kit) try { kit = JSON.parse(KIT_EL.textContent); } catch (e){ marca('folha da equipe ilegível: ' + e.message); return false; }
@@ -13064,6 +13066,9 @@ async function aplicaKit(kitDoArquivo){
   return true;
 }
 function aplicaModo(){
+  if (MODO_PLAN && F.config && F.config.kit){          // versões anteriores deixavam abrir a folha de equipe no planejador
+    delete F.config.kit; delete F.config.equipePlano; grava(); try { monta(); } catch (e){}
+    setTimeout(() => marca('o planejador estava marcado como folha de equipe — corrigido; os pontos podem ser carregados de novo'), 800); }
   document.body.classList.toggle('equipe', modoEquipe());
   // a folha da equipe abre no Dia de campo: a Campanha já veio preenchida do planejador
   if (modoEquipe() && !MODO_PLAN && !aplicaModo._dia){ aplicaModo._dia = true;

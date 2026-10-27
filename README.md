@@ -158,7 +158,17 @@ https://www.rfc-editor.org/rfc/rfc2104. Acesso em: 20 out. 2026.
 - Continua exposto: arquivos exportados na pasta Download e o próprio HTML da folha da equipe (traz o plano e os integrantes).
 
 ## Formulário de campo da CCAR (versão 6)
-- A folha preenche o formulário "Determinações GNSS – registro de dados de campo" (versão 6) com o que registrou e o grava no pacote como `Formulários/PPPP_Form.jpg`; também sai em PDF ou imagem pelo cartão do ponto (quadro *Formulário de campo*).
+- A folha preenche o formulário "Determinações GNSS – registro de dados de campo" (versão 6) com o que registrou e o grava no pacote como `Formulários/PPPP_Form.jpg`; também sai em PDF ou imagem pelo cartão do ponto (*Mais deste ponto*).
 - Do registro: projeto, campanha, estação, arquivo de dados, localidade, município/UF, operadores, data, dia juliano, receptor e antena com nº de série (cabeçalho do RINEX), taxa, estático/PPP, tipo de ponto (checagem marca o controle conforme o uso), horários, altura no início e no fim, descrição, fotos, croqui e situação.
-- Digitado no cartão: PDOP de início e fim, coordenada de término lida na tela do receptor (ou a do celular, com observação) e o diagrama de altura da antena.
+- Digitado no cartão: PDOP de início (etapa 1) e de fim (etapa 3), coordenada de término lida na tela do receptor (etapa 3; em branco, vale a do celular, medida sozinha ao iniciar a ocupação, com observação) e o diagrama de altura da antena (etapa 1; repete o do ponto anterior).
 - Faixa, Foto e Folha MI ficam em branco (outro tipo de planejamento). O relatório do ponto segue no PDF dos relatórios dos pontos.
+
+## Atuação em campo (o que a equipe faz)
+A folha da equipe abre no **Dia de campo**. O trabalho se resume a três telas:
+1. **Hoje** (no alto): os pontos do dia do plano, com ✓ nos coletados, e o botão **Navegar até** o próximo. Sem plano do dia montado no hotel, vale o dia de hoje no plano da campanha; os pendentes de dias anteriores aparecem abaixo. Em dia sem atividades, de reserva ou fora da campanha, só o pendente mais perto.
+2. **Navegação**: ao chegar, **Cheguei — começar o ponto aqui** (fica verde perto do ponto).
+3. **Cartão do ponto**, em três etapas: **1** altura e montagem da antena, PDOP no início, **Iniciar a ocupação** (a posição do celular é medida sozinha); **2** enquanto o receptor rastreia, as fotos F1–F4 num toque só (a câmera fica aberta e pede uma depois da outra — norte, sul, oeste, leste —, dizendo de onde ficar e para onde apontar; *Parar* interrompe e *Continuar as fotos* retoma de onde parou), a vista de cima e a descrição; **3** ao terminar, PDOP no fim, coordenada de término e **Terminar e navegar ao próximo**.
+
+O que o sistema deduz ou se faz no hotel — identificador, tipo, finalidade, materialização, município, receptor, antena, horários do rastreio, PPP, temperatura, relatório do ponto, formulário, remover — fica em **Mais deste ponto**, fechado.
+
+**No hotel**, aba *Fechar o dia*, em 4 passos: **1** ler os RINEX do dia; **2** completar com a internet (município e relatórios); **3** enviar ao servidor; **4** ocorrências e arquivar o dia. Arquivos para baixar, IBGE-PPP, PIN e troca de aparelho ficam em quadros fechados abaixo.

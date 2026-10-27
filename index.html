@@ -129,6 +129,12 @@ body:not(.semrede) .semrede_aviso{display:none}
 .fotodir .acoes{display:flex;gap:8px;padding:10px;background:#0B1216}
 .fotodir .acoes .btn{flex:1}
 .fotodir .tirar{flex:2 !important;font-size:18px}
+.fotodir .prog{display:flex;gap:6px;margin-bottom:6px}
+.fotodir .prog span{border:1px solid rgba(255,255,255,.6);border-radius:12px;padding:1px 9px;font-size:13px}
+.fotodir .prog span.ja{background:#22C55E;border-color:#22C55E}
+.fotodir .prog span.agora{background:#fff;color:#0A2E52;font-weight:700}
+.fotodir .feito{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);background:rgba(34,197,94,.92);color:#fff;
+  font:700 22px/1.2 system-ui,sans-serif;padding:12px 18px;border-radius:12px}
 .marcaarp{position:fixed;inset:0;z-index:60;background:#0B1216;
  display:flex;flex-direction:column;padding:10px;gap:8px;overscroll-behavior:contain}
 .marcaarp canvas{flex:1;width:100%;min-height:0;touch-action:none;border-radius:8px}
@@ -302,6 +308,17 @@ body.equipe #b_alvos, body.equipe #b_traj, body.equipe #b_alvos_tira, body.equip
 #nav .pe button{margin:0;flex:1 1 auto;width:auto;padding:12px 10px;font-size:15px}
 #nav .pe button.on{background:var(--az);color:#fff}
 .ocup{border:1px solid var(--lin);border-radius:10px;padding:10px 12px;margin:12px 0;background:var(--bg)}
+.etapa{border-top:1px solid var(--lin);margin-top:14px;padding-top:10px}
+.fotos3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.fotos3 label.c{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.etapa>h4{margin:0 0 4px;font-size:16px;display:flex;gap:8px;align-items:center;color:var(--esc)}
+.etapa>h4 i{font-style:normal;background:var(--az);color:#fff;border-radius:50%;min-width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;font-size:14px}
+#cart_hoje .prox{font-size:18px;padding:16px}
+#cart_hoje .lista{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+#cart_hoje .lista span{border:1px solid var(--lin);border-radius:14px;padding:3px 10px;font-size:14px}
+#cart_hoje .lista span.ok{background:var(--ok);color:#fff;border-color:var(--ok)}
+#cart_hoje .lista span.em{background:var(--am);color:#fff;border-color:var(--am)}
+#cart_hoje .lista span.prox1{border:2px solid var(--az);font-weight:700}
 .ocup .crono{font:700 30px/1.1 inherit;font-variant-numeric:tabular-nums}
 .ocup .barra2{height:8px;border-radius:4px;background:var(--lin);overflow:hidden;margin:6px 0}
 .ocup .barra2 i{display:block;height:100%;background:var(--az)}
@@ -363,55 +380,20 @@ você cabe o que nenhum arquivo registra.</p>
 
 <details class="ajuda">
   <summary>Como usar</summary>
-  <p><b>Campanha</b> se preenche uma vez, no escritório, antes de sair: quem vai,
-  com que receptor e antena. Ali também se
-  carregam, em <b>Dia de campo ▸ Pontos planejados e navegação</b>, a lista dos
-  pontos planejados e o mapa da área — uma vez, valendo para todos os dias.</p>
-  <p><b>Dia de campo</b> é a <b>caderneta</b>: um cartão por ponto ocupado, com o
-  RINEX, a descrição padronizada, as fotos e o relatório do ponto. <b>Navegar</b>
-  leva até o ponto planejado; chegando, <b>Começar o ponto aqui</b> abre o cartão
-  já com o identificador.</p>
-  <p><b>Fechar o dia</b> gera as saídas: a <b>caderneta</b> em CSV, o
-  <b>registro completo</b> em JSON para reabrir a folha, o <b>PDF A4</b> para
-  anexar a processo e a <b>figura A4</b> para mandar por mensagem.</p>
-  <p>Terminado o dia, <b>Arquivar o dia e limpar a tela</b>, no fim da aba Dia de
-  campo, guarda o dia na campanha e esvazia a tela para amanhã. Os dias guardados
-  somam o <b>relatório da campanha</b>, em Fechar o dia. O dia arquivado guarda os
-  números, os textos e a conferência — as fotos e os relatórios de ponto prontos
-  só saem no registro e no PDF daquele dia, então <b>exporte o dia antes de
-  arquivar</b>.</p>
-  <p class="so_folha_pin"><b>PIN da folha.</b> A folha de campo abre com o PIN de 6 dígitos da equipe, criado na primeira
-  abertura; com ele, registro, integrantes, fotos, arquivos do receptor e trilha ficam criptografados no celular. Ela se
-  tranca sozinha (10 min sem uso, 2 min fora da tela) ou pelo botão <b>Trancar</b>. Esquecido o PIN, o que não foi enviado
-  ao Drive se perde. Detalhes e troca do PIN: aba Fechar o dia, quadro <b>PIN da folha</b>.</p>
-  <p>Tudo fica gravado neste aparelho, neste navegador, e nada sai dele sozinho.
-  Trocando de aparelho, exporte o registro completo e abra-o no outro — ele leva
-  junto os dias já arquivados.</p>
+  <p><b>Dia de campo.</b> No alto, <b>Hoje</b> mostra os pontos do dia e o botão <b>Navegar até</b>
+  o próximo. Chegando, <b>Cheguei — começar o ponto aqui</b> abre o cartão do ponto, em três etapas:
+  <b>1</b> montar a antena e iniciar a ocupação; <b>2</b> enquanto o receptor rastreia, fotos e
+  descrição; <b>3</b> ao terminar, PDOP e coordenada de término, e <b>Terminar e navegar ao
+  próximo</b>. O que o sistema deduz fica em <b>Mais deste ponto</b>.</p>
+  <p><b>Fechar o dia</b>, no hotel, em 4 passos: ler os RINEX do dia, completar com a internet,
+  enviar ao servidor, arquivar o dia.</p>
+  <p><b>Campanha</b> se preenche no escritório; a folha da equipe já vem pronta do planejador.</p>
+  <p class="so_folha_pin"><b>PIN da folha.</b> A folha abre com o PIN de 6 dígitos da equipe, criado na primeira
+  abertura; com ele, os dados ficam criptografados no celular. Ela se tranca sozinha (10 min sem uso,
+  2 min fora da tela) ou pelo botão <b>Trancar</b>. Esquecido o PIN, o que não foi enviado ao Drive se perde.</p>
+  <p>Tudo fica gravado neste aparelho, neste navegador, e nada sai dele sozinho.</p>
 </details>
 
-<details class="ajuda">
-  <summary>Leitura do RINEX</summary>
-  <p>Em cada ponto, <b>Ler RINEX</b> aceita o arquivo do receptor
-  que fez a determinação, seja ele qual for, e tira dali o marcador, o receptor, a
-  antena, a altura gravada, o início e o fim do rastreio, a duração, a taxa e as
-  constelações. Lê só o cabeçalho e o fim do arquivo, então um rastreio de horas se
-  resolve em segundos. Arquivos comprimidos — <code>.zip</code>, <code>.crx</code>,
-  <code>.gz</code> — precisam ser descompactados antes, e o RINEX compacto
-  (Hatanaka) precisa do <code>CRX2RNX</code>.</p>
-  <p>Vale para os <b>dois padrões de nome</b>. No do RINEX 2,
-  <code>ssssdddf.AAt</code>: as quatro letras da estação, o dia do ano, a sequência
-  do dia, o ano em dois dígitos e a letra do tipo — <code>PT022950.13o</code> é a
-  estação PT02, dia 295 de 2013, observação. No do RINEX 3, o nome é longo e termina
-  em <code>_MO.rnx</code>. O arquivo de <b>navegação</b> — <code>.AAn</code> — traz
-  as efemérides e <b>não descreve a ocupação</b>: a folha o recusa dizendo isso, em
-  vez de abrir um registro vazio.</p>
-  <p>Quando o cabeçalho não traz a <b>taxa</b> nem as <b>constelações</b> — a regra
-  no RINEX 2 —, as duas saem das próprias épocas, e a folha diz que foram medidas
-  ali. Se as quatro letras do nome não baterem com o marcador do cabeçalho, ela
-  avisa. E avisa quando falta o que o <b>PPP do IBGE</b> vai exigir: modelo de
-  antena e altura medida em campo — falta que não se conserta depois de sair do
-  ponto.</p>
-</details>
 
 <!-- ================= CAMPANHA ================= -->
 <section class="aba" id="aba_campanha">
@@ -493,39 +475,7 @@ você cabe o que nenhum arquivo registra.</p>
 
 <!-- ================= DIA ================= -->
 <section class="aba oculto" id="aba_dia">
-  <div class="cart naoimprime" id="cart_dias"></div>
-  <div class="cart">
-    <h3>O dia</h3>
-    <div class="lin2">
-      <div><label class="c" for="d_data">Data</label>
-        <input type="date" id="d_data" data-campo="dia.data"></div>
-      <div><label class="c" for="d_local">Local / setor de trabalho</label>
-        <input type="text" id="d_local" data-campo="dia.local"></div>
-    </div>
-    <div class="lin2">
-      <div><label class="c" for="d_vento">Vento observado (m/s)</label>
-        <input type="number" id="d_vento" step="0.1" min="0" data-campo="dia.vento"></div>
-      <div><label class="c" for="d_ceu">Céu</label>
-        <select id="d_ceu" data-campo="dia.ceu">
-          <option value="">—</option>
-          <option>sol limpo</option>
-          <option>nublado uniforme</option>
-          <option>nuvem correndo</option>
-          <option>encoberto</option>
-        </select></div>
-    </div>
-    <h4 style="margin:12px 0 2px">Hodômetro do carro</h4>
-    <div class="lin2">
-      <div><label class="c" for="d_km0">Na saída (km)</label>
-        <input type="number" id="d_km0" data-campo="dia.km_saida" inputmode="numeric" min="0"></div>
-      <div><label class="c" for="d_km1">Na volta (km)</label>
-        <input type="number" id="d_km1" data-campo="dia.km_volta" inputmode="numeric" min="0"></div>
-    </div>
-    <p class="leg" id="d_km_aviso" style="margin-top:2px"></p>
-    <label class="c" for="d_obs">Condições e observações do dia</label>
-    <textarea id="d_obs" data-campo="dia.obs"></textarea>
-  </div>
-
+  <div class="cart naoimprime" id="cart_hoje" hidden></div>
   <div class="oculto" aria-hidden="true">
   <h2>Voos</h2>
   <p class="leg">Um cartão por voo, e ele é o logbook do voo. O bloco automático vem
@@ -549,88 +499,85 @@ você cabe o que nenhum arquivo registra.</p>
   <input type="file" id="f_galeria" accept="image/*" class="oculto">
   <div id="voos" class="oculto"></div>
 
+  <h2>Caderneta de hoje</h2>
+  <p class="leg">Um cartão por ponto ocupado. Controle: 2 h de ocupação; checagem: 30 min.</p>
+  <div class="acoes naoimprime">
+    <button type="button" class="btn sec peq" id="b_novo_ponto">Ponto em branco</button>
+    <button type="button" class="btn sec peq" id="b_ponto_rinex">Novo ponto pelo RINEX</button>
+  </div>
+  <div id="foco_barra" class="naoimprime" hidden></div>
+  <div id="pontos"></div>
+
+  <div class="cart">
+    <h3>O dia</h3>
+    <div class="lin2">
+      <div><label class="c" for="d_data">Data</label>
+        <input type="date" id="d_data" data-campo="dia.data"></div>
+      <div></div>
+    </div>
+    <h4 style="margin:12px 0 2px">Hodômetro do carro</h4>
+    <div class="lin2">
+      <div><label class="c" for="d_km0">Na saída (km)</label>
+        <input type="number" id="d_km0" data-campo="dia.km_saida" inputmode="numeric" min="0"></div>
+      <div><label class="c" for="d_km1">Na volta (km)</label>
+        <input type="number" id="d_km1" data-campo="dia.km_volta" inputmode="numeric" min="0"></div>
+    </div>
+    <p class="leg" id="d_km_aviso" style="margin-top:2px"></p>
+    <details class="ajuda naoimprime" style="margin-top:8px">
+      <summary>Local, tempo e observações do dia</summary>
+      <label class="c" for="d_local">Local / setor de trabalho</label>
+      <input type="text" id="d_local" data-campo="dia.local">
+      <div class="lin2">
+        <div><label class="c" for="d_vento">Vento observado (m/s)</label>
+          <input type="number" id="d_vento" step="0.1" min="0" data-campo="dia.vento"></div>
+        <div><label class="c" for="d_ceu">Céu</label>
+          <select id="d_ceu" data-campo="dia.ceu">
+            <option value="">—</option>
+            <option>sol limpo</option>
+            <option>nublado uniforme</option>
+            <option>nuvem correndo</option>
+            <option>encoberto</option>
+          </select></div>
+      </div>
+      <label class="c" for="d_obs">Condições e observações do dia</label>
+      <textarea id="d_obs" data-campo="dia.obs"></textarea>
+    </details>
+  </div>
+
   <div class="cart naoimprime" id="cart_trilha">
     <h3>Trilha do dia</h3>
-    <p class="leg">Registra por onde a equipe passou, para documentar o acesso que
-    de fato foi usado e conferir os trajetos planejados. Guarda um ponto a cada 20 m
-    percorridos (ou a cada 2 min parado) quando a precisão do celular é melhor que
-    50 m. <b>Só grava com esta folha aberta e a tela ligada</b> — a tela fica acesa
-    enquanto grava, o que gasta bateria. <b>Durante a ocupação de um ponto a trilha pausa
-    sozinha</b> (o carro está parado; a tela pode apagar) e volta a gravar quando a ocupação
-    é encerrada. Para gravar com o celular no bolso, use um
-    aplicativo registrador de trilha e junte o GPX aqui no fim do dia.</p>
-    <p class="leg"><b>OsmAnd em segundo plano</b> (grava o dia todo, com a tela apagada):
-    os botões abaixo mandam o OsmAnd começar e parar a gravação. Antes, uma vez: no OsmAnd,
-    Menu → Plugins → <b>Gravação de viagem</b> ligado; no Android, OsmAnd fora da otimização
-    de bateria e o modo de economia de energia desligado. No fim do dia, no OsmAnd,
-    Meus locais → Trilhas → a trilha do dia → Compartilhar, e aqui <b>Juntar GPX de outro aplicativo</b>.</p>
-    <div class="acoes">
-      <button type="button" class="btn sec peq" id="b_osm_ini">OsmAnd: começar a gravar</button>
-      <button type="button" class="btn sec peq" id="b_osm_fim">OsmAnd: parar e salvar</button>
-    </div>
+    <p class="leg">Registra o caminho de fato usado. Liga sozinha ao navegar e pausa durante a ocupação;
+    só grava com a folha aberta e a tela acesa.</p>
     <p class="leg" id="trilha_estado"></p>
     <div class="acoes">
       <button type="button" class="btn sec peq" id="b_trilha">Gravar a trilha</button>
-      <button type="button" class="btn sec peq" id="b_trilha_gpx">Juntar GPX de outro aplicativo</button>
-      <button type="button" class="btn sec peq" id="b_trilha_exp">Exportar a trilha (GPX)</button>
     </div>
+    <details class="ajuda">
+      <summary>OsmAnd, GPX e trechos</summary>
+      <p class="leg"><b>OsmAnd em segundo plano</b> (grava o dia todo, com a tela apagada):
+      os botões abaixo mandam o OsmAnd começar e parar a gravação. Antes, uma vez: no OsmAnd,
+      Menu → Plugins → <b>Gravação de viagem</b> ligado; no Android, OsmAnd fora da otimização
+      de bateria. No fim do dia, no OsmAnd, Meus locais → Trilhas → a trilha do dia → Compartilhar,
+      e aqui <b>Juntar GPX de outro aplicativo</b>.</p>
+      <div class="acoes">
+        <button type="button" class="btn sec peq" id="b_osm_ini">OsmAnd: começar a gravar</button>
+        <button type="button" class="btn sec peq" id="b_osm_fim">OsmAnd: parar e salvar</button>
+        <button type="button" class="btn sec peq" id="b_trilha_gpx">Juntar GPX de outro aplicativo</button>
+        <button type="button" class="btn sec peq" id="b_trilha_exp">Exportar a trilha (GPX)</button>
+      </div>
+      <h4>Trechos (camada TRACKING)</h4>
+      <p class="leg">Na tela de navegação, toque no revestimento ao entrar num trecho e de novo quando ele
+      mudar; no botão <b>⋯</b> ficam tipo, jurisdição, tráfego e código da rodovia. Cada trecho sai como uma
+      feição da camada TRACKING do <span class="marca">Dados_campo.gpkg</span>, com os códigos do formulário
+      do QGIS. A trilha do OsmAnd juntada depois também é cortada nesses marcos, pela hora.</p>
+      <div id="trechos_lista"></div>
+      <div class="acoes"><button type="button" class="btn sec peq" id="b_trecho_hora">Inserir mudança de trecho numa hora do dia</button></div>
+    </details>
     <input type="file" id="f_trilha" accept=".gpx" class="oculto">
-    <h4>Trechos (camada TRACKING)</h4>
-    <p class="leg">Como se fazia no QGIS sobre a base de rodovias, trecho a trecho, agora no caminho:
-    na tela de navegação, toque no revestimento ao entrar num trecho e de novo quando ele mudar;
-    no botão <b>⋯</b> ficam tipo, jurisdição, tráfego e código da rodovia, que se repetem no trecho
-    seguinte até serem mudados. Cada trecho sai como uma feição da camada TRACKING do
-    <span class="marca">Dados_campo.gpkg</span>, com os códigos do formulário do QGIS —
-    revestimento: 2 leito natural, 3 revestimento primário (solto), 4 pavimentado, 5 calçado,
-    1 desconhecido; tipo: 1 acesso, 2 rodovia, 3 caminho carroçável, 4 auto-estrada; jurisdição:
-    1 desconhecida, 2 federal, 3 estadual, 4 municipal, 5 propriedade particular; tráfego:
-    1 desconhecido, 2 permanente, 3 periódico. A trilha do OsmAnd juntada depois também é cortada
-    nesses marcos, pela hora. Aqui se revê o dia.</p>
-    <div id="trechos_lista"></div>
-    <div class="acoes"><button type="button" class="btn sec peq" id="b_trecho_hora">Inserir mudança de trecho numa hora do dia</button></div>
   </div>
 
-  <h2>Caderneta de campo</h2>
-  <p class="leg">O registro da coleta GNSS, ponto a ponto: aqui o que conta é o
-  <b>ponto ocupado</b>. Controle: 2 h de ocupação. Checagem: 30 min. Cada ponto
-  leva o seu <b>croqui</b>.</p>
-  <details class="ajuda naoimprime">
-    <summary>Sugestões dos campos</summary>
-    <p>Os campos de texto oferecem os <b>12 últimos valores digitados neste
-    aparelho</b> — receptor, antena, equipe, localidade. Ficam guardados
-    <b>fora da folha</b>, de propósito: começar uma folha nova não apaga as
-    sugestões. Identificador do ponto e coordenadas não entram — são
-    únicos de cada registro.</p>
-    <p class="leg" id="mem_conta"></p>
-    <div class="acoes">
-      <button type="button" class="btn sec peq" id="b_mem_esquece">Esquecer as sugestões</button>
-    </div>
-  </details>
-  <details class="ajuda naoimprime">
-    <summary>Fontes de imagem do relatório do ponto</summary>
-    <p>As fontes são <b>fixas</b>, e não há o que escolher: o <b>croqui</b> sai do
-    <b>Esri Satellite</b> (World Imagery) e os quadros de <b>situação</b> e de
-    <b>visão nacional</b> saem do <b>Esri Standard</b> (World Street Map). Um
-    relatório que muda de fonte de um ponto para o outro não serve como peça de
-    documento, e assim ele sai igual em qualquer aparelho da equipe. A Esri declara
-    nos termos o uso permitido com atribuição, e a atribuição sai impressa na tarja
-    de procedência do croqui.</p>
-    <p>O croqui sai com <b>dois quadros de detalhe</b>, na diagonal: 5 × 5 m no alto
-    à esquerda, onde o pixel do serviço já aparece, e 10 × 10 m embaixo à direita, que
-    dá o entorno imediato do alvo. Saem sempre e nesses tamanhos. Cada um diz o
-    nível usado, o tamanho do pixel no terreno e quantas vezes a imagem foi
-    ampliada ou reduzida; a ampliação é feita sem suavização, então o quadradinho
-    que aparece é o pixel do serviço, não detalhe que ele tenha.</p>
-    <p><b>Testar as fontes</b> pede um bloco de cada uma, neste aparelho e agora, e
-    tenta gravar o desenho. Vale fazer <b>antes de ir a campo</b>, para saber se a
-    rede do aparelho deixa as duas passarem.</p>
-    <div id="s_prova" class="aviso" hidden></div>
-    <div class="acoes">
-      <button type="button" class="btn sec peq" id="b_srv_testa">Testar as fontes</button>
-    </div>
-  </details>
   <details class="bloco naoimprime" id="bloco_alvos">
-    <summary>Pontos planejados e navegação<span class="conta" id="alvos_conta">nenhum</span></summary>
+    <summary>Todos os pontos, o mapa e o plano<span class="conta" id="alvos_conta">nenhum</span></summary>
     <div class="itens">
       <p class="leg">A lista dos pontos planejados — controle e checagem — se
       carrega uma vez, no escritório, e fica na <b>campanha</b>: vale para todos os
@@ -640,7 +587,7 @@ você cabe o que nenhum arquivo registra.</p>
       alguns metros: a navegação serve para <b>chegar ao lugar</b>; a coordenada do
       ponto continua sendo a do receptor. Com os <b>trajetos</b> carregados, a
       tela de navegação desenha o caminho de carro (até três opções) e diz quanto
-      falta por ele. Chegando, <b>Começar o ponto aqui</b> — ou <b>Ponto em
+      falta por ele. Chegando, <b>Cheguei — começar o ponto aqui</b> — ou <b>Ponto em
       branco</b>, que procura o planejado mais próximo — abre o cartão da
       caderneta já com o identificador e o tipo.</p>
       <p class="leg">Formatos aceitos: <b>CSV</b> (latitude e longitude em graus
@@ -695,54 +642,41 @@ você cabe o que nenhum arquivo registra.</p>
   <input type="file" id="f_alvos" accept=".csv,.txt,.geojson,.json,.kml,.gpx" class="oculto">
   <input type="file" id="f_traj" accept=".geojson,.json,.gpx" class="oculto">
   <input type="file" id="f_area" accept="image/*,.pgw,.jgw,.wld,.pngw,.jpgw,.tfw,.prj,.zip,.geojson,.json" multiple class="oculto">
-  <div class="acoes naoimprime">
-    <button type="button" class="btn sec peq" id="b_ponto_rinex">Novo ponto pelo RINEX</button>
-    <button type="button" class="btn sec peq" id="b_novo_ponto">Ponto em branco</button>
-  </div>
-  <div id="foco_barra" class="naoimprime" hidden></div>
-  <div id="pontos"></div>
 
-  <h2>Fechamento do dia</h2>
+  <div class="cart naoimprime" id="cart_dias"></div>
   <div id="blocos_dia"></div>
-  <div class="cart">
-    <label class="c" for="d_ocorr">Ocorrências do dia — o que saiu do previsto, e o que se fez</label>
-    <textarea id="d_ocorr" data-campo="dia.ocorrencias"></textarea>
-  </div>
-
-  <div class="cart naoimprime">
-    <h3>Começar outro dia</h3>
-    <p class="leg">Isto <b>arquiva o dia na campanha</b> e esvazia a aba <b>Dia de
-    campo</b>. Ficam guardados os números, os textos e a conferência de cada dia,
-    que é o que monta o <b>relatório da campanha</b>, em <i>Fechar o dia</i>. Não
-    ficam guardadas as fotos dos pontos nem os relatórios de ponto
-    prontos: esses só saem no registro e no PDF daquele dia — exporte antes. A
-    <b>Campanha</b> fica como está, que é a mesma equipe e o mesmo equipamento
-    amanhã; a folha avisa se o registro ainda não foi exportado depois da última
-    alteração.</p>
-    <div class="acoes">
-      <button type="button" class="btn sec peq" id="b_limpa_dia">Arquivar o dia e limpar a tela</button>
-    </div>
-  </div>
 </section>
 
 <!-- ================= FECHAR ================= -->
 <section class="aba oculto" id="aba_fechar">
   <div class="cart naoimprime" id="cart_hotel">
-    <h3>No hotel — receptor descarregado e internet</h3>
+    <h3>No hotel — fechar o dia em 4 passos</h3>
     <p class="leg">Em campo a folha registra a chegada, a ocupação, as fotos e a
-    vista de cima. O que depende do receptor e da rede se completa aqui, no fim
-    do dia: <b>1.</b> descarregue o receptor e leia os RINEX do dia de uma vez —
-    cada arquivo é casado com o ponto pelo marcador, pelo nome do arquivo, pelo
-    horário da ocupação ou pela posição; <b>2.</b> com internet, complete o
-    município e monte os relatórios; <b>3.</b> exporte o registro e o pacote PTCON.</p>
+    vista de cima. O resto se faz aqui, no fim do dia, em quatro toques:
+    <b>1.</b> descarregue o receptor e leia os RINEX do dia de uma vez (cada arquivo
+    é casado sozinho com o seu ponto); <b>2.</b> com internet, complete município e
+    relatórios dos pontos; <b>3.</b> envie ao servidor; <b>4.</b> arquive o dia.</p>
     <div id="hotel_tab"></div>
     <div class="acoes">
       <button type="button" class="btn sec peq" id="b_rinex_lote">1. Ler os RINEX do dia</button>
       <button type="button" class="btn sec peq" id="b_hotel_rede">2. Completar com a internet</button>
+      <button type="button" class="btn sec peq so_rede" id="b_hotel_envia">3. Enviar ao servidor</button>
     </div>
     <p class="leg" id="hotel_res"></p>
     <input type="file" id="f_rinex_lote" multiple class="oculto">
   </div>
+  <div class="cart naoimprime" id="cart_arquiva">
+    <h3>4. Ocorrências e arquivar o dia</h3>
+    <label class="c" for="d_ocorr">Ocorrências do dia — o que saiu do previsto, e o que se fez</label>
+    <textarea id="d_ocorr" data-campo="dia.ocorrencias"></textarea>
+    <p class="leg">Arquivar guarda o dia na campanha (é o que monta o relatório da campanha) e esvazia a
+    caderneta para amanhã. As fotos e os relatórios dos pontos só ficam no que já foi enviado ou exportado:
+    envie (passo 3) antes. A folha avisa se faltar.</p>
+    <div class="acoes">
+      <button type="button" class="btn sec peq" id="b_limpa_dia">Arquivar o dia e limpar a tela</button>
+    </div>
+  </div>
+  <details class="bloco naoimprime" id="bloco_ppp"><summary>Coordenadas do IBGE-PPP<span class="conta">dias depois</span></summary><div class="itens">
   <div class="cart naoimprime" id="cart_ppp">
     <h3>Coordenadas do IBGE-PPP</h3>
     <p class="leg">Quando o resultado do IBGE-PPP chegar — dias depois, se for
@@ -791,7 +725,9 @@ você cabe o que nenhum arquivo registra.</p>
       ortométrica (HORT) com o MAPGEO2015, como o próprio PPP informa.</p>
     </details>
   </div>
+  </div></details>
   <div id="resumo"></div>
+  <details class="bloco naoimprime" id="bloco_saidas"><summary>Arquivos para baixar<span class="conta">CSV, JSON, PDF, figura, pacote LC</span></summary><div class="itens">
   <div class="acoes naoimprime">
     <button type="button" class="btn sec" id="b_csv">Caderneta (CSV)</button>
     <button type="button" class="btn sec" id="b_json">Registro completo (JSON)</button>
@@ -799,6 +735,7 @@ você cabe o que nenhum arquivo registra.</p>
     <button type="button" class="btn sec" id="b_fig">Figura A4 de resumo</button>
     <button type="button" class="btn sec" id="b_ptcon">Pacote da campanha (LC)</button>
   </div>
+  </div></details>
   <p class="leg naoimprime" id="lc_res"></p>
   <details class="ajuda naoimprime" id="srv_box">
     <summary>Enviar ao servidor (pasta da campanha no Drive)</summary>
@@ -898,6 +835,64 @@ você cabe o que nenhum arquivo registra.</p>
     <div class="acoes"><button type="button" class="btn sec peq" id="b_pin_troca">Trocar o PIN</button></div>
     <p class="leg" id="pin_res"></p>
   </details>
+  <details class="ajuda naoimprime">
+    <summary>Sugestões dos campos</summary>
+    <p>Os campos de texto oferecem os <b>12 últimos valores digitados neste
+    aparelho</b> — receptor, antena, equipe, localidade. Ficam guardados
+    <b>fora da folha</b>, de propósito: começar uma folha nova não apaga as
+    sugestões. Identificador do ponto e coordenadas não entram — são
+    únicos de cada registro.</p>
+    <p class="leg" id="mem_conta"></p>
+    <div class="acoes">
+      <button type="button" class="btn sec peq" id="b_mem_esquece">Esquecer as sugestões</button>
+    </div>
+  </details>
+  <details class="ajuda naoimprime">
+    <summary>Fontes de imagem do relatório do ponto</summary>
+    <p>As fontes são <b>fixas</b>, e não há o que escolher: o <b>croqui</b> sai do
+    <b>Esri Satellite</b> (World Imagery) e os quadros de <b>situação</b> e de
+    <b>visão nacional</b> saem do <b>Esri Standard</b> (World Street Map). Um
+    relatório que muda de fonte de um ponto para o outro não serve como peça de
+    documento, e assim ele sai igual em qualquer aparelho da equipe. A Esri declara
+    nos termos o uso permitido com atribuição, e a atribuição sai impressa na tarja
+    de procedência do croqui.</p>
+    <p>O croqui sai com <b>dois quadros de detalhe</b>, na diagonal: 5 × 5 m no alto
+    à esquerda, onde o pixel do serviço já aparece, e 10 × 10 m embaixo à direita, que
+    dá o entorno imediato do alvo. Saem sempre e nesses tamanhos. Cada um diz o
+    nível usado, o tamanho do pixel no terreno e quantas vezes a imagem foi
+    ampliada ou reduzida; a ampliação é feita sem suavização, então o quadradinho
+    que aparece é o pixel do serviço, não detalhe que ele tenha.</p>
+    <p><b>Testar as fontes</b> pede um bloco de cada uma, neste aparelho e agora, e
+    tenta gravar o desenho. Vale fazer <b>antes de ir a campo</b>, para saber se a
+    rede do aparelho deixa as duas passarem.</p>
+    <div id="s_prova" class="aviso" hidden></div>
+    <div class="acoes">
+      <button type="button" class="btn sec peq" id="b_srv_testa">Testar as fontes</button>
+    </div>
+  </details>
+  <details class="ajuda naoimprime">
+  <summary>Leitura do RINEX</summary>
+  <p>Em cada ponto, <b>Ler RINEX</b> aceita o arquivo do receptor
+  que fez a determinação, seja ele qual for, e tira dali o marcador, o receptor, a
+  antena, a altura gravada, o início e o fim do rastreio, a duração, a taxa e as
+  constelações. Lê só o cabeçalho e o fim do arquivo, então um rastreio de horas se
+  resolve em segundos. Arquivos comprimidos — <code>.zip</code>, <code>.crx</code>,
+  <code>.gz</code> — precisam ser descompactados antes, e o RINEX compacto
+  (Hatanaka) precisa do <code>CRX2RNX</code>.</p>
+  <p>Vale para os <b>dois padrões de nome</b>. No do RINEX 2,
+  <code>ssssdddf.AAt</code>: as quatro letras da estação, o dia do ano, a sequência
+  do dia, o ano em dois dígitos e a letra do tipo — <code>PT022950.13o</code> é a
+  estação PT02, dia 295 de 2013, observação. No do RINEX 3, o nome é longo e termina
+  em <code>_MO.rnx</code>. O arquivo de <b>navegação</b> — <code>.AAn</code> — traz
+  as efemérides e <b>não descreve a ocupação</b>: a folha o recusa dizendo isso, em
+  vez de abrir um registro vazio.</p>
+  <p>Quando o cabeçalho não traz a <b>taxa</b> nem as <b>constelações</b> — a regra
+  no RINEX 2 —, as duas saem das próprias épocas, e a folha diz que foram medidas
+  ali. Se as quatro letras do nome não baterem com o marcador do cabeçalho, ela
+  avisa. E avisa quando falta o que o <b>PPP do IBGE</b> vai exigir: modelo de
+  antena e altura medida em campo — falta que não se conserta depois de sair do
+  ponto.</p>
+</details>
 </section>
 
 <!-- registro para impressão: montado na hora, é o que vira o PDF A4 -->
@@ -3266,8 +3261,8 @@ function aplicaRinex(o, r){
 function avisosGnss(o, minimo){
   const a = [];
   // ocupação nem começada não gera aviso: o vazio aqui é o normal antes da hora
-  const comecou = !!(o.receptor || o.antena || o.ini || o.fim || o.rinex
-                     || o.id || o.ponto);
+  const comecou = !!(o.ini || o.fim || o.rinex || o.ocup_ini
+                     || (o.altura !== '' && o.altura != null));
   if (!comecou) return a;
   if (o.altura === '' || o.altura == null)
     a.push('altura de antena não informada — o PPP do IBGE não processa sem ela');
@@ -3304,21 +3299,114 @@ function padraoCampanha(o, qual){
                                                   : F.campanha.base_receptor) || '';
   if (!o.antena) o.antena = (qual === 'ponto' ? F.campanha.ponto_antena
                                               : F.campanha.base_antena) || '';
+  // a montagem da antena se repete de um ponto para o outro: vem a do último ponto
+  if (qual === 'ponto'){ const m = (F.config || {}).montagem || {};
+    if (!o.forma && m.forma) o.forma = m.forma;
+    if (!o.diagrama && m.diagrama) o.diagrama = m.diagrama; }
   return o;
 }
+function lembraMontagem(p){ F.config = F.config || {};
+  F.config.montagem = {forma: p.forma || '', diagrama: p.diagrama || ''}; }
 
 function cartaoPonto(p, k){
   const d = document.createElement('div');
   d.className = 'voo';
   d.style.borderLeftColor = p.tipo === 'controle' ? '#8e44ad' : '#16a085';
+  /* O cartão segue o que a equipe faz no ponto, em três etapas: montar e começar,
+     enquanto o receptor rastreia, ao terminar. O que o sistema deduz (identificador,
+     tipo, município, receptor, horários, PPP, relatório) fica em "Mais deste ponto". */
+  const _ptn = (n, t) => '<div class="etapa"><h4><i>' + n + '</i>' + t + '</h4>';
   d.innerHTML =
     '<h3>Ponto ' + (k+1) + (p.id ? ' — ' + esc(p.id) : '')
     + '<span class="selo" style="background:'
-    + (p.tipo === 'controle' ? '#8e44ad' : '#16a085') + '">' + p.tipo + '</span>'
-    + '<button type="button" class="btn sec peq naoimprime" data-focar="' + k
-    + '" style="margin-left:auto">só este ponto</button>'
-    + '<button type="button" class="btn sec peq naoimprime" data-tira="' + k
-    + '" style="margin-left:6px">remover</button></h3>'
+    + (p.tipo === 'controle' ? '#8e44ad' : '#16a085') + '">' + p.tipo + '</span></h3>'
+    + (p.campo ? '<p class="leg" style="color:#B45309;font-weight:600;margin:8px 0">Escolhido em campo — substitui o círculo '
+        + esc(p.campo.circulo) + (p.campo.substitui && p.campo.substitui.length ? ' (opções do gabinete ' + esc(p.campo.substitui.join(', ')) + ')' : '')
+        + '. Motivo: ' + esc(p.campo.motivo || '—') + (p.campo.dist_A_m != null ? ' · a ' + _metros(p.campo.dist_A_m) + ' da opção A' : '') + '.</p>' : '')
+    // ---- 1. montar e começar
+    + _ptn(1, 'Montar a antena e começar')
+    + '<div class="lin2">'
+    + '<div><label class="c">Altura de antena medida (m)</label>'
+    + '<input type="number" step="0.001" inputmode="decimal" data-p="altura" value="' + esc(p.altura) + '"></div>'
+    + '<div><label class="c">Como foi medida</label><select data-p="forma">'
+    + FORMAS.map(f => '<option' + (p.forma === f ? ' selected' : '') + '>' + f + '</option>').join('')
+    + '</select></div></div>'
+    + '<label class="c">Montagem da antena (diagrama do formulário)</label><div class="lin2 ccar_diag">'
+    + ['esq', 'dir'].map(k => '<label style="display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid var(--lin);border-radius:8px;padding:6px;text-align:center">'
+        + '<canvas data-diagcv="' + k + '" width="130" height="150" style="max-width:100%"></canvas>'
+        + '<span style="display:flex;gap:6px;align-items:center"><input type="radio" name="diag_' + k + '_' + esc(p.id || 'x') + '" data-diag="' + k + '"' + (p.diagrama === k ? ' checked' : '') + '>'
+        + '<small>' + CCAR_DIAG[k] + '</small></span></label>').join('') + '</div>'
+    + '<div class="lin2"><div><label class="c">PDOP no início (tela do receptor)</label><input type="text" inputmode="decimal" data-p="pdop_ini" value="' + esc(p.pdop_ini || '') + '"></div><div></div></div>'
+    + '<div class="ocup" data-ocup></div>'
+    + '</div>'
+    // ---- 2. enquanto rastreia
+    + _ptn(2, 'Enquanto o receptor rastreia')
+    + (function(){ const L = filaFotos(p), nome = {norte: 'norte', sul: 'sul', oeste: 'oeste', leste: 'leste'};
+        return '<button type="button" class="btn' + (L.length ? '' : ' sec') + '" data-fotoseq style="margin:4px 0 10px">'
+          + (L.length === 4 ? 'Tirar as 4 fotos — F1 norte, F2 sul, F3 oeste, F4 leste'
+             : L.length ? 'Continuar as fotos — falta' + (L.length > 1 ? 'm' : '') + ' ' + L.map(k => nome[k]).join(', ')
+             : '✓ 4 fotos tiradas — refazer em sequência') + '</button>'; })()
+    + '<div class="fotos3">'
+    + FOTOS_CARTAO.map(fo => '<div><label class="c">' + (fo[2] != null
+        ? 'F' + (FOTOS.indexOf(fo) + 1) + ' · ' + String(fo[1]).replace(/^voltada para o /, '') : 'Vista de cima')
+        + (p.fotos_az && p.fotos_az[fo[0]] != null ? ' · az ' + Math.round(p.fotos_az[fo[0]]) + '°' : '')
+        + '</label>'
+        + '<div class="miniat" data-mini="' + fo[0] + '">'
+        + (p.fotos[fo[0]] ? '<span class="carregando">carregando…</span>'
+                          : '<span class="sem">sem foto</span>') + '</div>'
+        + '<button type="button" class="btn sec peq" style="width:100%" '
+        + 'data-foto="' + fo[0] + '">'
+        + (p.fotos[fo[0]] ? 'trocar' : 'foto') + '</button></div>').join('')
+    + '</div>'
+    + '<p class="leg">Um toque e a câmera pede as quatro, uma depois da outra: de onde ficar e para onde apontar; '
+    + 'o círculo fica verde no rumo certo. Cada foto se refaz no seu botão. A vista de cima é opcional: marcado o ponto nela, vira o croqui.</p>'
+    + '<div class="acoes"><button type="button" class="btn sec peq" data-marcaarp>'
+    + (p.arp_alvo ? 'Ajustar o ponto na vista de cima' : 'Marcar o ponto na vista de cima')
+    + '</button></div><p class="leg" data-arpinfo>' + textoArp(p) + '</p>'
+    + '<label class="c">Localidade (como o lugar é conhecido)</label>'
+    + '<input type="text" data-p="localidade" value="' + esc(p.localidade) + '">'
+    + '<label class="c">Acesso — itinerário a partir de referência conhecida'
+    + (p.acesso_gabinete ? ' <small>(veio do gabinete; complete)</small>' : '') + '</label>'
+    + '<textarea data-p="acesso" placeholder="ex.: da BR-406, 2,1 km pela estrada de terra até a porteira; à esquerda mais 300 m">'
+    + esc(p.acesso) + '</textarea>'
+    + '<div class="lin2">'
+    + '<div><label class="c">Entorno</label><select data-p="entorno">'
+    + ENTORNO.map(o => '<option' + (p.entorno === o ? ' selected' : '') + '>' + o
+        + '</option>').join('') + '</select></div>'
+    + '<div><label class="c">Piso</label><select data-p="piso">'
+    + PISO.map(o => '<option' + (p.piso === o ? ' selected' : '') + '>' + o
+        + '</option>').join('') + '</select></div></div>'
+    + '<div class="lin2">'
+    + '<div><label class="c">Horizonte</label><select data-p="horizonte">'
+    + HORIZONTE.map(o => '<option' + (p.horizonte === o ? ' selected' : '') + '>' + o
+        + '</option>').join('') + '</select></div>'
+    + '<div><label class="c">Setores obstruídos</label>'
+    + '<input type="text" data-p="horiz_set" placeholder="ex.: 90° a 140°" value="'
+    + esc(p.horiz_set) + '"></div></div>'
+    + '<label class="c">Observações</label>'
+    + '<textarea data-p="obs">' + esc(p.obs) + '</textarea>'
+    + '<p class="leg" data-descfalta></p>'
+    + '</div>'
+    // ---- 3. ao terminar
+    + _ptn(3, 'Ao terminar o rastreio')
+    + '<div class="lin2"><div><label class="c">PDOP no fim</label><input type="text" inputmode="decimal" data-p="pdop_fim" value="' + esc(p.pdop_fim || '') + '"></div>'
+    + '<div><label class="c">Altura ao terminar (m), se mudou</label><input type="number" step="0.001" inputmode="decimal" data-p="altura_fim" value="' + esc(p.altura_fim || '') + '"></div></div>'
+    + '<p class="leg" style="margin-bottom:0"><b>Coordenada de término</b>, da tela do receptor:</p>'
+    + '<div class="lin2"><div><label class="c">Latitude</label><input type="text" data-p="term_lat" value="' + esc(p.term_lat || '') + '"></div>'
+    + '<div><label class="c">Longitude</label><input type="text" data-p="term_lon" value="' + esc(p.term_lon || '') + '"></div></div>'
+    + '<div class="lin2"><div><label class="c">Altitude (m)</label><input type="text" inputmode="decimal" data-p="term_alt" value="' + esc(p.term_alt || '') + '"></div>'
+    + '<div><label class="c">&nbsp;</label><button type="button" class="btn sec peq" data-termcel>Usar a posição do celular</button></div></div>'
+    + '<p class="leg" data-termnota>' + (p.term_fonte === 'celular' ? 'Posição do celular: sai no formulário com essa observação.' : 'Em branco, vale a posição do celular medida no ponto, com essa observação.') + '</p>'
+    + '<div class="acoes naoimprime">'
+    + ((F.campanha.alvos || []).length ? '<button type="button" class="btn peq" data-proxnav>Terminar e navegar ao próximo</button>' : '')
+    + '</div>'
+    + '<div data-avisos></div>'
+    + '</div>'
+    // ---- o que o sistema deduz ou se faz no hotel
+    + '<details class="bloco naoimprime" data-mais><summary>Mais deste ponto<span class="conta">dados automáticos, PPP, relatório</span></summary><div class="itens">'
+    + (function(){ const c = coordPonto(p);
+        return '<p class="leg" data-coordlin' + (c && !['rinex', 'ppp'].includes(c.fonte) ? ' style="color:#B91C1C"' : '') + '><b>Coordenada:</b> '
+          + (c ? gms(c.lat, 'lat') + '   ' + gms(c.lon, 'lon') + ' — ' + esc(c.rotulo) : 'ainda nenhuma') + '</p>'; })()
     + '<div class="lin2">'
     + '<div><label class="c">Identificador do ponto (único)</label>'
     + '<input type="text" data-p="id" value="' + esc(p.id) + '"></div>'
@@ -3328,67 +3416,38 @@ function cartaoPonto(p, k){
         : '<div><label class="c">Tipo</label><select data-p="tipo">'
           + ['controle', 'checagem'].map(o => '<option' + (p.tipo === o ? ' selected' : '')
           + '>' + o + '</option>').join('') + '</select></div></div>')
-    + (p.campo ? '<p class="leg" style="color:#B45309;font-weight:600;margin:8px 0">Escolhido em campo — substitui o círculo '
-        + esc(p.campo.circulo) + (p.campo.substitui && p.campo.substitui.length ? ' (opções do gabinete ' + esc(p.campo.substitui.join(', ')) + ')' : '')
-        + '. Motivo: ' + esc(p.campo.motivo || '—') + (p.campo.dist_A_m != null ? ' · a ' + _metros(p.campo.dist_A_m) + ' da opção A' : '') + '.</p>' : '')
     + '<label class="c">A que serve</label><select data-p="serve">'
     + (function(){ const L = (SERVE[p.tipo] || []).slice(); if (p.serve && !L.includes(p.serve)) L.push(p.serve);
         return ['<option value=""></option>'].concat(L.map(o => '<option' + (p.serve === o ? ' selected' : '') + '>' + esc(o) + '</option>')).join(''); })()
     + '</select>'
     + '<div class="lin2">'
-    + '<div><label class="c">Localidade (como o lugar é conhecido em campo)</label>'
-    + '<input type="text" data-p="localidade" value="' + esc(p.localidade) + '"></div>'
-    + '<div><label class="c">Município / UF (do IBGE, pela coordenada)</label>'
-    + '<input type="text" data-mun readonly value="' + esc(textoMunicipio(p)) + '"></div>'
-    + '</div>'
-    + '<p class="leg">O município é o oficial e sai da Malha Municipal Digital do '
-    + 'IBGE, pela coordenada — não é digitado. A localidade é outra coisa: é o '
-    + 'nome do lugar em campo (fazenda, assentamento, distrito), que pode não '
-    + 'ter relação com o nome do município.</p>'
-    + (function(){ const c = coordPonto(p);
-        return '<p class="leg" data-coordlin' + (c && !['rinex', 'ppp'].includes(c.fonte) ? ' style="color:#B91C1C"' : '') + '><b>Coordenada:</b> '
-          + (c ? gms(c.lat, 'lat') + '   ' + gms(c.lon, 'lon') + ' — ' + esc(c.rotulo) : 'ainda nenhuma') + '</p>'; })()
-    + '<div class="acoes naoimprime"><button type="button" class="btn sec peq" data-coordcel>'
-    + (p.coord_cel ? 'Medir de novo pelo celular' : 'Coordenada pela posição do celular') + '</button>'
-    + (p.coord_cel ? '<button type="button" class="btn sec peq" data-coordcel-tira>Apagar a coordenada do celular</button>' : '')
-    + '<button type="button" class="btn sec peq" '
-    + 'data-munbusca>Município pela coordenada (precisa de rede)</button></div>'
-    + campoGnss(p, 'p')
-    + '<div class="ocup" data-ocup></div>'
-    + '<details class="bloco" data-ccarbloco><summary>Formulário de campo (CCAR, versão 6)<span class="conta">'
-    + ([p.pdop_ini, p.pdop_fim, p.term_lat, p.diagrama].filter(Boolean).length ? 'em preenchimento' : 'o resto sai sozinho') + '</span></summary><div class="itens">'
-    + '<p class="leg">A folha preenche o formulário <b>Determinações GNSS – registro de dados de campo</b> com o que já registrou '
-    + '(estação, arquivo, receptor e antena do RINEX, taxa, horários, altura, município, operadores, descrição, fotos e croquis). '
-    + 'Aqui ficam só os itens que a tela do receptor mostra e a montagem da antena. Faixa, Foto e Folha MI não se aplicam.</p>'
-    + '<div class="lin2"><div><label class="c">PDOP no início</label><input type="text" inputmode="decimal" data-p="pdop_ini" value="' + esc(p.pdop_ini || '') + '"></div>'
-    + '<div><label class="c">PDOP no fim</label><input type="text" inputmode="decimal" data-p="pdop_fim" value="' + esc(p.pdop_fim || '') + '"></div></div>'
-    + '<div class="lin2"><div><label class="c">Altura vertical da antena ao terminar (m)</label><input type="number" step="0.001" data-p="altura_fim" value="' + esc(p.altura_fim || '') + '" placeholder="se mudou"></div><div></div></div>'
-    + '<p class="leg"><b>Coordenada de término</b>, lida na tela do receptor ao terminar o rastreio (graus decimais ou GMS):</p>'
-    + '<div class="lin2"><div><label class="c">Latitude</label><input type="text" data-p="term_lat" value="' + esc(p.term_lat || '') + '"></div>'
-    + '<div><label class="c">Longitude</label><input type="text" data-p="term_lon" value="' + esc(p.term_lon || '') + '"></div></div>'
-    + '<div class="lin2"><div><label class="c">Altitude (m)</label><input type="text" inputmode="decimal" data-p="term_alt" value="' + esc(p.term_alt || '') + '"></div>'
-    + '<div><label class="c">&nbsp;</label><button type="button" class="btn sec peq" data-termcel>Usar a posição do celular</button></div></div>'
-    + '<p class="leg" data-termnota>' + (p.term_fonte === 'celular' ? 'Posição do celular: sai no formulário com essa observação.' : 'Em branco, o formulário usa a posição do celular medida no ponto, com essa observação.') + '</p>'
-    + '<label class="c">Diagrama de altura da antena</label><div class="lin2 ccar_diag">'
-    + ['esq', 'dir'].map(k => '<label style="display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid var(--lin);border-radius:8px;padding:6px;text-align:center">'
-        + '<canvas data-diagcv="' + k + '" width="130" height="150" style="max-width:100%"></canvas>'
-        + '<span style="display:flex;gap:6px;align-items:center"><input type="radio" name="diag_' + k + '_' + esc(p.id || 'x') + '" data-diag="' + k + '"' + (p.diagrama === k ? ' checked' : '') + '>'
-        + '<small>' + CCAR_DIAG[k] + '</small></span></label>').join('') + '</div>'
-    + '<div class="acoes naoimprime"><button type="button" class="btn sec peq" data-ccar="pdf">Formulário em PDF</button>'
-    + '<button type="button" class="btn sec peq" data-ccar="jpg">Formulário em imagem</button></div>'
-    + '<p class="leg">No pacote da campanha, o formulário preenchido é o <span class="marca">Formulários/PPPP_Form.jpg</span>; '
-    + 'o relatório do ponto segue no PDF dos relatórios dos pontos.</p>'
-    + '</div></details>'
-    + '<p class="tempmod" data-tempmod>' + esc(textoTempModelo(p)) + '</p>'
-    + '<div class="acoes naoimprime so_rede"><button type="button" class="btn sec peq" data-tempbtn>'
-    + 'Temperatura do ar estimada por modelo (internet)</button></div>'
-    + '<div class="lin2">'
     + '<div><label class="c">Materialização do marco</label><select data-p="alvo">'
     + (function(){ const L = ALVOS.slice(); if (p.alvo && !L.includes(p.alvo)) L.push(p.alvo);
         return L.map(o => '<option' + (p.alvo === o ? ' selected' : '') + '>' + esc(o) + '</option>').join(''); })() + '</select></div>'
-    + '<div><label class="c">Situação do PPP</label><select data-p="ppp">'
+    + '<div><label class="c">Município / UF (do IBGE, pela coordenada)</label>'
+    + '<input type="text" data-mun readonly value="' + esc(textoMunicipio(p)) + '"></div></div>'
+    + '<div class="acoes"><button type="button" class="btn sec peq" data-coordcel>'
+    + (p.coord_cel ? 'Medir de novo pelo celular' : 'Coordenada pela posição do celular') + '</button>'
+    + (p.coord_cel ? '<button type="button" class="btn sec peq" data-coordcel-tira>Apagar a coordenada do celular</button>' : '')
+    + '<button type="button" class="btn sec peq so_rede" data-munbusca>Município pela coordenada</button></div>'
+    + '<div class="lin2">'
+    + '<div><label class="c">Receptor (modelo)</label>'
+    + '<input type="text" data-p="receptor" value="' + esc(p.receptor) + '"></div>'
+    + '<div><label class="c">Antena (modelo, como o PPP exige)</label>'
+    + '<input type="text" data-p="antena" value="' + esc(p.antena) + '"></div></div>'
+    + '<div class="lin2">'
+    + '<div><label class="c">Início do rastreio</label>'
+    + '<input type="time" step="1" data-p="ini" value="' + esc(p.ini) + '"></div>'
+    + '<div><label class="c">Fim do rastreio</label>'
+    + '<input type="time" step="1" data-p="fim" value="' + esc(p.fim) + '"></div></div>'
+    + '<p class="leg" data-janela>' + textoJanela(p) + '</p>'
+    + '<div class="acoes"><button type="button" class="btn sec peq" data-lerinex="ponto">Ler RINEX deste ponto</button></div>'
+    + '<p class="tempmod" data-tempmod>' + esc(textoTempModelo(p)) + '</p>'
+    + '<div class="acoes so_rede"><button type="button" class="btn sec peq" data-tempbtn>'
+    + 'Temperatura do ar estimada por modelo</button></div>'
+    + '<label class="c">Situação do PPP</label><select data-p="ppp">'
     + SIT_PPP.map(o => '<option' + (p.ppp === o ? ' selected' : '') + '>' + o
-        + '</option>').join('') + '</select></div></div>'
+        + '</option>').join('') + '</select>'
     + (function(){ const k = p.ppp_coord || {}, v = x => x == null ? '' : esc(String(x));
         return '<details class="bloco" data-pppbloco' + (k.lat != null ? ' open' : '') + '><summary>Coordenada do IBGE-PPP'
           + '<span class="conta">' + (k.lat != null ? 'informada — vale para o ponto' : 'ainda não') + '</span></summary><div class="itens">'
@@ -3406,45 +3465,15 @@ function cartaoPonto(p, k){
               + ', órbita ' + esc((k.orbita || '?').toLowerCase()) + ', rastreio ' + esc(k.inicio || '?') + ' a ' + esc(k.fim || '?')
               + (k.modelo ? ', modelo ' + esc(k.modelo) + (k.incert != null ? ' (incerteza ' + _f2(k.incert) + ' m)' : '') : '') + '.</p>' : '')
           + (k.link ? '<p class="leg"><a href="' + esc(k.link) + '" target="_blank" rel="noopener">ZIP completo do IBGE-PPP</a></p>' : '')
-          + '<div class="acoes naoimprime"><button type="button" class="btn sec peq" data-pppenv>Enviar o RINEX deste ponto ao IBGE-PPP</button>'
+          + '<div class="acoes"><button type="button" class="btn sec peq" data-pppenv>Enviar o RINEX deste ponto ao IBGE-PPP</button>'
           + '<button type="button" class="btn sec peq" data-ppparq>Ler o arquivo do PPP deste ponto</button></div>'
           + '</div></details>'; })()
-    + '<h4 style="margin:16px 0 0;font-size:14px;letter-spacing:.04em;'
-    + 'text-transform:uppercase;color:var(--cz)">Descrição do ponto</h4>'
-    + '<p class="leg">Os mesmos itens, na mesma ordem, em todo ponto — é o que '
-    + 'faz duas descrições se compararem. Sai impressa no relatório do ponto.</p>'
-    + '<label class="c">Acesso — itinerário a partir de referência conhecida'
-    + (p.acesso_gabinete ? ' <small>(veio da descrição feita em gabinete; complete em campo)</small>' : '') + '</label>'
-    + '<textarea data-p="acesso" placeholder="ex.: da sede da reserva, 2,1 km pela '
-    + 'estrada de serviço até a porteira; à esquerda mais 300 m">'
-    + esc(p.acesso) + '</textarea>'
-    + '<div class="lin2">'
-    + '<div><label class="c">Entorno</label><select data-p="entorno">'
-    + ENTORNO.map(o => '<option' + (p.entorno === o ? ' selected' : '') + '>' + o
-        + '</option>').join('') + '</select></div>'
-    + '<div><label class="c">Piso</label><select data-p="piso">'
-    + PISO.map(o => '<option' + (p.piso === o ? ' selected' : '') + '>' + o
-        + '</option>').join('') + '</select></div></div>'
-    + '<div class="lin2">'
-    + '<div><label class="c">Horizonte</label><select data-p="horizonte">'
-    + HORIZONTE.map(o => '<option' + (p.horizonte === o ? ' selected' : '') + '>' + o
-        + '</option>').join('') + '</select></div>'
-    + '<div><label class="c">Setores obstruídos (azimutes)</label>'
-    + '<input type="text" data-p="horiz_set" placeholder="ex.: 90° a 140°" value="'
-    + esc(p.horiz_set) + '"></div></div>'
-    + '<label class="c">Observações</label>'
-    + '<textarea data-p="obs">' + esc(p.obs) + '</textarea>'
-    + '<p class="leg" data-descfalta></p>'
     + '<details class="bloco" data-croquibloco><summary>Relatório do ponto'
     + '<span class="conta">' + (p.relatorio ? 'montado'
         : (p.lat != null ? 'pronto para montar' : p.planejado ? 'coordenada de gabinete' : p.chegada ? 'posição do celular' : 'sem coordenada')) + '</span></summary>'
     + '<div class="itens">'
-    + '<p class="leg">O relatório do ponto é a peça que vai ao processo: traz o '
-    + '<b>croqui</b> — o recorte de imagem centrado no ponto —, a situação, a '
-    + 'posição no Brasil, a ficha do rastreio, a descrição padronizada e as '
-    + 'fotos. A coordenada sai do cabeçalho do RINEX, é a posição aproximada, '
-    + 'não a do PPP, e basta para centrar o croqui. As fotos se tiram aqui, em '
-    + 'campo; as imagens dependem de rede e podem esperar o hotel.</p>'
+    + '<p class="leg">Croqui, situação, ficha do rastreio, descrição e fotos. Monta-se no hotel, com internet '
+    + '(Fechar o dia ▸ 2. Completar com a internet), de todos os pontos de uma vez.</p>'
     + '<div class="lin2">'
     + '<div><label class="c">Latitude</label>'
     + '<input type="number" step="0.0000001" data-p="lat" value="'
@@ -3463,29 +3492,7 @@ function cartaoPonto(p, k){
         + (p.chegada ? ' · celular na chegada: ± ' + Math.round(p.chegada.precisao_m)
            + ' m, a ' + _metros(p.chegada.distancia_m) + ' do planejado' : '')
         + '</p>' : '')
-    + '<div class="lin2" style="margin-top:8px">'
-    + FOTOS_CARTAO.map(fo => '<div><label class="c">' + (fo[2] != null
-        ? 'F' + (FOTOS.indexOf(fo) + 1) + ' — ' + fo[1] : '5ª — vista de cima (ARP), vira o croqui')
-        + (p.fotos_az && p.fotos_az[fo[0]] != null ? ' · az ' + Math.round(p.fotos_az[fo[0]]) + '°' : '')
-        + '</label>'
-        + '<div class="miniat" data-mini="' + fo[0] + '">'
-        + (p.fotos[fo[0]] ? '<span class="carregando">carregando…</span>'
-                          : '<span class="sem">sem foto</span>') + '</div>'
-        + '<button type="button" class="btn sec peq" style="width:100%" '
-        + 'data-foto="' + fo[0] + '">'
-        + (p.fotos[fo[0]] ? 'trocar' : 'tirar ou escolher') + '</button></div>').join('')
-    + '</div>'
-    + '<p class="leg"><b>F1 a F4</b>: uma foto para cada rumo — norte, sul, oeste e '
-    + 'leste —, sempre com a antena. O botão abre a câmera com a bússola: o círculo '
-    + 'fica verde quando a câmera está no rumo (±10°), e o rodapé da foto grava o '
-    + 'ponto, o rumo e o azimute medido.</p>'
-    + '<p class="leg">A <b>vista de cima</b> pode ser uma foto da ARP sobre o '
-    + 'receptor ou uma montagem. Marcado o ponto nela, vira o <b>croqui</b> do '
-    + 'ponto (CROQUIS\\…_C.JPG no pacote PTCON).</p>'
-    + '<div class="acoes"><button type="button" class="btn sec peq" data-marcaarp>'
-    + (p.arp_alvo ? 'Ajustar o ponto na vista de cima' : 'Marcar o ponto na vista de cima')
-    + '</button></div><p class="leg" data-arpinfo>' + textoArp(p) + '</p>'
-    + '<div class="acoes naoimprime" style="margin-top:10px">'
+    + '<div class="acoes" style="margin-top:10px">'
     + '<button type="button" class="btn sec peq" data-croqui="1">'
     + (p.relatorio ? 'Montar de novo' : 'Montar o relatório') + ' (precisa de rede)</button>'
     + '<button type="button" class="btn sec peq" data-exporta="pdf"'
@@ -3496,11 +3503,14 @@ function cartaoPonto(p, k){
         + 'style="width:100%;border:1px solid var(--lin);border-radius:8px;'
         + 'margin-top:10px">' : '')
     + '</div></details>'
-    + '<div class="acoes naoimprime"><button type="button" class="btn sec peq" '
-    + 'data-lerinex="ponto">Ler RINEX deste ponto</button>'
-    + ((F.campanha.alvos || []).length ? '<button type="button" class="btn peq" data-proxnav>Terminar e navegar ao próximo</button>' : '')
-    + '</div>'
-    + '<div data-avisos></div>';
+    + '<div data-ccarbloco><p class="leg" style="margin-bottom:0"><b>Formulário da CCAR (versão 6)</b>: sai preenchido no pacote da campanha '
+    + '(<span class="marca">Formulários/PPPP_Form.jpg</span>). Para ver agora:</p>'
+    + '<div class="acoes"><button type="button" class="btn sec peq" data-ccar="pdf">Formulário em PDF</button>'
+    + '<button type="button" class="btn sec peq" data-ccar="jpg">Formulário em imagem</button></div></div>'
+    + '<div class="acoes" style="margin-top:12px">'
+    + '<button type="button" class="btn sec peq" data-focar="' + k + '">Só este ponto na tela</button>'
+    + '<button type="button" class="btn sec peq" data-tira="' + k + '">Remover este ponto</button></div>'
+    + '</div></details>';
   const muda = e => {
     const c = e.target.dataset.p; if (!c) return;
     if (c === 'lat' || c === 'lon'){
@@ -3513,6 +3523,7 @@ function cartaoPonto(p, k){
        ser atualizado no lugar: nada é recriado, e o cursor fica onde está. */
     if (c === 'tipo' || c === 'id'){ cabecalhoPonto(d, p, k); }
     if (c === 'id') pintaAlvos();
+    if (c === 'forma') lembraMontagem(p);
     pintaAvisos(d, p, MIN_PONTO[p.tipo] || 0); pintaFaltaDescricao(d, p); grava();
     if (p.ocup_ini && c !== 'id') pintaOcupacao(d, p);
   };
@@ -3580,13 +3591,21 @@ function cartaoPonto(p, k){
       guardaArqPonto(p, 'rinex', r._file).then(grava).catch(() => {});
       marca('RINEX lido: ' + r.arquivo
         + (r.aviso_marcador ? ' — ' + r.aviso_marcador : '')); }));
+  const bseq = d.querySelector('[data-fotoseq]');
+  if (bseq) bseq.addEventListener('click', () => {
+    let L = filaFotos(p);
+    if (!L.length){ if (!confirm('As 4 fotos já estão tiradas. Refazer as quatro, em sequência?')) return; L = FOTOS.map(f => f[0]); }
+    abreFotoDirigida._seq = true;
+    abreFotoDirigida(p, L[0], L).catch(e => marca('foto: ' + e.message));
+  });
   d.querySelectorAll('[data-foto]').forEach(b => b.addEventListener('click', () => {
-    if (FOTOS.some(f => f[0] === b.dataset.foto))
-      abreFotoDirigida(p, b.dataset.foto).catch(e => marca('foto: ' + e.message));
+    if (FOTOS.some(f => f[0] === b.dataset.foto)){
+      abreFotoDirigida._seq = false;
+      abreFotoDirigida(p, b.dataset.foto).catch(e => marca('foto: ' + e.message)); }
     else pedeFoto(f => guardaFoto(p, b.dataset.foto, f));
   }));
   d.querySelectorAll('[data-diagcv]').forEach(cv => { const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); _ccarDiagrama(g, 5, 0, 0.65, cv.dataset.diagcv === 'dir'); });
-  d.querySelectorAll('[data-diag]').forEach(r => r.addEventListener('change', () => { d.querySelectorAll('[data-diag]').forEach(q => { q.checked = q === r; }); p.diagrama = r.dataset.diag; grava(); }));
+  d.querySelectorAll('[data-diag]').forEach(r => r.addEventListener('change', () => { d.querySelectorAll('[data-diag]').forEach(q => { q.checked = q === r; }); p.diagrama = r.dataset.diag; lembraMontagem(p); grava(); }));
   const btc = d.querySelector('[data-termcel]');
   if (btc) btc.addEventListener('click', () => {
     const c = p.coord_cel && p.coord_cel.lat != null ? p.coord_cel : (p.chegada && p.chegada.lat != null ? p.chegada : null);
@@ -3668,10 +3687,8 @@ function pintaOcupacao(d, p){
   const cx = d.querySelector('[data-ocup]'); if (!cx) return;
   const min = MIN_PONTO[p.tipo] || 0;
   if (!p.ocup_ini){
-    cx.innerHTML = '<b>Ocupação</b><p class="leg">Ao ligar o receptor no ponto, '
-      + 'inicie o cronômetro: ele marca o tempo mínimo (' + dur(min) + ' para '
-      + p.tipo + ') e lista o que adiantar enquanto o receptor rastreia.</p>'
-      + '<button type="button" class="btn sec peq" data-oc="ini">Iniciar a ocupação</button>';
+    cx.innerHTML = '<b>Ocupação</b><p class="leg">Receptor ligado e rastreando: inicie. Mínimo de ' + dur(min) + ' (' + p.tipo + ').</p>'
+      + '<button type="button" class="btn peq" data-oc="ini">Iniciar a ocupação</button>';
   } else {
     const fim = p.ocup_fim ? new Date(p.ocup_fim) : null;
     const dec = ((fim || new Date()) - new Date(p.ocup_ini)) / 1000;
@@ -3695,7 +3712,8 @@ function pintaOcupacao(d, p){
   cx.onclick = e => {
     const b = e.target.closest('[data-oc]'); if (!b || b.tagName === 'INPUT') return;
     const o = b.dataset.oc;
-    if (o === 'ini'){ p.ocup_ini = new Date().toISOString(); p.ocup_fim = ''; p._avisou = false; }
+    if (o === 'ini'){ p.ocup_ini = new Date().toISOString(); p.ocup_fim = ''; p._avisou = false;
+      if (!p.coord_cel) coordCelularAuto(p, d); }
     else if (o === 'fim'){
       const dec = (Date.now() - new Date(p.ocup_ini)) / 1000;
       if (dec < min && !confirm('Ainda faltam ' + _hms(min - dec) + ' para o mínimo do '
@@ -3706,7 +3724,7 @@ function pintaOcupacao(d, p){
     else if (o === 'reabre'){ p.ocup_fim = ''; }
     else if (o === 'navega'){ grava(); return proximoNavegar(p); }
     grava(); trilhaNaOcupacao(); pintaOcupacao(d, p);
-    try { pintaPlanoCampanha(); } catch (e){}
+    try { pintaPlanoCampanha(); pintaHoje(); } catch (e){}
   };
   cx.onchange = e => {
     if (e.target.dataset.oc === 'altfim'){ p.altura_fim_ok = e.target.checked; grava(); pintaOcupacao(d, p); }
@@ -5054,7 +5072,7 @@ async function pacoteDistribuicao(){
   itens.push({nome: 'LEIA-ME.txt', dados: 'Pacote da campanha para outra equipe (folha de coleta de pontos GNSS).\r\n'
     + '1. Abra folha_coleta_pontos.html no Chrome do celular.\r\n2. Fechar o dia > Retomar ou trocar de aparelho > '
     + 'Abrir um registro salvo > este ZIP.\r\n3. Aba Campanha: preencha Equipe no PTCON e a equipe.\r\n'
-    + '4. Carregue o mapa da área (pacote do Drive) em Pontos planejados e navegação.\r\n'});
+    + '4. Carregue o mapa da área (pacote do Drive) em Dia de campo > Todos os pontos, o mapa e o plano.\r\n'});
   const z = zipGuarda(itens), nome = nomeSaida('pacote_para_equipe') + '.zip';
   const arq = new File([z], nome, {type: 'application/zip'});
   if (navigator.canShare && navigator.canShare({files: [arq]})){
@@ -5845,6 +5863,7 @@ function desprezados(){
 }
 function alvosAtivos(){ const d = desprezados(); return (F.campanha.alvos || []).filter(a => !d.has(a.id)); }
 function pintaAlvos(){
+  try { pintaHoje(); } catch (e){ console.error(e); }
   try { pintaPlanoCampanha(); } catch (e){ console.error(e); }
   try { pintaPlano(); } catch (e){}
   const al = $('#alvos'); if (!al) return;
@@ -8112,6 +8131,7 @@ function montaTelaNav(){
     + '<div class="tela"><canvas data-n="cv"></canvas>'
     + '<button type="button" class="btn recentra oculto" data-n="recentra">⌖ Centralizar</button></div>'
     + '<div class="pe">'
+    + '<button type="button" class="btn" data-n="comeca" style="flex-basis:100%">Cheguei — começar o ponto aqui</button>'
     + '<button type="button" class="btn sec" data-n="menos">−</button>'
     + '<button type="button" class="btn sec" data-n="mais">+</button>'
     + '<button type="button" class="btn sec" data-n="fundo">Fundo: auto</button>'
@@ -8122,7 +8142,6 @@ function montaTelaNav(){
     + '<button type="button" class="btn sec" data-n="traj">Trajeto</button>'
     + '<button type="button" class="btn sec" data-n="bloq">Sem passagem aqui</button>'
     + '<button type="button" class="btn sec" data-n="rotaoff">Outra rota, sem internet</button>'
-    + '<button type="button" class="btn sec" data-n="comeca">Começar o ponto aqui</button>'
     + '<button type="button" class="btn sec" data-n="campo">Nenhuma opção serve — escolher em campo</button>'
     + '</div>';
   document.body.appendChild(d);
@@ -9030,6 +9049,28 @@ function apagaCoordCelular(p){
   grava(); pintaPontos(); try { pintaAlvos(); } catch (e){}
   marca('coordenada do celular apagada — vale ' + (c ? c.rotulo.split(' (')[0].split(' —')[0] : 'nenhuma, até o RINEX'));
 }
+/* Ao iniciar a ocupação a folha mede, sozinha, a posição do celular no ponto (10 s):
+   é a coordenada provisória do croqui e a de término, se a do receptor não for anotada.
+   Não redesenha o cartão (quem digita não perde o campo); longe do planejado, não grava. */
+async function coordCelularAuto(p, d){
+  let r = null;
+  try { r = await mediaPosicaoCelular(10);
+        if (!r){ const q = await posicaoAgora(10);                    // nenhuma leitura nova: a última recente
+                 if (q) r = {lat: q.lat, lon: q.lon, acc: q.acc, n: 1, quando: new Date().toISOString()}; } } catch (e){}
+  if (!r || p.coord_cel) return;
+  const ref = p.chegada && p.chegada.lat != null ? p.chegada : p.planejado && p.planejado.lat != null ? p.planejado : null;
+  if (ref && geodInversa(r.lat, r.lon, ref.lat, ref.lon).s > Math.max(30, 3 * (r.acc || 0)))
+    return marca('posição do celular longe do ponto: não gravada (Mais deste ponto ▸ Coordenada pela posição do celular)');
+  r.lat = Math.round(r.lat * 1e7) / 1e7; r.lon = Math.round(r.lon * 1e7) / 1e7; r.acc = Math.round(r.acc * 10) / 10;
+  if (r.h != null) r.h = Math.round(r.h * 10) / 10; else delete r.h;
+  if (r.hacc != null) r.hacc = Math.round(r.hacc * 10) / 10; else delete r.hacc;
+  p.coord_cel = r; if (p.declinacao == null) p.declinacao = declinacaoEm(r.lat, r.lon);
+  grava();
+  const cl = d && d.querySelector('[data-coordlin]'), c = coordPonto(p);
+  if (cl && c){ cl.innerHTML = '<b>Coordenada:</b> ' + gms(c.lat, 'lat') + '   ' + gms(c.lon, 'lon') + ' — ' + esc(c.rotulo);
+                cl.style.color = ['rinex', 'ppp'].includes(c.fonte) ? '' : '#B91C1C'; }
+  marca('posição do celular guardada no ponto ' + (p.id || '') + ' (± ' + r.acc + ' m)');
+}
 async function coordenadaDoCelular(p, d){
   const b = d.querySelector('[data-coordcel]'), antes = b.textContent;
   b.disabled = true; b.textContent = 'lendo o GNSS do celular (10 s)…';
@@ -9117,11 +9158,81 @@ async function escolheEmCampo(num, P){
    do plano ainda não atendido; sem plano, o planejado vivo (não atendido, não
    desprezado, da região da equipe) mais perto deste. O cartão fica na caderneta
    — o RINEX e as fotos que faltarem se completam depois, no hotel. */
+/* ---------- hoje: o que a equipe faz agora ----------
+   O dia do plano vem do plano do dia montado neste aparelho; sem ele, do plano da campanha
+   pela data de hoje (os pendentes de dias anteriores entram antes). */
+function _vivo(){
+  const oc = ocupacoes(), at = circulosAtendidos(), d = desprezados();
+  return a => !oc[a.id] && !d.has(a.id) && !(circuloDe(a.id) && at[circuloDe(a.id)]) && daMinhaEquipe(a);
+}
+function diaDoPlanoHoje(){
+  const pl = F.dia && F.dia.plano;
+  if (pl && pl.paradas && pl.paradas.length) return {ids: pl.paradas.map(x => x.id), atras: [], rotulo: 'Plano do dia montado neste aparelho'};
+  const e = equipeDoPlano(), pc = F.campanha.planoCampanha;
+  if (!e || !e.dias || !e.dias.length) return null;
+  const h = hojeNoPlano(pc) || {util: true, j: 0};
+  const A = F.campanha.alvos || [], vivo = _vivo(), viva = id => { const a = A.find(z => z.id === id); return a && vivo(a); };
+  const de = j => (e.dias[j] && e.dias[j].ids) || [];
+  if (h.antes) return {ids: de(0), atras: [], rotulo: 'Dia 1 do plano — a campanha ainda não começou'};
+  if (h.depois || !h.util || h.reserva || h.j >= e.dias.length){
+    const pend = [].concat(...e.dias.map(x => x.ids || [])).filter(viva);
+    const mot = h.depois ? 'campanha encerrada' : h.reserva ? 'dia de reserva (manutenção do carro ou remedições)'
+      : !h.util ? 'dia sem atividades previstas (' + textoFolga(h.motivo) + ')' : 'todos os dias do plano já passaram';
+    return {ids: [], atras: [], pend: pend.length, rotulo: 'Hoje: ' + mot};
+  }
+  const atras = []; for (let j = 0; j < h.j; j++) atras.push(...de(j).filter(viva));
+  return {ids: de(h.j), atras: atras, rotulo: 'Dia ' + (h.j + 1) + ' do plano (' + _dataBr(_isoDia(h.data)) + ')'};
+}
+function proximoDoDia(){
+  const D = diaDoPlanoHoje(); if (!D) return null;
+  const A = F.campanha.alvos || [], vivo = _vivo();
+  // a rota de hoje primeiro (é a ordem do escritório); os atrasados depois
+  for (const id of D.ids.concat(D.atras)){ const a = A.find(z => z.id === id); if (a && vivo(a)) return a; }
+  return null;
+}
+function pintaHoje(){
+  const el = $('#cart_hoje'); if (!el) return;
+  const A = F.campanha.alvos || [];
+  if (!A.length || MODO_PLAN){ el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  const D = diaDoPlanoHoje(), prox = proximoDoDia();
+  const kEm = (F.dia.pontos || []).findIndex(p => !p.ocup_fim);
+  const pEm = kEm >= 0 ? F.dia.pontos[kEm] : null;
+  const vivo = _vivo();
+  const chip = id => { const a = A.find(z => z.id === id);
+    const card = (F.dia.pontos || []).find(p => p.planejado && p.planejado.id === id);
+    const cl = card && !card.ocup_fim ? 'em' : !a || !vivo(a) ? 'ok' : prox && prox.id === id ? 'prox1' : '';
+    return '<span class="' + cl + '">' + (cl === 'ok' ? '✓ ' : '') + esc(id) + '</span>'; };
+  let h = '<h3>Hoje</h3>';
+  if (D){
+    h += '<p class="leg" style="margin:0">' + esc(D.rotulo) + '</p>';
+    if (D.ids.length) h += '<div class="lista">' + D.ids.map(chip).join('') + '</div>';
+    if (D.atras.length) h += '<p class="leg" style="margin:6px 0 0">Pendentes de dias anteriores (' + D.atras.length + '), depois dos de hoje; '
+      + 'o Plano do dia, montado no hotel, os encaixa na rota:</p><div class="lista">' + D.atras.slice(0, 10).map(chip).join('')
+      + (D.atras.length > 10 ? '<span>+' + (D.atras.length - 10) + '</span>' : '') + '</div>';
+    if (D.pend) h += '<p class="leg" style="margin:6px 0 0">' + D.pend + ' ponto(s) pendente(s) na região da equipe.</p>';
+  }
+  if (pEm) h += '<button type="button" class="btn prox" data-h="volta">Voltar ao ponto ' + esc(pEm.id || String(kEm + 1))
+    + (pEm.ocup_ini ? ' — ocupação em curso' : ' — cartão aberto') + '</button>';
+  else if (prox && !(D && D.pend != null)) h += '<button type="button" class="btn prox" data-h="nav">Navegar até ' + esc(prox.id) + '</button>';
+  else if (D && D.pend) h += '<button type="button" class="btn sec" data-h="perto">Navegar ao pendente mais perto</button>';
+  else h += '<p class="leg">' + (D && D.ids.length ? '<b>Pontos do dia concluídos.</b> ' : '') + 'Outro ponto: Todos os pontos e o mapa.</p>'
+    + '<button type="button" class="btn sec" data-h="perto">Navegar ao pendente mais perto</button>';
+  h += '<div class="acoes"><button type="button" class="btn sec peq" data-h="lista">Todos os pontos e o mapa</button></div>';
+  el.innerHTML = h;
+  el.onclick = e => { const b = e.target.closest('[data-h]'); if (!b) return;
+    const o = b.dataset.h;
+    if (o === 'volta') return focoPonto(kEm);
+    if (o === 'nav') return abreNav(A.indexOf(prox));
+    if (o === 'perto') return proximoNavegar(null);
+    if (o === 'lista'){ const bl = $('#bloco_alvos'); bl.open = true; bl.scrollIntoView({behavior: 'smooth'}); }
+  };
+}
 function proximoNavegar(p){
-  const A = F.campanha.alvos || [], oc = ocupacoes(), at = circulosAtendidos(), d = desprezados();
-  const vivo = a => !oc[a.id] && !d.has(a.id) && !(circuloDe(a.id) && at[circuloDe(a.id)]) && daMinhaEquipe(a);
+  const A = F.campanha.alvos || [], vivo = _vivo();
   let alvo = null;
   const pl = F.dia && F.dia.plano;
+  if (!pl){ const x = proximoDoDia(); if (x){ abreNav(A.indexOf(x)); setTimeout(() => marca('navegando para ' + x.id + ' (próximo do plano)'), 600); return; } }
   if (pl){
     const k = p && p.planejado ? pl.paradas.findIndex(x => x.id === p.planejado.id) : -1;
     const ordem = pl.paradas.slice(k + 1).concat(pl.paradas.slice(0, k + 1));
@@ -10342,8 +10453,16 @@ function _rumoCamera(e){
   FD.ultimo = Date.now();
 }
 
-async function abreFotoDirigida(p, k){
-  const fo = FOTOS.find(f => f[0] === k), n = FOTOS.indexOf(fo) + 1;
+/* Fotos pelos rumos. Com uma fila (sequência F1–F4), a câmera fica aberta: guardada uma
+   foto, a tela já pede a seguinte — de onde ficar e para onde apontar — até a última. */
+function filaFotos(p){
+  const L = FOTOS.map(f => f[0]).filter(k => !(p.fotos && p.fotos[k]));
+  return L;
+}
+async function abreFotoDirigida(p, k, fila){
+  fila = (fila || []).filter(x => x !== k);
+  let fo = FOTOS.find(f => f[0] === k), n = FOTOS.indexOf(fo) + 1;
+  const seq = fila.length > 0 || abreFotoDirigida._seq;
   try {
     if (typeof DeviceOrientationEvent !== 'undefined'
         && typeof DeviceOrientationEvent.requestPermission === 'function')
@@ -10355,28 +10474,35 @@ async function abreFotoDirigida(p, k){
   window.addEventListener('deviceorientation', _rumoCamera);
   const cx = document.createElement('div'); cx.className = 'fotodir';
   cx.innerHTML = '<div class="tela"><video playsinline muted autoplay></video>'
-    + '<div class="topo"><b>F' + n + ' — câmera para o ' + fo[3] + '</b><br>'
-    + 'Fique ao <b>' + fo[4] + '</b> da antena, a uns 3 a 5 m, e enquadre a antena '
-    + 'no centro, com o tripé inteiro e o entorno.</div>'
+    + '<div class="topo"></div>'
     + '<div class="mira"><div class="seta">↑</div><div class="grau">—</div></div>'
+    + '<div class="feito" hidden></div>'
     + '<div class="dica">procurando a bússola…</div></div>'
-    + '<div class="acoes"><button type="button" class="btn sec" data-sai>Cancelar</button>'
+    + '<div class="acoes"><button type="button" class="btn sec" data-sai>' + (seq ? 'Parar' : 'Cancelar') + '</button>'
     + '<button type="button" class="btn sec" data-gal>Da galeria</button>'
     + '<button type="button" class="btn tirar" data-tira>Tirar a foto</button></div>';
   document.body.appendChild(cx);
   const vid = cx.querySelector('video'), mira = cx.querySelector('.mira'),
         seta = cx.querySelector('.seta'), grau = cx.querySelector('.grau'),
-        dica = cx.querySelector('.dica');
-  let fluxo = null, alinhado = false;
+        dica = cx.querySelector('.dica'), topo = cx.querySelector('.topo'), feito = cx.querySelector('.feito'),
+        btira = cx.querySelector('[data-tira]');
+  // o cabeçalho diz qual foto é, de onde tirar e quanto falta da sequência
+  const pintaTopo = () => {
+    const prog = seq ? '<div class="prog">' + FOTOS.map(f => {
+        const ja = p.fotos && p.fotos[f[0]], agora = f[0] === k;
+        return '<span class="' + (agora ? 'agora' : ja ? 'ja' : '') + '">' + (ja && !agora ? '✓ ' : '') + 'F' + (FOTOS.indexOf(f) + 1) + '</span>'; }).join('') + '</div>' : '';
+    topo.innerHTML = prog + '<b>F' + n + ' — câmera para o ' + fo[3] + '</b><br>'
+      + 'Fique ao <b>' + fo[4] + '</b> da antena, a uns 3 a 5 m, e enquadre a antena '
+      + 'no centro, com o tripé inteiro e o entorno.';
+  };
+  pintaTopo();
+  let fluxo = null, alinhado = false, ocupado = false;
   try {
     fluxo = await navigator.mediaDevices.getUserMedia({audio: false,
       video: {facingMode: {ideal: 'environment'}, width: {ideal: 1920}, height: {ideal: 1440}}});
     vid.srcObject = fluxo;
   } catch (e){ fluxo = null; }
-  if (!fluxo){
-    cx.querySelector('[data-tira]').textContent = 'Abrir a câmera';
-    vid.remove();
-  }
+  if (!fluxo){ btira.textContent = 'Abrir a câmera'; vid.remove(); }
   const pinta = () => {
     if (!cx.isConnected) return;
     const dc = _decl(FD.lugar);
@@ -10411,16 +10537,34 @@ async function abreFotoDirigida(p, k){
     p.fotos_az[k] = FD.rumo != null && Date.now() - FD.ultimo < 2500 ? Math.round(FD.rumo) % 360 : null;
     p.declinacao = _decl(FD.lugar);
   };
-  cx.querySelector('[data-sai]').addEventListener('click', fecha);
+  // guardada a foto: a seguinte da fila, na mesma tela; sem fila, fecha
+  const segue = () => {
+    if (!fila.length){ fecha(); if (seq){ abreFotoDirigida._seq = false; setTimeout(() => marca('fotos F1 a F4 guardadas no ponto ' + (p.id || '')), 800); } return; }
+    k = fila.shift(); fo = FOTOS.find(f => f[0] === k); n = FOTOS.indexOf(fo) + 1;
+    alinhado = false; pintaTopo();
+    if (navigator.vibrate) navigator.vibrate([60, 80, 60]);
+  };
+  const mostraFeito = t => { feito.textContent = t; feito.hidden = false; setTimeout(() => { feito.hidden = true; }, 1600); };
+  // sem câmera na página (ou da galeria): o seletor do sistema; volta à sequência ao guardar
+  const peloSeletor = camera => {
+    const resto = fila.slice(), kk = k;
+    fecha();
+    pedeFoto(async f => { await guardaFoto(p, kk, f);
+      if (resto.length){ abreFotoDirigida._seq = true; abreFotoDirigida(p, resto[0], resto).catch(e => marca('foto: ' + e.message)); }
+      else if (seq){ abreFotoDirigida._seq = false; setTimeout(() => marca('fotos F1 a F4 guardadas no ponto ' + (p.id || '')), 800); } }, camera);
+  };
+  cx.querySelector('[data-sai]').addEventListener('click', () => { abreFotoDirigida._seq = false; fecha(); });
   cx.querySelector('[data-gal]').addEventListener('click', () => {
-    p.fotos_az = p.fotos_az || {}; p.fotos_az[k] = null;
-    fecha(); pedeFoto(f => guardaFoto(p, k, f));
+    p.fotos_az = p.fotos_az || {}; p.fotos_az[k] = null; peloSeletor(false);
   });
-  cx.querySelector('[data-tira]').addEventListener('click', async () => {
+  btira.addEventListener('click', async () => {
+    if (ocupado) return;
     guardaAz();
-    if (!fluxo){ fecha(); return pedeFoto(f => guardaFoto(p, k, f), true); }
+    if (!fluxo) return peloSeletor(true);
     const W = vid.videoWidth, H = vid.videoHeight;
     if (!W || !H) return marca('a câmera ainda não abriu');
+    ocupado = true; btira.disabled = true;
+    const kk = k, nn = n, ff = fo;
     const faixa = Math.round(Math.max(W, H) / 28);
     const c = document.createElement('canvas'); c.width = W; c.height = H + faixa;
     const x = c.getContext('2d');
@@ -10430,15 +10574,18 @@ async function abreFotoDirigida(p, k){
     const bruta = await new Promise(ok => c0.toBlob(ok, 'image/jpeg', 0.92));
     x.fillStyle = '#fff'; x.fillRect(0, H, W, faixa);
     x.fillStyle = '#1D2B36'; x.font = '600 ' + Math.round(faixa * 0.5) + 'px system-ui, sans-serif';
-    const az = p.fotos_az[k];
-    x.fillText(_corta(x, [(p.id || 'ponto') + '  ·  F' + n + ' voltada para o ' + fo[3].toLowerCase(),
+    const az = p.fotos_az[kk];
+    x.fillText(_corta(x, [(p.id || 'ponto') + '  ·  F' + nn + ' voltada para o ' + ff[3].toLowerCase(),
       az != null ? 'azimute ' + az + '° ' + (_decl(FD.lugar) == null ? 'magnético'
         : 'verdadeiro (' + textoDecl(_decl(FD.lugar)) + ')') : 'azimute não medido',
       new Date().toLocaleString('pt-BR').slice(0, 17)].join('  ·  '), W - faixa), faixa * 0.4, H + faixa * 0.68);
     const blob = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.9));
-    fecha();
-    await guardaFoto(p, k, new File([blob], 'F' + n + '_' + k + '.jpg', {type: 'image/jpeg'}),
-      bruta ? new File([bruta], nomeCamera(Date.now()), {type: 'image/jpeg', lastModified: Date.now()}) : null);
+    try {
+      await guardaFoto(p, kk, new File([blob], 'F' + nn + '_' + kk + '.jpg', {type: 'image/jpeg'}),
+        bruta ? new File([bruta], nomeCamera(Date.now()), {type: 'image/jpeg', lastModified: Date.now()}) : null);
+    } finally { ocupado = false; btira.disabled = false; }
+    if (fila.length) mostraFeito('✓ F' + nn + ' guardada');
+    segue();
   });
 }
 
@@ -10557,6 +10704,7 @@ async function completaComRede(){
 }
 $('#b_hotel_rede').addEventListener('click', () =>
   completaComRede().catch(e => marca('internet: ' + e.message)));
+$('#b_hotel_envia').addEventListener('click', () => { const b = $('#srv_box'); if (b) b.open = true; $('#b_srv_envia').click(); });
 
 $('#b_ptcon').addEventListener('click', () => {
   exportaLC().catch(e => marca('pacote da campanha não gerado: ' + e.message));
@@ -12460,11 +12608,12 @@ function pintaConviteKit(){
       + '<div class="acoes"><button type="button" class="btn peq" id="b_kit_abre">Abrir a folha da equipe</button></div>';
   } else {
     const k = F.config.kit, g = k.gerado ? new Date(k.gerado) : null;
-    el.style.cssText = 'margin:10px 0;padding:8px 12px;border:1px solid #CBD5E1;border-radius:10px;background:#F8FAFC;font-size:.92em';
-    el.innerHTML = 'Folha da <b>' + esc(k.equipe || '') + '</b>' + (g ? ', gerada em ' + g.toLocaleDateString('pt-BR')
-      + ' às ' + g.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}) : '')
-      + (k.atualizada ? ' (plano atualizado neste aparelho)' : '') + '. <b>Chegou uma folha nova da coordenação '
-      + '(replanejamento)?</b> Abra-a aqui: troca o plano, as rotas e o mapa; a coleta já feita fica.'
+    el.className = 'naoimprime ajuda'; el.style.cssText = 'margin:10px 0;font-size:.92em';
+    el = Object.assign(document.createElement('details'), {id: 'kit_convite', className: 'ajuda naoimprime'});
+    el.innerHTML = '<summary>Folha da ' + esc(k.equipe || '') + (g ? ' · ' + g.toLocaleDateString('pt-BR').slice(0, 5)
+      + ' ' + g.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}) : '') + (k.atualizada ? ' · plano atualizado' : '')
+      + ' · folha nova?</summary><p>Chegou uma folha nova da coordenação (replanejamento)? Abra-a aqui: troca o plano, '
+      + 'as rotas e o mapa; a coleta já feita fica.</p>'
       + '<div class="acoes"><button type="button" class="btn sec peq" id="b_kit_abre">Abrir a folha nova da equipe</button></div>';
   }
   const ab = document.querySelector('.abas');
@@ -12866,6 +13015,9 @@ async function aplicaKit(kitDoArquivo){
 }
 function aplicaModo(){
   document.body.classList.toggle('equipe', modoEquipe());
+  // a folha da equipe abre no Dia de campo: a Campanha já veio preenchida do planejador
+  if (modoEquipe() && !MODO_PLAN && !aplicaModo._dia){ aplicaModo._dia = true;
+    const ab = $('button[data-aba=dia]'); if (ab && !ab.classList.contains('on')) ab.click(); }
   if (modoEquipe()){
     const e = equipeDoPlano();
     $('.sub').innerHTML = '<b>' + esc(F.config.kit.equipe) + '</b> · ' + esc(F.campanha.nome || '') + ' · '

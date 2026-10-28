@@ -7095,14 +7095,34 @@ function htmlHotel(h, curto){
   if (!h || h.semHotel && !h.link) return 'não informado — usada a mediana geométrica';
   const l = linkHotel(h);
   const gm = h.link && _MAPS_RE.test(h.link);
-  return (h.nome ? '<b>' + esc(h.nome) + '</b> · ' : '') + (h.tipo ? esc(h.tipo) + ' · ' : '') + (h.semHotel ? '' : h.lat.toFixed(5) + ', ' + h.lon.toFixed(5) + ' · ')
+  return (h.nome ? '<b>' + esc(h.nome) + '</b> · ' : '') + (h.semHotel ? '' : h.lat.toFixed(5) + ', ' + h.lon.toFixed(5) + ' · ')
     + '<a href="' + esc(l) + '" target="_blank" rel="noopener">' + (!h.link ? 'local no Google Maps' : gm ? 'página no Google Maps' : 'link da hospedagem') + '</a>'
     + (curto ? '' : h.link ? ' (conferir vagas, preço e contato)' : '')
     + (curto || !h.link ? '' : '<br><small style="overflow-wrap:anywhere">' + esc(h.link) + '</small>');
 }
+/* O único dado da hospedagem que vai aos relatórios é o MUNICÍPIO, tirado das coordenadas
+   pela malha municipal do IBGE quando o plano é feito (com internet). Nome, link e
+   coordenadas ficam no plano, no PDF do plano e na folha da equipe — não são divulgados. */
+function textoMunHosp(pc){
+  const m = pc && pc.hotel && pc.hotel.mun;
+  return m ? '<b>Município da hospedagem:</b> ' + esc(m.nome) + '/' + esc(m.uf) + ' — o único dado da hospedagem que vai aos relatórios.'
+    : pc && pc.hotel && !pc.hotel.semHotel ? 'Município da hospedagem: sai das coordenadas ao planejar, com internet; é o único dado da hospedagem que vai aos relatórios.'
+    : 'Nos relatórios, só o município da hospedagem (sai das coordenadas ao planejar).';
+}
+async function municipioHospedagem(pc){
+  const h = pc && pc.hotel; if (!h || h.semHotel || h.lat == null) { if (h) delete h.mun; return; }
+  try { const r = await municipioDe(h.lat, h.lon, 15);
+        if (r && F.campanha.planoCampanha === pc){ h.mun = {nome: r.nome, uf: r.uf, cod: r.cod}; grava();
+          const e = $('#pc_hosp_mun'); if (e) e.innerHTML = textoMunHosp(pc); } } catch (e){}
+}
+function sedeCampanha(){
+  const m = F.campanha.planoCampanha && F.campanha.planoCampanha.hotel && F.campanha.planoCampanha.hotel.mun;
+  if (m) return m.nome + '/' + m.uf;
+  return F.campanha.municipio ? F.campanha.municipio + (F.campanha.uf ? '/' + F.campanha.uf : '') : '';
+}
 function _hotelDaTela(){
   const nome = String(($('#pc_hotel_nome') || {}).value || '').trim(), link = String(($('#pc_hotel_link') || {}).value || '').trim();
-  return {nome: nome, link: /^https:\/\//i.test(link) ? link : '', tipo: String(($('#pc_hosp_tipo') || {}).value || '')};
+  return {nome: nome, link: /^https:\/\//i.test(link) ? link : ''};
 }
 /* nome e coordenadas a partir do endereço longo do Google Maps (…/maps/place/<nome>/…!3d<lat>!4d<lon>) */
 function _lerUrlMaps(url){
@@ -7165,8 +7185,6 @@ function ligaCamposHotel(){
   if (li) li.addEventListener('change', () => aplicaLinkHotel(li.value.trim()));
   const ni = $('#pc_hotel_nome');
   if (ni) ni.addEventListener('change', () => { const pc = F.campanha.planoCampanha; if (pc && pc.hotel){ Object.assign(pc.hotel, _hotelDaTela()); grava(); } });
-  const ti = $('#pc_hosp_tipo');
-  if (ti) ti.addEventListener('change', () => { const pc = F.campanha.planoCampanha; if (pc && pc.hotel){ Object.assign(pc.hotel, _hotelDaTela()); grava(); } });
 }
 function ligaCampoCoord(sInp, sAv, sMaps, sAqui, oQue){
   const hi = $(sInp), av = $(sAv); if (!hi) return;
@@ -7328,7 +7346,8 @@ async function planejaCampanha(){
   equipes.forEach((e, i) => e.dias.forEach(d => d.ks.forEach(k => { F.campanha.atribEquipes[k] = i; })));
   if (!F.config) F.config = {};
   if (F.config.equipePlano != null && F.config.equipePlano >= N) delete F.config.equipePlano;
-  grava(); pintaAlvos();
+  delete F.campanha.planoCampanha.hotel.tipo;
+  grava(); pintaAlvos(); municipioHospedagem(F.campanha.planoCampanha);
   const nd = equipes.map(e => e.nome + ': ' + e.dias.length + ' dia(s)').join(', ');
   marca('plano da campanha: ' + U.length + ' círculo(s) — ' + nd + (avisos.length ? ' — ' + avisos.join('; ') : ''));
 }
@@ -7483,6 +7502,8 @@ function textoHospedagem(pc){
   const g = p => p.lat.toFixed(5) + ', ' + p.lon.toFixed(5);
   const busca = p => 'https://www.google.com/maps/search/hot%C3%A9is/@' + p.lat.toFixed(5) + ',' + p.lon.toFixed(5) + ',13z';
   return (pc.hotel && !(pc.hotel.semHotel && !pc.hotel.link) ? '<p><b>Hospedagem do plano:</b> ' + htmlHotel(pc.hotel) + '</p>' : '')
+    + '<p><b>A hospedagem não é divulgada:</b> nome, link e coordenadas ficam no plano e na folha da equipe; nos relatórios da campanha entra só o município'
+    + (pc.hotel && pc.hotel.mun ? ' (' + esc(pc.hotel.mun.nome) + '/' + esc(pc.hotel.mun.uf) + ')' : '') + '.</p>'
     + '<p><b>Baricentro</b> (média das coordenadas dos ' + pc.nUnid + ' círculos pendentes): ' + g(pc.baricentro)
     + ' · <a href="' + busca(pc.baricentro) + '" target="_blank" rel="noopener">hotéis e pousadas perto</a><br>'
     + '<b>Mediana geométrica</b> (menor soma das distâncias em linha reta até os círculos; Weiszfeld, 1937): '
@@ -7836,12 +7857,9 @@ function pintaPlanoCampanha(){
     + 'que você indicar. Cada dia começa pelo círculo pendente mais distante da hospedagem (equipe descansada) e leva os mais '
     + 'próximos dele — ou o contrário. B, C e D seguem o círculo da A. Planejar de novo considera só o que falta.</p>'
     + '<h4 style="margin:10px 0 2px">Hospedagem da equipe</h4>'
-    + '<p class="leg" style="margin-top:0">Qualquer uma serve: hotel ou pousada, casa ou apartamento alugado, Airbnb ou similar, '
-    + 'casa cedida por amigo ou parente. Para o plano, o que conta são as <b>coordenadas</b> do lugar. O link do Google Maps é só um '
-    + '<b>facilitador</b>: dele saem o nome e as coordenadas sozinhos.</p>'
-    + '<div class="lin"><label for="pc_hosp_tipo">Tipo</label><select id="pc_hosp_tipo" style="flex:1;min-width:10em">'
-    + ['', 'hotel ou pousada', 'casa ou apartamento alugado', 'Airbnb ou similar', 'casa cedida (amigo ou parente)', 'outro']
-        .map(o => '<option' + ((pc && pc.hotel.tipo || '') === o ? ' selected' : '') + '>' + o + '</option>').join('') + '</select></div>'
+    + '<p class="leg" style="margin-top:0">Qualquer lugar serve. Para o plano, o que conta são as <b>coordenadas</b>; o link do Google Maps é só um '
+    + '<b>facilitador</b> (dele saem o nome e as coordenadas). <b>A hospedagem não é divulgada:</b> nome, link e coordenadas servem só ao '
+    + 'planejamento e às equipes (este plano, o PDF do plano e a folha da equipe). Nos relatórios da campanha entra apenas o <b>município</b>.</p>'
     + '<div class="lin"><label for="pc_hotel_link">Link (opcional)</label><input type="url" id="pc_hotel_link" style="flex:1;min-width:10em" '
     + 'placeholder="Google Maps, anúncio do Airbnb ou do aluguel…" value="' + esc(pc && pc.hotel.link || '') + '"></div>'
     + '<p class="leg" id="pc_hotel_link_aviso" style="margin-top:2px"><b>Google Maps</b>: busque o lugar pelo nome, abra a ficha e toque em '
@@ -7855,8 +7873,8 @@ function pintaPlanoCampanha(){
     + '<p class="leg" id="pc_hotel_aviso" style="margin-top:2px">Preenchidas pelo link do Google Maps; ou, no Google Maps, clique com o botão direito '
     + 'sobre o lugar: a primeira linha do menu são as coordenadas — clique nelas para copiar e cole aqui. Já no local, <b>Usar a minha localização</b>.</p>'
     + '<div class="lin"><label for="pc_hotel_nome">Nome ou descrição</label><input type="text" id="pc_hotel_nome" style="flex:1;min-width:10em" '
-    + 'placeholder="ex.: Pousada Mar Azul · casa alugada na Rua X · casa cedida" value="' + esc(pc && pc.hotel.nome || '') + '"></div>'
-    + '<p class="leg" style="margin-top:2px">Casa de particular: descreva o lugar sem o nome de quem cede (o nome segue para o PDF e para a folha das equipes).</p>'
+    + 'placeholder="ex.: Pousada Mar Azul · casa na Rua X" value="' + esc(pc && pc.hotel.nome || '') + '"></div>'
+    + '<p class="leg" id="pc_hosp_mun" style="margin-top:2px">' + textoMunHosp(pc) + '</p>'
     + '<div class="lin"><label for="pc_n">Pontos por dia</label><input type="number" id="pc_n" min="1" max="15" value="' + val('porDia', 5) + '">'
     + '<label for="pc_eq">Equipes</label><input type="number" id="pc_eq" min="1" max="4" value="' + eqN + '"></div>'
     + '<div class="lin"><label for="pc_ocup">Ocupação (min/ponto)</label><input type="number" id="pc_ocup" min="5" max="240" value="' + val('ocup', 40) + '">'
@@ -11551,7 +11569,7 @@ function textoEntregaLC(lc, ctx){
   const orb = !orbitas.length ? 'O processamento dos dados GNSS pelo aplicativo PPP do IBGE ainda não foi feito.'
     : 'O processamento dos dados GNSS coletados se deu através do aplicativo PPP do IBGE, utilizando '
       + (orbitas.length === 1 ? 'órbita ' + orbitas[0] : 'órbitas ' + _lista(orbitas.map(o => o + 's'))) + '.';
-  const sede = (F.campanha.planoCampanha && F.campanha.planoCampanha.hotel && F.campanha.planoCampanha.hotel.nome) || F.campanha.municipio || '';
+  const sede = sedeCampanha();                       // só o município: a hospedagem não é divulgada
   return [
     {titulo: 'RELATÓRIO DE ENTREGA DE DADOS DA CAMPANHA ' + lc + ' DA GGC/CE' + (proj ? ' REFERENTE AO PROJETO ' + proj : '')},
     'A campanha ' + lc + ' foi realizada no período compreendido entre ' + (d0 ? _br(d0) : '__/__/____') + ' e ' + (d1 ? _br(d1) : '__/__/____')
@@ -12218,7 +12236,7 @@ async function exportaLC(op){
   itens.push({nome: eqd + 'Relatório de Viagem.docx', dados: await docxDe([
     {titulo: 'RELATÓRIO DE VIAGENS NACIONAIS'}, 'IDENTIFICAÇÃO DA EQUIPE',
     ...(integrantes().length ? integrantes() : [{nome: '', siape: ''}]).flatMap(m => ['Nome: ' + m.nome, 'Cargo:', 'PCDP:', 'SIAPE: ' + (m.siape || ''), 'Função:', 'Lotação: SES/CE – GGC', '']),
-    'IDENTIFICAÇÃO DO AFASTAMENTO COM LOCAIS DE PERNOITE', '(a preencher pela equipe)',
+    'IDENTIFICAÇÃO DO AFASTAMENTO COM LOCAIS DE PERNOITE', (sedeCampanha() ? 'Pernoite em ' + sedeCampanha() + '. ' : '') + 'Datas do afastamento: (a preencher pela equipe)',
     'DESCRIÇÃO SUCINTA DA VIAGEM (ATIVIDADES REALIZADAS)', ...linhasDia])});
   // os PDFs da folha, na pasta da equipe: campanha, cada dia, relatórios dos pontos
   try {

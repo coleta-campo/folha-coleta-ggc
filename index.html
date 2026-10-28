@@ -386,7 +386,7 @@ você cabe o que nenhum arquivo registra.</p>
   <b>1</b> montar a antena e iniciar a ocupação; <b>2</b> enquanto o receptor rastreia, fotos e
   descrição; <b>3</b> ao terminar, PDOP e coordenada de término, e <b>Terminar e navegar ao
   próximo</b>. O que o sistema deduz fica em <b>Mais deste ponto</b>.</p>
-  <p><b>Fechar o dia</b>, no hotel, em 4 passos: ler os RINEX do dia, completar com a internet,
+  <p><b>Fechar o dia</b>, na hospedagem, em 4 passos: ler os RINEX do dia, completar com a internet,
   enviar ao servidor, arquivar o dia.</p>
   <p><b>Campanha</b> se preenche no escritório; a folha da equipe já vem pronta do planejador.</p>
   <p class="so_folha_pin"><b>PIN da folha.</b> A folha abre com o PIN de 6 dígitos da equipe, criado na primeira
@@ -652,7 +652,7 @@ você cabe o que nenhum arquivo registra.</p>
 <!-- ================= FECHAR ================= -->
 <section class="aba oculto" id="aba_fechar">
   <div class="cart naoimprime" id="cart_hotel">
-    <h3>No hotel — fechar o dia em 4 passos</h3>
+    <h3>Na hospedagem — fechar o dia em 4 passos</h3>
     <p class="leg">Em campo a folha registra a chegada, a ocupação, as fotos e a
     vista de cima. O resto se faz aqui, no fim do dia, em quatro toques:
     <b>1.</b> descarregue o receptor e leia os RINEX do dia de uma vez (cada arquivo
@@ -741,7 +741,7 @@ você cabe o que nenhum arquivo registra.</p>
   <p class="leg naoimprime" id="lc_res"></p>
   <details class="ajuda naoimprime" id="srv_box">
     <summary>Enviar ao servidor (pasta da campanha no Drive)</summary>
-    <p>Com internet (no hotel), manda o pacote da campanha e o registro deste
+    <p>Com internet (na hospedagem), manda o pacote da campanha e o registro deste
     aparelho ao receptor da GGC, que grava na pasta da campanha, separada por
     equipe. Em campo nada disso é preciso: a coleta continua no aparelho, sem rede.
     O que já foi enviado e não mudou não sai de novo; se a conexão cair, toque de
@@ -3481,7 +3481,7 @@ function cartaoPonto(p, k){
     + '<span class="conta">' + (p.relatorio ? 'montado'
         : (p.lat != null ? 'pronto para montar' : p.planejado ? 'coordenada de gabinete' : p.chegada ? 'posição do celular' : 'sem coordenada')) + '</span></summary>'
     + '<div class="itens">'
-    + '<p class="leg">Croqui, situação, ficha do rastreio, descrição e fotos. Monta-se no hotel, com internet '
+    + '<p class="leg">Croqui, situação, ficha do rastreio, descrição e fotos. Monta-se na hospedagem, com internet '
     + '(Fechar o dia ▸ 2. Completar com a internet), de todos os pontos de uma vez.</p>'
     + '<div class="lin2">'
     + '<div><label class="c">Latitude</label>'
@@ -6239,7 +6239,7 @@ function pintaTrajEstado(){
     eq.dias.forEach(d => (d.trechos || []).forEach(x => { if ((x.op || []).length){ tp++; op = Math.max(op, x.op.length); } })); });
   const L = [];
   if (tp) L.push(_OK + 'Trajetos do <b>plano da campanha</b>: <b>' + tp + ' trechos</b> pelas ruas' + (op > 1 ? ' (até ' + op + ' opções cada)' : '')
-    + ', feitos no escritório, do hotel aos pontos e de volta. A navegação usa esses.');
+    + ', feitos no escritório, da hospedagem aos pontos e de volta. A navegação usa esses.');
   if (n) L.push(_OK + 'Arquivo de trajetos: <b>' + t + '</b> para <b>' + n + ' ponto(s)</b>' + (TRAJ_FONTE ? ' (' + esc(TRAJ_FONTE) + ')' : '')
     + '. Em <b>Navegar</b>, o botão <b>Trajeto</b> troca a opção.');
   _caixaEstado(e, L.length > 0);
@@ -6774,11 +6774,11 @@ function pintaPlano(){
     + (bloqueios().length ? '<div class="remedir"><b>Sem passagem</b> — marcados em campo na navegação; as rotas calculadas no aparelho os evitam:<ul>'
       + bloqueios().map((b, i) => '<li>' + new Date(b.quando).toLocaleString('pt-BR').slice(0, 17) + ' · ' + b.lat.toFixed(5) + ', ' + b.lon.toFixed(5)
         + (b.nota ? ' — ' + esc(b.nota) : '') + ' <button type="button" class="btn sec peq" data-tirabloq="' + i + '">tirar</button></li>').join('') + '</ul></div>' : '')
-    + '<p class="leg" style="margin:6px 0">No hotel, com internet: escolha a partida, quantos pontos e a ordem, '
+    + '<p class="leg" style="margin:6px 0">Na hospedagem, com internet: escolha a partida, quantos pontos e a ordem, '
     + 'e toque em <b>Planejar</b>. Cada trecho, inclusive a volta, ganha até três caminhos de carro (OSRM; LUXEN; VETTER, 2011), '
     + 'guardados para navegar sem rede. <b>Do escritório</b> mantém a ordem do plano da campanha; <b>menor tempo</b> calcula a ordem exata '
     + 'de menor tempo total partida → pontos → partida (HELD; KARP, 1962). Depois dá para subir, descer, tirar ou incluir pontos.</p>'
-    + '<label class="c" for="plano_partida">Partida (o hotel)</label>'
+    + '<label class="c" for="plano_partida">Partida (a hospedagem)</label>'
     + '<input type="text" id="plano_partida" placeholder="vazio = posição do aparelho; ou lat, lon / link do Google Maps" value="'
     + esc(F.campanha.partida || '') + '">'
     + '<div class="acoes"><button type="button" class="btn sec peq" id="b_part_maps">Buscar no Google Maps</button>'
@@ -6866,7 +6866,7 @@ function pintaPlano(){
   el.querySelectorAll('[data-tirarem]').forEach(b => b.addEventListener('click', () => {
     tiraRemedir(b.dataset.tirarem); pintaAlvos(); }));
   $('#b_plano').addEventListener('click', () => planejaDia().catch(e => marca('plano do dia: ' + e.message)));
-  ligaCampoCoord('#plano_partida', '#plano_part_aviso', '#b_part_maps', '#b_part_aqui', 'a partida (o hotel)');
+  ligaCampoCoord('#plano_partida', '#plano_part_aviso', '#b_part_maps', '#b_part_aqui', 'a partida (a hospedagem)');
   const pp0 = $('#plano_partida'); if (pp0) pp0.addEventListener('change', () => { F.campanha.partida = pp0.value.trim(); grava(); });
   const po = $('#plano_ordem'); if (po) po.addEventListener('change', () => { F.campanha.planoDiaOrdem = po.value; grava(); });
   el.querySelectorAll('[data-pdia]').forEach(b => b.addEventListener('click', () =>
@@ -7094,14 +7094,15 @@ function linkHotel(h){ return !h || h.semHotel && !h.link ? '' : h.link || 'http
 function htmlHotel(h, curto){
   if (!h || h.semHotel && !h.link) return 'não informado — usada a mediana geométrica';
   const l = linkHotel(h);
-  return (h.nome ? '<b>' + esc(h.nome) + '</b> · ' : '') + (h.semHotel ? '' : h.lat.toFixed(5) + ', ' + h.lon.toFixed(5) + ' · ')
-    + '<a href="' + esc(l) + '" target="_blank" rel="noopener">' + (h.link ? 'página do hotel no Google Maps' : 'local no Google Maps') + '</a>'
-    + (curto ? '' : h.link ? ' (conferir vagas, preço e contato)' : ' (sem o link da página do hotel)')
+  const gm = h.link && _MAPS_RE.test(h.link);
+  return (h.nome ? '<b>' + esc(h.nome) + '</b> · ' : '') + (h.tipo ? esc(h.tipo) + ' · ' : '') + (h.semHotel ? '' : h.lat.toFixed(5) + ', ' + h.lon.toFixed(5) + ' · ')
+    + '<a href="' + esc(l) + '" target="_blank" rel="noopener">' + (!h.link ? 'local no Google Maps' : gm ? 'página no Google Maps' : 'link da hospedagem') + '</a>'
+    + (curto ? '' : h.link ? ' (conferir vagas, preço e contato)' : '')
     + (curto || !h.link ? '' : '<br><small style="overflow-wrap:anywhere">' + esc(h.link) + '</small>');
 }
 function _hotelDaTela(){
   const nome = String(($('#pc_hotel_nome') || {}).value || '').trim(), link = String(($('#pc_hotel_link') || {}).value || '').trim();
-  return {nome: nome, link: /^https:\/\//i.test(link) ? link : ''};
+  return {nome: nome, link: /^https:\/\//i.test(link) ? link : '', tipo: String(($('#pc_hosp_tipo') || {}).value || '')};
 }
 /* nome e coordenadas a partir do endereço longo do Google Maps (…/maps/place/<nome>/…!3d<lat>!4d<lon>) */
 function _lerUrlMaps(url){
@@ -7134,7 +7135,8 @@ async function aplicaLinkHotel(t){
   if (!t){ if (av) av.innerHTML = ''; guarda(); return; }
   if (!/^https:\/\//i.test(t)) return diz('Cole o link completo (começa com https://).', '#B91C1C');
   guarda();
-  if (!_MAPS_RE.test(t)) return diz('Não parece um link do Google Maps; foi guardado, mas o nome e as coordenadas não saem dele.', '#B45309');
+  if (!_MAPS_RE.test(t)) return diz('Link guardado para consulta (vai no plano, no PDF e na folha das equipes). Ele não traz as coordenadas: '
+    + 'informe-as abaixo, pelo Google Maps (botão direito sobre o lugar) ou com Usar a minha localização.', '#374151');
   diz('Abrindo o link…', '#374151');
   let o;
   try { o = await expandeLinkMaps(t); }
@@ -7150,19 +7152,21 @@ async function aplicaLinkHotel(t){
   if (o.nome && ni && !ni.value.trim()){ ni.value = o.nome; }
   if (o.nome) partes.unshift('<b>' + esc(o.nome) + '</b>');
   guarda();
-  if (o.pino) return diz('Este link é de um <b>ponto marcado por coordenadas</b>, não da ficha do hotel: quem abrir não verá nome, avaliações nem vagas. '
-    + (partes.length ? 'Do link: ' + partes.join(' · ') + '. ' : '') + 'No Google Maps, busque o hotel pelo nome, abra a ficha dele e use Compartilhar → Copiar link.', '#B45309');
+  if (o.pino) return diz('Este link é de um <b>ponto marcado por coordenadas</b>, não da ficha da hospedagem: quem abrir não verá nome, avaliações nem vagas. '
+    + (partes.length ? 'Do link: ' + partes.join(' · ') + '. ' : '') + 'No Google Maps, busque a hospedagem pelo nome, abra a ficha dele e use Compartilhar → Copiar link.', '#B45309');
   if (!partes.length) return diz('Link guardado, mas sem nome nem coordenadas nele — cole as coordenadas abaixo.', '#B45309');
   diz('✓ Do link: ' + partes.join(' · ') + '. O link vai no plano, no PDF e na folha das equipes.', '#15803D');
 }
 function ligaCamposHotel(){
-  ligaCampoCoord('#pc_hotel', '#pc_hotel_aviso', '#b_hotel_maps', '#b_hotel_aqui', 'o hotel');
+  ligaCampoCoord('#pc_hotel', '#pc_hotel_aviso', '#b_hotel_maps', '#b_hotel_aqui', 'a hospedagem');
   const hi = $('#pc_hotel'), li = $('#pc_hotel_link'), av = $('#pc_hotel_link_aviso');
   // link colado no campo das coordenadas: guarda também como link do hotel
   if (hi && li) hi.addEventListener('input', () => { const t = hi.value.trim(); if (_MAPS_RE.test(t) && !li.value.trim()){ li.value = t; li.dispatchEvent(new Event('change')); } });
   if (li) li.addEventListener('change', () => aplicaLinkHotel(li.value.trim()));
   const ni = $('#pc_hotel_nome');
   if (ni) ni.addEventListener('change', () => { const pc = F.campanha.planoCampanha; if (pc && pc.hotel){ Object.assign(pc.hotel, _hotelDaTela()); grava(); } });
+  const ti = $('#pc_hosp_tipo');
+  if (ti) ti.addEventListener('change', () => { const pc = F.campanha.planoCampanha; if (pc && pc.hotel){ Object.assign(pc.hotel, _hotelDaTela()); grava(); } });
 }
 function ligaCampoCoord(sInp, sAv, sMaps, sAqui, oQue){
   const hi = $(sInp), av = $(sAv); if (!hi) return;
@@ -7225,7 +7229,7 @@ async function planejaCampanha(){
   let H = null;
   if (txt){
     H = coordDeTexto(txt);
-    if (!H) return marca('plano da campanha: o hotel precisa das coordenadas (lat, lon) — o link curto do Google Maps não as traz; ele fica no campo "Link do hotel"');
+    if (!H) return marca('plano da campanha: a hospedagem precisa das coordenadas (lat, lon) — o link curto do Google Maps não as traz; ele fica no campo "Link da hospedagem"');
   }
   const semHotel = !H;
   if (!H) H = med;
@@ -7238,7 +7242,7 @@ async function planejaCampanha(){
     try {
       for (let i = 0; i < U.length; i += 90){
         const parte = U.slice(i, i + 90);
-        marca('plano da campanha: distâncias pelas ruas a partir do hotel…');
+        marca('plano da campanha: distâncias pelas ruas a partir da hospedagem…');
         const coords = [H].concat(parte).map(c => c.lon.toFixed(6) + ',' + c.lat.toFixed(6)).join(';');
         const t = await _osrm('table/v1/driving/' + coords + '?sources=0&annotations=distance');
         parte.forEach((u, j) => { const d = t.distances[0][j + 1]; if (d != null) dH[u.k] = d; });
@@ -7471,20 +7475,21 @@ function legendaPlano(pc){
     + '<circle cx="7" cy="7" r="1.8" fill="#B45309"/></svg> em coleta (ocupação aberta)</span>'
     + '<span><b>0037A</b> sobre <b style="font-size:11px">2.3</b> = ponto 0037A; dia 2 da equipe, 3º ponto do dia</span>'
     + (pc.equipes.some(e => e.dias.some(d => (d.trechos || []).length)) ? '<span><b style="letter-spacing:-1px">—</b> caminho de carro do dia (opção 1 de cada trecho)</span>' : '')
-    + '<span><i class="q"></i>hotel' + (pc.hotel.semHotel ? ' (não informado: posto na mediana)' : '') + '</span>'
+    + '<span><i class="q"></i>hospedagem' + (pc.hotel.semHotel ? ' (não informado: posto na mediana)' : '') + '</span>'
     + '<span><i class="o"></i>baricentro</span><span><b style="font-size:15px">+</b> mediana geométrica</span>'
     + '<span><b style="letter-spacing:-1px">- - -</b> divisa entre as regiões das equipes</span></div>';
 }
 function textoHospedagem(pc){
   const g = p => p.lat.toFixed(5) + ', ' + p.lon.toFixed(5);
   const busca = p => 'https://www.google.com/maps/search/hot%C3%A9is/@' + p.lat.toFixed(5) + ',' + p.lon.toFixed(5) + ',13z';
-  return (pc.hotel && !(pc.hotel.semHotel && !pc.hotel.link) ? '<p><b>Hotel do plano:</b> ' + htmlHotel(pc.hotel) + '</p>' : '')
+  return (pc.hotel && !(pc.hotel.semHotel && !pc.hotel.link) ? '<p><b>Hospedagem do plano:</b> ' + htmlHotel(pc.hotel) + '</p>' : '')
     + '<p><b>Baricentro</b> (média das coordenadas dos ' + pc.nUnid + ' círculos pendentes): ' + g(pc.baricentro)
-    + ' · <a href="' + busca(pc.baricentro) + '" target="_blank" rel="noopener">hotéis perto</a><br>'
+    + ' · <a href="' + busca(pc.baricentro) + '" target="_blank" rel="noopener">hotéis e pousadas perto</a><br>'
     + '<b>Mediana geométrica</b> (menor soma das distâncias em linha reta até os círculos; Weiszfeld, 1937): '
-    + g(pc.mediana) + ' · <a href="' + busca(pc.mediana) + '" target="_blank" rel="noopener">hotéis perto</a></p>'
-    + '<p>Os dois são referência de <b>deslocamento</b>, em linha reta. A hospedagem pede também:</p><ul>'
-    + '<li><b>Deslocamento real</b>: digite as coordenadas de cada hotel candidato e planeje de novo — compare os km e o tempo de carro da campanha.</li>'
+    + g(pc.mediana) + ' · <a href="' + busca(pc.mediana) + '" target="_blank" rel="noopener">hotéis e pousadas perto</a></p>'
+    + '<p>Os dois são referência de <b>deslocamento</b>, em linha reta. Os links acima buscam hotéis e pousadas no Google Maps; '
+    + 'casa ou apartamento alugado, Airbnb ou casa cedida servem do mesmo jeito: basta informar as coordenadas. A hospedagem pede também:</p><ul>'
+    + '<li><b>Deslocamento real</b>: digite as coordenadas de cada hospedagem candidata e planeje de novo — compare os km e o tempo de carro da campanha.</li>'
     + '<li><b>Internet</b> que funcione à noite: cópia completa, junção das ocupações, envio dos RINEX, plano do dia com rotas.</li>'
     + '<li><b>Estacionamento</b> seguro para a viatura e guarda do equipamento.</li>'
     + '<li><b>Qualidade e segurança</b> adequadas à equipe.</li>'
@@ -7756,7 +7761,7 @@ function tabelaPlano(pc, so){
           return '<div class="d' + (f === d.ids.length ? ' feito' : '') + '"><div class="cab"><b>Dia ' + (j + 1) + (DT ? ' · ' + _ddmm(DT[j]) : '') + '</b>'
             + (x ? ' · ' + _numBR(x.km, 0) + ' km (' + _numBR(x.rod, 0) + ' em rodovia) · carro ' + _hm(x.car)
                  + ' + ocupação ' + _hm(d.ids.length * p.ocup)
-                 + ' · almoço ' + (x.almoco != null ? _hora(x.almoco) : 'na volta') + ' · <span' + (x.passa ? ' style="color:#B91C1C;font-weight:700"' : '') + '>volta ao hotel '
+                 + ' · almoço ' + (x.almoco != null ? _hora(x.almoco) : 'na volta') + ' · <span' + (x.passa ? ' style="color:#B91C1C;font-weight:700"' : '') + '>volta à hospedagem '
                  + _hora(x.retorno) + (x.passa ? ' ⚠' : '') + '</span>' : ' · sem rota (horários não estimados)')
             + (f ? ' · <small>' + f + '/' + d.ids.length + ' coletados</small>' : '') + '</div><div class="pts">'
             + d.ids.map((id, k) => { const u = estadoDaUnidade(d.ks[k], id, Et), st = u && u.st;
@@ -7792,18 +7797,18 @@ function tabelaDistribuicao(pc){
   return '<details class="ajuda" id="pc_dist"><summary>Mudar a distribuição entre as equipes</summary>'
     + '<p class="leg">Escolha a equipe de cada círculo e toque em <b>Refazer o plano</b>: os dias, a ordem de visita, os horários '
     + 'e as rotas são calculados de novo com essa distribuição (Divisão passa a “manual”).</p>'
-    + '<table class="tabdist"><tr><th>ponto</th><th>hoje</th><th>do hotel</th><th>equipe</th></tr>'
+    + '<table class="tabdist"><tr><th>ponto</th><th>hoje</th><th>da hospedagem</th><th>equipe</th></tr>'
     + L.map(r => '<tr><td><b>' + esc(r.id) + '</b></td><td>dia ' + r.dia + '.' + r.ord + '</td><td>' + _metros(r.dist) + '</td>'
       + '<td><select data-atrib="' + esc(r.k) + '" style="border-left:6px solid ' + pc.equipes[r.i].cor + '">' + op(r.i) + '</select></td></tr>').join('')
     + '</table><div class="acoes"><button type="button" class="btn peq" id="b_pc_refaz">Refazer o plano com esta distribuição</button></div></details>';
 }
 function notaHorario(pc){
   const p = paramTempo();
-  return 'Saída do hotel às ' + p.saida + '. Carro: trechos de rodovia (BR-, RN-…) a ' + p.velRod + ' km/h e o resto '
+  return 'Saída da hospedagem às ' + p.saida + '. Carro: trechos de rodovia (BR-, RN-…) a ' + p.velRod + ' km/h e o resto '
     + '(urbano, vicinal, terra) a ' + p.velUrb + ' km/h, sobre as rotas do OSRM. ' + p.ocup + ' min por ponto (montagem, '
     + 'rastreio, desmontagem e avaliações locais). Almoço de ' + p.almoco + ' min na primeira pausa a partir das 11:30; '
-    + 'o dia que acaba antes volta ao hotel para almoçar. '
-    + '⚠ = volta ao hotel depois de ' + _hora(_minDe(p.saida) + p.jornada * 60 + p.almoco) + ' (jornada de ' + _numBR(p.jornada)
+    + 'o dia que acaba antes volta à hospedagem para almoçar. '
+    + '⚠ = volta à hospedagem depois de ' + _hora(_minDe(p.saida) + p.jornada * 60 + p.almoco) + ' (jornada de ' + _numBR(p.jornada)
     + ' h + almoço): reduza os pontos por dia.';
 }
 function pintaPlanoCampanha(){
@@ -7818,7 +7823,7 @@ function pintaPlanoCampanha(){
     el.innerHTML = '<h4>Plano da campanha' + (EQ ? ' — ' + esc(EQ.nome) : '') + '</h4>'
       + '<p class="leg" style="margin:0 0 6px">Feito no escritório em ' + new Date(pc.criado).toLocaleString('pt-BR').slice(0, 17)
       + '. O <b>Plano do dia</b>, logo abaixo, usa só a região desta equipe, na ordem destes dias, e refaz a cada rodada com o que falta.</p>'
-      + '<p class="leg" style="margin:0 0 6px"><b>Hotel:</b> ' + htmlHotel(pc.hotel, true) + '</p>'
+      + '<p class="leg" style="margin:0 0 6px"><b>Hospedagem:</b> ' + htmlHotel(pc.hotel, true) + '</p>'
       + svgPlanoCampanha(pc, 420) + legendaPlano(pc) + tabelaPlano(pc, EQ) + '<p class="leg">' + esc(notaHorario(pc)) + '</p>'
       + '<details class="ajuda"><summary>Onde se hospedar</summary>' + textoHospedagem(pc) + '</details>';
     return;
@@ -7827,29 +7832,38 @@ function pintaPlanoCampanha(){
   const eqN = pc ? pc.equipes.length : 2;
   let h = '<h4>Plano da campanha</h4>'
     + '<p class="leg" style="margin:0 0 6px">No gabinete, com internet: divide os círculos pendentes entre as equipes, '
-    + 'em regiões <b>sem sobreposição</b> (setores em volta do hotel comum), e monta os dias com o número de pontos '
-    + 'que você indicar. Cada dia começa pelo círculo pendente mais distante do hotel (equipe descansada) e leva os mais '
+    + 'em regiões <b>sem sobreposição</b> (setores em volta da hospedagem comum), e monta os dias com o número de pontos '
+    + 'que você indicar. Cada dia começa pelo círculo pendente mais distante da hospedagem (equipe descansada) e leva os mais '
     + 'próximos dele — ou o contrário. B, C e D seguem o círculo da A. Planejar de novo considera só o que falta.</p>'
-    + '<div class="lin"><label for="pc_hotel_link">Link do hotel</label><input type="url" id="pc_hotel_link" style="flex:1;min-width:10em" '
-    + 'placeholder="https://maps.app.goo.gl/… (ficha do hotel no Google Maps)" value="' + esc(pc && pc.hotel.link || '') + '"></div>'
-    + '<p class="leg" id="pc_hotel_link_aviso" style="margin-top:2px">No Google Maps, busque o hotel <b>pelo nome</b>, abra a ficha dele e toque em '
-    + '<b>Compartilhar → Copiar link</b>; cole aqui: o nome e as coordenadas saem do link. O link vai no plano, no PDF e na folha das equipes, '
-    + 'para quem for conferir o hotel, as vagas e o contato.</p>'
+    + '<h4 style="margin:10px 0 2px">Hospedagem da equipe</h4>'
+    + '<p class="leg" style="margin-top:0">Qualquer uma serve: hotel ou pousada, casa ou apartamento alugado, Airbnb ou similar, '
+    + 'casa cedida por amigo ou parente. Para o plano, o que conta são as <b>coordenadas</b> do lugar. O link do Google Maps é só um '
+    + '<b>facilitador</b>: dele saem o nome e as coordenadas sozinhos.</p>'
+    + '<div class="lin"><label for="pc_hosp_tipo">Tipo</label><select id="pc_hosp_tipo" style="flex:1;min-width:10em">'
+    + ['', 'hotel ou pousada', 'casa ou apartamento alugado', 'Airbnb ou similar', 'casa cedida (amigo ou parente)', 'outro']
+        .map(o => '<option' + ((pc && pc.hotel.tipo || '') === o ? ' selected' : '') + '>' + o + '</option>').join('') + '</select></div>'
+    + '<div class="lin"><label for="pc_hotel_link">Link (opcional)</label><input type="url" id="pc_hotel_link" style="flex:1;min-width:10em" '
+    + 'placeholder="Google Maps, anúncio do Airbnb ou do aluguel…" value="' + esc(pc && pc.hotel.link || '') + '"></div>'
+    + '<p class="leg" id="pc_hotel_link_aviso" style="margin-top:2px"><b>Google Maps</b>: busque o lugar pelo nome, abra a ficha e toque em '
+    + '<b>Compartilhar → Copiar link</b>; cole aqui e o nome e as coordenadas saem do link. <b>Outro link</b> (Airbnb, anúncio): fica guardado '
+    + 'para consulta, e as coordenadas se informam abaixo. <b>Sem link</b> (casa cedida, por exemplo): só as coordenadas e o nome. '
+    + 'O que for informado vai no plano, no PDF e na folha das equipes.</p>'
     + '<div class="lin"><label for="pc_hotel">Coordenadas</label><input type="text" id="pc_hotel" style="flex:1;min-width:10em" '
-    + 'placeholder="lat, lon do hotel; vazio = mediana dos pontos" value="' + esc(pc && pc.hotel.txt || '') + '"></div>'
+    + 'placeholder="lat, lon da hospedagem; vazio = mediana dos pontos" value="' + esc(pc && pc.hotel.txt || '') + '"></div>'
     + '<div class="lin"><button type="button" class="btn sec peq" id="b_hotel_maps">Achar no Google Maps</button>'
     + '<button type="button" class="btn sec peq" id="b_hotel_aqui">Usar a minha localização</button></div>'
-    + '<p class="leg" id="pc_hotel_aviso" style="margin-top:2px">Preenchidas pelo link; ou, no Google Maps, clique com o botão direito sobre o hotel: '
-    + 'a primeira linha do menu são as coordenadas — clique nelas para copiar e cole aqui.</p>'
-    + '<div class="lin"><label for="pc_hotel_nome">Nome do hotel</label><input type="text" id="pc_hotel_nome" style="flex:1;min-width:10em" '
-    + 'placeholder="preenchido pelo link (ou digite)" value="' + esc(pc && pc.hotel.nome || '') + '"></div>'
+    + '<p class="leg" id="pc_hotel_aviso" style="margin-top:2px">Preenchidas pelo link do Google Maps; ou, no Google Maps, clique com o botão direito '
+    + 'sobre o lugar: a primeira linha do menu são as coordenadas — clique nelas para copiar e cole aqui. Já no local, <b>Usar a minha localização</b>.</p>'
+    + '<div class="lin"><label for="pc_hotel_nome">Nome ou descrição</label><input type="text" id="pc_hotel_nome" style="flex:1;min-width:10em" '
+    + 'placeholder="ex.: Pousada Mar Azul · casa alugada na Rua X · casa cedida" value="' + esc(pc && pc.hotel.nome || '') + '"></div>'
+    + '<p class="leg" style="margin-top:2px">Casa de particular: descreva o lugar sem o nome de quem cede (o nome segue para o PDF e para a folha das equipes).</p>'
     + '<div class="lin"><label for="pc_n">Pontos por dia</label><input type="number" id="pc_n" min="1" max="15" value="' + val('porDia', 5) + '">'
     + '<label for="pc_eq">Equipes</label><input type="number" id="pc_eq" min="1" max="4" value="' + eqN + '"></div>'
     + '<div class="lin"><label for="pc_ocup">Ocupação (min/ponto)</label><input type="number" id="pc_ocup" min="5" max="240" value="' + val('ocup', 40) + '">'
     + '<label for="pc_jornada">Jornada (h)</label><input type="number" id="pc_jornada" min="1" max="14" step="0.5" value="' + val('jornada', 8) + '"></div>'
     + '<div class="lin"><label for="pc_vu">Urbano (km/h)</label><input type="number" id="pc_vu" min="5" max="80" value="' + val('velUrb', 20) + '">'
     + '<label for="pc_vr">Rodovia (km/h)</label><input type="number" id="pc_vr" min="20" max="110" value="' + val('velRod', 60) + '"></div>'
-    + '<div class="lin"><label for="pc_saida">Saída do hotel</label><input type="time" id="pc_saida" value="' + esc(val('saida', '07:00')) + '">'
+    + '<div class="lin"><label for="pc_saida">Saída da hospedagem</label><input type="time" id="pc_saida" value="' + esc(val('saida', '07:00')) + '">'
     + '<label for="pc_almoco">Almoço (min)</label><input type="number" id="pc_almoco" min="0" max="180" value="' + val('almoco', 60) + '"></div>'
     + '<div class="lin"><label for="pc_ida">Início da campanha</label><input type="date" id="pc_ida" value="' + esc((pc && pc.calendario && pc.calendario.ida) || '') + '">'
     + '<label for="pc_volta">Fim da campanha</label><input type="date" id="pc_volta" value="' + esc((pc && pc.calendario && pc.calendario.volta) || '') + '"></div>'
@@ -7870,8 +7884,8 @@ function pintaPlanoCampanha(){
     + 'estaduais pela UF da campanha' + (F.campanha.uf ? ' (' + esc(F.campanha.uf) + (FER_UF[F.campanha.uf] ? ': ' + FER_UF[F.campanha.uf].map(x => x[0].slice(3) + '/' + x[0].slice(0, 2) + ' ' + x[1]).join(', ') : ': nenhum cadastrado — informe aqui') + ')' : ' — escolha a UF na campanha')
     + '; os municipais (Lei nº 9.093/1995, art. 2º) variam e devem ser conferidos na lei de cada município</small></div>'
     + '<div class="lin"><label for="pc_ordem">Ordem dos dias e dos pontos</label><select id="pc_ordem">'
-    + '<option value="longe"' + (val('ordem', 'longe') === 'longe' ? ' selected' : '') + '>do mais distante para o mais próximo do hotel</option>'
-    + '<option value="perto"' + (val('ordem', '') === 'perto' ? ' selected' : '') + '>do mais próximo para o mais distante do hotel</option></select></div>'
+    + '<option value="longe"' + (val('ordem', 'longe') === 'longe' ? ' selected' : '') + '>do mais distante para o mais próximo da hospedagem</option>'
+    + '<option value="perto"' + (val('ordem', '') === 'perto' ? ' selected' : '') + '>do mais próximo para o mais distante da hospedagem</option></select></div>'
     + '<div class="lin"><label for="pc_div">Divisão</label><select id="pc_div">'
     + '<option value="dias"' + (val('divisao', 'dias') === 'dias' ? ' selected' : '') + '>equilibrada pelo tempo (quem vai mais longe coleta menos)</option>'
     + '<option value="vazios"' + (val('divisao', '') === 'vazios' ? ' selected' : '') + '>nos maiores vazios entre os pontos</option>'
@@ -7885,7 +7899,7 @@ function pintaPlanoCampanha(){
       + '<option value="">— escolha —</option>'
       + pc.equipes.map((e, i) => '<option value="' + i + '"' + (eu === i ? ' selected' : '') + '>' + esc(e.nome) + '</option>').join('')
       + '</select><small>o plano do dia usa só a região e a ordem desta equipe</small></div>'
-      + '<p class="leg" style="margin:4px 0"><b>Hotel:</b> ' + htmlHotel(pc.hotel, true) + '</p>'
+      + '<p class="leg" style="margin:4px 0"><b>Hospedagem:</b> ' + htmlHotel(pc.hotel, true) + '</p>'
       + '<p class="leg" style="margin:4px 0">Planejado em ' + new Date(pc.criado).toLocaleString('pt-BR').slice(0, 17)
       + ' · ' + pc.porDia + ' ponto(s)/dia · ' + pc.ocup + ' min por ocupação · jornada ' + _numBR(pc.jornada) + ' h · '
       + (pc.ordem === 'perto' ? 'do mais próximo para o mais distante' : 'do mais distante para o mais próximo') + ' · distâncias ' + esc(pc.fonteDist)
@@ -7940,13 +7954,13 @@ function montaImpressaoPlano(){
   el.innerHTML = cabIBGE('Plano da campanha', 'IBGE · GGC/SES-CE · ' + esc(F.campanha.nome || '') + ' · gerado em '
     + new Date().toLocaleString('pt-BR').slice(0, 17) + ' · planejado em ' + new Date(pc.criado).toLocaleString('pt-BR').slice(0, 17))
     + '<h2>Parâmetros</h2><table>'
-    + [['círculos pendentes', pc.nUnid], ['equipes', pc.equipes.length + ' (mesmo hotel, regiões sem sobreposição)'],
+    + [['círculos pendentes', pc.nUnid], ['equipes', pc.equipes.length + ' (mesma hospedagem, regiões sem sobreposição)'],
        ['pontos por dia', pc.porDia], ['ocupação por ponto', pc.ocup + ' min (montagem, rastreio, desmontagem e avaliações locais)'],
        ['jornada', _numBR(pc.jornada) + ' h + ' + pc.almoco + ' min de almoço, saída às ' + pc.saida],
        ['velocidades médias', 'urbano/vicinal ' + pc.velUrb + ' km/h · rodovia ' + pc.velRod + ' km/h'], ['divisão entre as equipes', pc.divisao === 'vazios' ? 'nos maiores vazios entre os pontos' : pc.divisao === 'manual' ? 'manual (escolhida pelo planejador)' : 'equilibrada pelo tempo de trabalho'],
-       ['ordem dos dias e dos pontos', pc.ordem === 'perto' ? 'do mais próximo para o mais distante do hotel' : 'do mais distante para o mais próximo do hotel'],
-       ['hotel', {html: htmlHotel(pc.hotel)}],
-       ['distâncias do hotel', pc.fonteDist], ['rotas dos dias', pc.rotas]]
+       ['ordem dos dias e dos pontos', pc.ordem === 'perto' ? 'do mais próximo para o mais distante da hospedagem' : 'do mais distante para o mais próximo da hospedagem'],
+       ['hospedagem', {html: htmlHotel(pc.hotel)}],
+       ['distâncias da hospedagem', pc.fonteDist], ['rotas dos dias', pc.rotas]]
       .map(r => '<tr><th style="width:30%">' + r[0] + '</th><td>' + (r[1] && r[1].html ? r[1].html : esc(String(r[1]))) + '</td></tr>').join('') + '</table>'
     + '<h2>Regiões e dias</h2>' + svgPlanoCampanha(pc, 700) + legendaPlano(pc)
     + '<h2>Calendário e dias por equipe</h2>' + tabelaPlano(pc)
@@ -7955,20 +7969,20 @@ function montaImpressaoPlano(){
     + '<h2>Hospedagem</h2>' + textoHospedagem(pc)
     + '<h2>Método</h2><p class="ocor">' + (pc.divisao === 'manual'
       ? 'Regiões: a distribuição dos círculos entre as equipes foi escolhida pelo planejador. '
-      : 'Regiões: os círculos pendentes são ordenados pelo azimute visto do hotel e cortados em grupos contíguos — '
+      : 'Regiões: os círculos pendentes são ordenados pelo azimute visto da hospedagem e cortados em grupos contíguos — '
         + (pc.divisao === 'vazios' ? 'nos maiores vazios angulares, sem olhar o tamanho. '
           : 'igualando o tempo de trabalho, e não o número de círculos: quem vai mais longe fica com menos. Escolhe-se a divisão de menor '
             + 'tempo estimado para a equipe mais carregada (ocupações mais o deslocamento de cada dia, circuito em linha reta pelo vizinho mais '
             + 'próximo multiplicado por 1,3, fator de sinuosidade das vias; BALLOU; RAHARDJA; SAKAI, 2002; na velocidade urbana); no empate, a de '
             + 'menor diferença entre a equipe mais e a menos carregada e, por fim, as regiões mais compactas. ')
         + 'As divisas passam no meio dos vazios. ')
-    + 'Dias: o círculo mais distante do hotel ' + (pc.ordem === 'perto' ? '(na ordem inversa, o mais próximo) ' : '')
-    + 'abre o dia e leva os mais próximos dele; dentro do dia, a ordem de visita é a de menor tempo total de carro do hotel, pelos pontos, '
-    + 'de volta ao hotel, calculada de forma exata por programação dinâmica (HELD; KARP, 1962) sobre os tempos entre os pontos; '
-    + 'dos dois sentidos desse circuito, fica o que ' + (pc.ordem === 'perto' ? 'começa pela ponta mais próxima do hotel e termina na mais distante. '
+    + 'Dias: o círculo mais distante da hospedagem ' + (pc.ordem === 'perto' ? '(na ordem inversa, o mais próximo) ' : '')
+    + 'abre o dia e leva os mais próximos dele; dentro do dia, a ordem de visita é a de menor tempo total de carro da hospedagem, pelos pontos, '
+    + 'de volta à hospedagem, calculada de forma exata por programação dinâmica (HELD; KARP, 1962) sobre os tempos entre os pontos; '
+    + 'dos dois sentidos desse circuito, fica o que ' + (pc.ordem === 'perto' ? 'começa pela ponta mais próxima da hospedagem e termina na mais distante. '
       : 'começa pela ponta mais distante do hotel e termina na mais próxima, com o último trecho curto, de volta ao hotel. ')
-    + 'Cada trecho do dia (hotel → 1º ponto, ponto → ponto, '
-    + 'último → hotel) tem até três caminhos de carro calculados pelo OSRM (LUXEN; VETTER, 2011), que seguem na folha da equipe para a navegação sem rede. '
+    + 'Cada trecho do dia (hospedagem → 1º ponto, ponto → ponto, '
+    + 'último → hospedagem) tem até três caminhos de carro calculados pelo OSRM (LUXEN; VETTER, 2011), que seguem na folha da equipe para a navegação sem rede. '
     + 'Mediana geométrica pelo algoritmo de Weiszfeld (1937).</p>'
     + '<p class="ocor">BALLOU, R. H.; RAHARDJA, H.; SAKAI, N. Selected country circuity factors for road travel distance estimation. '
     + '<i>Transportation Research Part A: Policy and Practice</i>, v. 36, n. 9, p. 843-848, 2002.<br>'
@@ -8595,7 +8609,7 @@ async function baixaViasOSM(A){
 async function preparaMapaOffline(perguntar){
   const A = alvosAtivos();
   if (!A.length) return marca('carregue antes os pontos planejados');
-  if (!navigator.onLine) return marca('sem internet: o mapa offline se prepara com rede (no hotel ou no escritório)');
+  if (!navigator.onLine) return marca('sem internet: o mapa offline se prepara com rede (na hospedagem ou no escritório)');
   const plano = blocosDoPlano(A);
   const ja = new Set((await blocoChaves().catch(() => [])) || []);
   const faltam = plano.lista.filter(k => !ja.has(k));
@@ -9218,7 +9232,7 @@ function pintaHoje(){
     h += '<p class="leg" style="margin:0">' + esc(D.rotulo) + '</p>';
     if (D.ids.length) h += '<div class="lista">' + D.ids.map(chip).join('') + '</div>';
     if (D.atras.length) h += '<p class="leg" style="margin:6px 0 0">Pendentes de dias anteriores (' + D.atras.length + '), depois dos de hoje; '
-      + 'o Plano do dia, montado no hotel, os encaixa na rota:</p><div class="lista">' + D.atras.slice(0, 10).map(chip).join('')
+      + 'o Plano do dia, montado na hospedagem, os encaixa na rota:</p><div class="lista">' + D.atras.slice(0, 10).map(chip).join('')
       + (D.atras.length > 10 ? '<span>+' + (D.atras.length - 10) + '</span>' : '') + '</div>';
     if (D.pend) h += '<p class="leg" style="margin:6px 0 0">' + D.pend + ' ponto(s) pendente(s) na região da equipe.</p>';
   }
@@ -10710,7 +10724,7 @@ async function completaComRede(){
   }
   monta();
   $('#hotel_res').innerHTML = res.map(esc).join('<br>') || 'nada faltava';
-  marca('internet: ' + P.length + ' ponto(s) conferidos — veja a tabela do hotel');
+  marca('internet: ' + P.length + ' ponto(s) conferidos — veja a tabela da hospedagem');
 }
 $('#b_hotel_rede').addEventListener('click', () =>
   completaComRede().catch(e => marca('internet: ' + e.message)));
@@ -12025,8 +12039,8 @@ function confereKmDia(){
   if (isFinite(a) && isFinite(b)){
     if (b < a) m.push('<span style="color:#B91C1C">volta menor que a saída</span>');
     else m.push('rodados no dia: <b>' + _kmBR(b - a) + ' km</b>');
-  } else if (isFinite(a)) m.push('anote o hodômetro na volta ao hotel');
-  else m.push('anote o hodômetro ao sair e ao voltar ao hotel: dá o km do dia e o da campanha (relatório da equipe)');
+  } else if (isFinite(a)) m.push('anote o hodômetro na volta à hospedagem');
+  else m.push('anote o hodômetro ao sair e ao voltar à hospedagem: dá o km do dia e o da campanha (relatório da equipe)');
   av.innerHTML = m.join(' · ');
 }
 function confereVeiculo(){

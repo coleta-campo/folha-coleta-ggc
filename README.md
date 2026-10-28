@@ -166,10 +166,13 @@ https://www.rfc-editor.org/rfc/rfc2104. Acesso em: 20 out. 2026.
 
 ## Atuação em campo (o que a equipe faz)
 A folha da equipe abre no **Dia de campo**. O trabalho se resume a três telas:
-1. **Hoje** (no alto): os pontos do dia do plano, com ✓ nos coletados, e o botão **Navegar até** o próximo. Sem plano do dia montado no hotel, vale o dia de hoje no plano da campanha; os pendentes de dias anteriores aparecem abaixo. Em dia sem atividades, de reserva ou fora da campanha, só o pendente mais perto.
+1. **Hoje** (no alto): os pontos do dia do plano, com ✓ nos coletados, e o botão **Navegar até** o próximo. Sem plano do dia montado na hospedagem, vale o dia de hoje no plano da campanha; os pendentes de dias anteriores aparecem abaixo. Em dia sem atividades, de reserva ou fora da campanha, só o pendente mais perto.
 2. **Navegação**: ao chegar, **Cheguei — começar o ponto aqui** (fica verde perto do ponto).
 3. **Cartão do ponto**, em três etapas: **1** altura e montagem da antena, PDOP no início, **Iniciar a ocupação** (a posição do celular é medida sozinha); **2** enquanto o receptor rastreia, as fotos F1–F4 num toque só (a câmera fica aberta e pede uma depois da outra — norte, sul, oeste, leste —, dizendo de onde ficar e para onde apontar; *Parar* interrompe e *Continuar as fotos* retoma de onde parou), a vista de cima e a descrição; **3** ao terminar, PDOP no fim, coordenada de término e **Terminar e navegar ao próximo**.
 
-O que o sistema deduz ou se faz no hotel — identificador, tipo, finalidade, materialização, município, receptor, antena, horários do rastreio, PPP, temperatura, relatório do ponto, formulário, remover — fica em **Mais deste ponto**, fechado.
+O que o sistema deduz ou se faz na hospedagem — identificador, tipo, finalidade, materialização, município, receptor, antena, horários do rastreio, PPP, temperatura, relatório do ponto, formulário, remover — fica em **Mais deste ponto**, fechado.
 
-**No hotel**, aba *Fechar o dia*, em 4 passos: **1** ler os RINEX do dia; **2** completar com a internet (município e relatórios); **3** enviar ao servidor; **4** ocorrências e arquivar o dia. Arquivos para baixar, IBGE-PPP, PIN e troca de aparelho ficam em quadros fechados abaixo.
+**Na hospedagem**, aba *Fechar o dia*, em 4 passos: **1** ler os RINEX do dia; **2** completar com a internet (município e relatórios); **3** enviar ao servidor; **4** ocorrências e arquivar o dia. Arquivos para baixar, IBGE-PPP, PIN e troca de aparelho ficam em quadros fechados abaixo.
+
+## Hospedagem
+Qualquer hospedagem serve: hotel ou pousada, casa ou apartamento alugado, Airbnb ou similar, casa cedida por amigo ou parente. No planejador (*Plano da campanha > Hospedagem da equipe*) informam-se o **Tipo**, as **coordenadas** (o que o plano usa) e um **nome ou descrição**; o **link** é opcional. O link do Google Maps é só um facilitador: dele saem o nome e as coordenadas sozinhos. Outro link (anúncio do Airbnb ou do aluguel) fica guardado para consulta, e as coordenadas se informam à mão (botão direito sobre o lugar no Google Maps, ou *Usar a minha localização* já no local). Casa de particular: descreva o lugar sem o nome de quem cede, porque a descrição vai para o PDF e para a folha das equipes.

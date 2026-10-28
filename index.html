@@ -390,7 +390,8 @@ você cabe o que nenhum arquivo registra.</p>
   enviar ao servidor, arquivar o dia.</p>
   <p><b>Campanha</b> se preenche no escritório; a folha da equipe já vem pronta do planejador.</p>
   <p class="so_folha_pin"><b>PIN da folha.</b> A folha abre com o PIN de 6 dígitos da equipe, criado na primeira
-  abertura; com ele, os dados ficam criptografados no celular. Ela se tranca sozinha (10 min sem uso,
+  abertura; com ele, os dados ficam criptografados no celular. O PIN é <b>do aparelho, não da folha</b>: folha nova
+  aberta no mesmo aparelho pede o mesmo PIN. Ela se tranca sozinha (10 min sem uso,
   2 min fora da tela) ou pelo botão <b>Trancar</b>. Esquecido o PIN, o que não foi enviado ao Drive se perde.</p>
   <p>Tudo fica gravado neste aparelho, neste navegador, e nada sai dele sozinho.</p>
 </details>
@@ -828,6 +829,9 @@ você cabe o que nenhum arquivo registra.</p>
     do receptor, a trilha e as sugestões dos campos. A folha se tranca sozinha depois de 10 minutos sem uso ou de 2 minutos
     fora da tela; o botão <b>Trancar</b>, na barra de baixo, tranca na hora. Sem o PIN, ninguém abre a folha — nem a equipe:
     esquecido o PIN, o que ainda não foi enviado ao Drive se perde.</p>
+    <p><b>O PIN é do aparelho, não da folha.</b> Não existe PIN inicial: ele é criado na primeira folha aberta neste aparelho,
+    neste navegador e neste endereço, e vale para toda folha aberta aqui depois (replanejamento, outra campanha, novo teste).
+    A folha aberta por outro caminho (pelo site ou pelo arquivo .html direto) tem outro PIN; outro aparelho, o seu; o planejador, nenhum.</p>
     <p class="leg">O PIN não protege o que sai do aparelho: arquivos exportados (ZIP, PDF, CSV, cópia completa) ficam
     abertos na pasta Download — envie e apague. O mapa da área e os trajetos planejados não são criptografados.</p>
     <div class="lin"><label for="pin_atual">PIN atual</label><input type="text" class="segredo" data-lpignore="true" data-1p-ignore data-form-type="other" id="pin_atual" inputmode="numeric" maxlength="6" autocomplete="off"></div>
@@ -1072,10 +1076,13 @@ function cofrePortao(emCima){
       + (cria ? '<p>O PIN protege os dados desta folha <b>neste celular</b>: registro, integrantes, fotos, arquivos do receptor e trilha '
               + 'ficam criptografados. Escolha 6 dígitos que a equipe saiba e mais ninguém.</p>'
               + '<p><b>Guarde o PIN.</b> Esquecido, o que ainda não foi enviado ao Drive se perde — não há como recuperar.</p>'
+              + '<p>O PIN é <b>deste aparelho</b>, não da folha: uma folha nova aberta aqui depois vai pedir este mesmo PIN.</p>'
               + '<input type="text" class="segredo" data-lpignore="true" data-1p-ignore data-form-type="other" id="cofre_p1" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••" aria-label="PIN">'
               + '<input type="text" class="segredo" data-lpignore="true" data-1p-ignore data-form-type="other" id="cofre_p2" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="repita" aria-label="repita o PIN">'
               + '<button type="button" class="btn" id="cofre_ok">Criar o PIN</button>'
             : '<p>Digite o PIN da equipe para abrir a folha.</p>'
+              + '<p class="leg">É o PIN criado <b>neste aparelho</b> na primeira folha aberta aqui — vale também para uma folha nova. '
+              + 'Não lembra? <b>Esqueci o PIN</b> apaga os dados da folha neste aparelho e volta à criação do PIN.</p>'
               + '<input type="text" class="segredo" data-lpignore="true" data-1p-ignore data-form-type="other" id="cofre_p1" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••" aria-label="PIN">'
               + '<button type="button" class="btn" id="cofre_ok">Abrir</button>')
       + '<div class="msg" id="cofre_msg"></div>'

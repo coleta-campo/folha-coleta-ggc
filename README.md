@@ -150,6 +150,7 @@ https://www.rfc-editor.org/rfc/rfc2104. Acesso em: 20 out. 2026.
 
 ## Segurança dos dados no celular (PIN da folha)
 - A folha de campo (não o planejador) pede um PIN de 6 dígitos na primeira abertura e a cada abertura. Sem PIN fraco (todos iguais ou em sequência).
+- **O PIN é do aparelho, não da folha.** Não existe PIN inicial e ele não vem no arquivo da folha. É criado na primeira folha aberta no aparelho e vale para aquele aparelho, navegador e endereço: uma folha nova aberta ali (replanejamento, outra campanha, novo teste) pede o mesmo PIN. A folha aberta por outro caminho no mesmo aparelho (site × arquivo .html direto) tem outro PIN; outro aparelho cria o seu; o planejador não tem PIN. PIN esquecido: *Esqueci o PIN* apaga os dados da folha naquele aparelho e volta à criação.
 - Criptografados no aparelho (AES-256-GCM; chave de dados aleatória, embrulhada pela chave do PIN — PBKDF2-HMAC-SHA-256, 600 000 iterações, sal aleatório): registro (campanha, integrantes, veículo, chave de envio), fotos, originais, RINEX/PPP, trilhas, sugestões dos campos. Não criptografados: mapa da área, blocos Esri, trajetos planejados.
 - Tranca sozinha: 10 min sem uso (não com a navegação aberta) ou 2 min fora da tela; botão Trancar na barra. Com envio ou trilha rodando, só cobre a tela (o trabalho segue).
 - 5 PINs errados: espera de 30 s, dobrando até 5 min. "Esqueci o PIN" apaga os dados da folha no celular (o kit da equipe reaplica o plano ao reabrir).

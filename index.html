@@ -17,6 +17,7 @@
      dados em chaves próprias do navegador: as duas folhas convivem no mesmo
      aparelho sem uma apagar a outra. -->
 <style>
+.segredo{-webkit-text-security:disc;text-security:disc}
 :root{--az:#004282;--esc:#0A2E52;--cz:#3E5561;--bg:#F6F7F5;--lin:#DCE3E5;
  --ok:#2C644A;--mau:#A8441C;--am:#B07B14;--cart:#fff}
 *{box-sizing:border-box}
@@ -756,7 +757,7 @@ você cabe o que nenhum arquivo registra.</p>
     <label class="c" for="srv_url">Endereço do receptor</label>
     <input type="url" id="srv_url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
     <label class="c" for="srv_chave">Chave da equipe</label>
-    <input type="password" id="srv_chave" autocomplete="off">
+    <input type="text" class="segredo" data-lpignore="true" data-1p-ignore data-form-type="other" id="srv_chave" autocomplete="off" spellcheck="false" autocapitalize="off">
     </details>
     <div class="acoes so_rede">
       <button type="button" class="btn sec peq" id="b_srv_teste">Testar a ligação</button>
@@ -829,9 +830,9 @@ você cabe o que nenhum arquivo registra.</p>
     esquecido o PIN, o que ainda não foi enviado ao Drive se perde.</p>
     <p class="leg">O PIN não protege o que sai do aparelho: arquivos exportados (ZIP, PDF, CSV, cópia completa) ficam
     abertos na pasta Download — envie e apague. O mapa da área e os trajetos planejados não são criptografados.</p>
-    <div class="lin"><label for="pin_atual">PIN atual</label><input type="password" id="pin_atual" inputmode="numeric" maxlength="6" autocomplete="off"></div>
-    <div class="lin"><label for="pin_novo">PIN novo</label><input type="password" id="pin_novo" inputmode="numeric" maxlength="6" autocomplete="off"></div>
-    <div class="lin"><label for="pin_novo2">Repita o PIN novo</label><input type="password" id="pin_novo2" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+    <div class="lin"><label for="pin_atual">PIN atual</label><input type="text" class="segredo" data-lpignore="true" data-1p-ignore data-form-type="other" id="pin_atual" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+    <div class="lin"><label for="pin_novo">PIN novo</label><input type="text" class="segredo" data-lpignore="true" data-1p-ignore data-form-type="other" id="pin_novo" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+    <div class="lin"><label for="pin_novo2">Repita o PIN novo</label><input type="text" class="segredo" data-lpignore="true" data-1p-ignore data-form-type="other" id="pin_novo2" inputmode="numeric" maxlength="6" autocomplete="off"></div>
     <div class="acoes"><button type="button" class="btn sec peq" id="b_pin_troca">Trocar o PIN</button></div>
     <p class="leg" id="pin_res"></p>
   </details>
@@ -1071,11 +1072,11 @@ function cofrePortao(emCima){
       + (cria ? '<p>O PIN protege os dados desta folha <b>neste celular</b>: registro, integrantes, fotos, arquivos do receptor e trilha '
               + 'ficam criptografados. Escolha 6 dígitos que a equipe saiba e mais ninguém.</p>'
               + '<p><b>Guarde o PIN.</b> Esquecido, o que ainda não foi enviado ao Drive se perde — não há como recuperar.</p>'
-              + '<input type="password" id="cofre_p1" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••" aria-label="PIN">'
-              + '<input type="password" id="cofre_p2" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="repita" aria-label="repita o PIN">'
+              + '<input type="text" class="segredo" data-lpignore="true" data-1p-ignore data-form-type="other" id="cofre_p1" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••" aria-label="PIN">'
+              + '<input type="text" class="segredo" data-lpignore="true" data-1p-ignore data-form-type="other" id="cofre_p2" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="repita" aria-label="repita o PIN">'
               + '<button type="button" class="btn" id="cofre_ok">Criar o PIN</button>'
             : '<p>Digite o PIN da equipe para abrir a folha.</p>'
-              + '<input type="password" id="cofre_p1" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••" aria-label="PIN">'
+              + '<input type="text" class="segredo" data-lpignore="true" data-1p-ignore data-form-type="other" id="cofre_p1" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="••••••" aria-label="PIN">'
               + '<button type="button" class="btn" id="cofre_ok">Abrir</button>')
       + '<div class="msg" id="cofre_msg"></div>'
       + (cria ? '' : '<button type="button" class="esq" id="cofre_esq">Esqueci o PIN</button>') + '</div>';
@@ -1626,6 +1627,7 @@ function memGrava(){
 /* Nome do campo a partir do que o elemento carrega. 'campanha.equipe' vira
    'campanha.equipe'; os cartões usam data-p, data-v e data-b. */
 function memNome(el){
+  if (el.classList && el.classList.contains('segredo')) return '';     // PIN, chave e código nunca viram sugestão
   const d = el.dataset;
   const n = d.campo || d.p || d.v || d.b || '';
   if (!n) return '';
@@ -12800,7 +12802,7 @@ function _htmlCoord(){
       : '<p class="leg" style="margin-top:0">Sem receptor configurado, as folhas saem sem envio ao Drive e a equipe entrega o '
         + 'pacote (ZIP) como antes. Para ligar o envio, cole aqui, <b>uma vez neste computador</b>, o código da coordenação '
         + '(GGC-COORD:…), que o responsável pelo receptor obtém em <i>codigoCoordenacao</i>, no Apps Script.</p>'
-        + '<input type="password" id="coord_cod" placeholder="GGC-COORD:…" autocomplete="off" spellcheck="false">'
+        + '<input type="text" class="segredo" data-lpignore="true" data-1p-ignore data-form-type="other" id="coord_cod" placeholder="GGC-COORD:…" autocomplete="off" spellcheck="false">'
         + '<p class="leg" id="coord_av" style="margin-top:2px"></p>')
     + '</div>';
 }

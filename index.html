@@ -12702,9 +12702,7 @@ function pintaKits(){
         + 'de todas as equipes param de enviar.</p>'
         + '<div class="acoes"><button type="button" class="btn sec peq" data-kitcopia="' + i + '">Copiar o código de envio</button></div></details>'
         + '<p class="leg" id="kit_av' + i + '" style="margin-top:2px"></p>'
-        + '<div class="acoes"><button type="button" class="btn peq" data-kit="' + i + '">Gerar a folha da ' + esc(e.nome) + '</button>'
-        + '<button type="button" class="btn sec peq" data-kitshare="' + i + '" hidden>Compartilhar a folha da ' + esc(e.nome) + '</button></div>'
-        + '<p class="leg" id="kit_sh' + i + '" style="margin-top:2px"></p></div>';
+        + '<div class="acoes"><button type="button" class="btn peq" data-kit="' + i + '">Gerar a folha da ' + esc(e.nome) + '</button></div></div>';
     });
   }
   h += '<div class="acoes" style="margin-top:12px"><button type="button" class="btn sec peq" id="b_plan_abre">Abrir um planejamento salvo (cópia completa ou pacote)</button>'
@@ -12734,8 +12732,6 @@ function pintaKits(){
   ligaCoord();
   el.querySelectorAll('[data-kit]').forEach(b => b.addEventListener('click', () =>
     geraKit(+b.dataset.kit).catch(err => marca('folha da equipe não saiu: ' + err.message))));
-  el.querySelectorAll('[data-kitshare]').forEach(b => b.addEventListener('click', () => compartilhaKit(+b.dataset.kitshare)));
-  pc.equipes.forEach((e, i) => pintaCompartilhar(i));
   $('#b_plan_novo').addEventListener('click', () => novoPlanejamento().catch(err => marca('não limpou: ' + err.message)));
   $('#b_plan_abre').addEventListener('click', () => $('#f_abrir').click());
 }
@@ -12881,50 +12877,6 @@ function _deURL(v){
   const s = atob(m[2]), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);
   return new Blob([u], {type: m[1]});
 }
-/* ---------- compartilhar a folha da equipe (janela de compartilhar do sistema) ----------
-   Gerada a folha, o planejador a entrega ao Outlook, ao Teams, ao WhatsApp…, já anexada,
-   pela janela de compartilhar do Windows ou do Android (W3C Web Share; precisa de https e
-   de um toque — por isso é um segundo botão, depois da geração). Os destinatários se
-   escolhem no aplicativo. O arquivo fica só na memória desta página; recarregada, gera-se
-   de novo. Sem o recurso no navegador, o botão não aparece: vale o arquivo baixado. */
-const KIT_GERADO = {};
-const SITE_FOLHA = 'https://coleta-campo.github.io/folha-coleta-ggc/';
-function _podeCompartilhar(f){
-  try { return !!(navigator.share && navigator.canShare && window.isSecureContext && navigator.canShare({files: [f]})); }
-  catch (e){ return false; }
-}
-function pintaCompartilhar(i){
-  const b = document.querySelector('[data-kitshare="' + i + '"]'), l = $('#kit_sh' + i), k = KIT_GERADO[i];
-  if (!b || !l) return;
-  if (!k){ b.hidden = true; l.textContent = ''; return; }
-  const hora = k.quando.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}), mb = _numBR(k.file.size / 1048576, 1) + ' MB';
-  if (_podeCompartilhar(k.file)){
-    b.hidden = false;
-    l.innerHTML = 'Folha gerada às ' + hora + ' (' + mb + ', também baixada). <b>Compartilhar</b> abre a janela do sistema com ela anexada: '
-      + 'escolha o <b>Teams</b> (fica no OneDrive institucional, só para quem está no chat) ou o Outlook, e os destinatários. '
-      + 'O anexo não é protegido pelo PIN: peça à equipe que o apague depois de abrir a folha no celular.';
-  } else { b.hidden = true;
-    l.textContent = 'Folha gerada às ' + hora + ' (' + mb + ') e baixada. Este navegador não compartilha arquivos: anexe o arquivo baixado.'; }
-}
-function textoKit(k){
-  const base = location.protocol === 'https:' ? location.href.replace(/[^/]*([?#].*)?$/, '') : SITE_FOLHA;
-  const q = k.quando.toLocaleDateString('pt-BR') + ' às ' + k.quando.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
-  return 'Folha de campo da ' + k.equipe + ' — ' + (F.campanha.nome || 'campanha') + ' (gerada em ' + q + ').\n\n'
-    + 'No celular, no Chrome:\n1. abra ' + base + '\n2. toque em "Abrir a folha da equipe" e escolha este arquivo;\n'
-    + '3. crie o PIN de 6 dígitos da equipe.\n\n'
-    + 'Se a equipe já usa a folha neste celular (replanejamento): no alto da folha, "folha nova?" > "Abrir a folha nova da equipe"; a coleta já feita fica.\n\n'
-    + 'Depois de aberta no celular, apague este arquivo do e-mail ou da conversa e da pasta Download: fora da folha ele não é protegido pelo PIN.';
-}
-async function compartilhaKit(i){
-  const k = KIT_GERADO[i]; if (!k) return marca('gere antes a folha da equipe');
-  try {
-    await navigator.share({files: [k.file], title: 'Folha da ' + k.equipe + ' — ' + (F.campanha.nome || 'campanha'), text: textoKit(k)});
-    marca('folha da ' + k.equipe + ' entregue ao aplicativo escolhido — confira o envio por lá');
-  } catch (e){
-    if (e && e.name === 'AbortError') return marca('compartilhamento cancelado');
-    marca('não deu para compartilhar (' + (e && e.message || e) + '): anexe o arquivo baixado');
-  }
-}
 async function geraKit(i){
   const pc = F.campanha.planoCampanha, e = pc.equipes[i], d = e.dados || {};
   const prob = _problemasKit(d);
@@ -12986,8 +12938,6 @@ async function geraKit(i){
   out = out.replace(/<title>[^<]*<\/title>/, '<title>' + esc(tit) + '</title>');
   const nome = nomeSaida('folha_' + e.nome.replace(/\s+/g, '_'), '') + '.html';
   baixa(nome, new Blob([out], {type: 'text/html'}));
-  KIT_GERADO[i] = {file: new File([out], nome, {type: 'text/html'}), quando: new Date(), equipe: e.nome};
-  pintaCompartilhar(i);
   marca('folha da ' + e.nome + ' gerada: ' + nome + ' (' + _numBR(out.length / 1048576, 1) + ' MB — ' + meus.length + ' pontos, '
     + mapa.length + ' peça(s) do mapa, ' + blocos.length + ' blocos, ' + (traj ? Object.keys(traj.por).length : 0) + ' com trechos)');
 }

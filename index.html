@@ -149,6 +149,8 @@ body:not(.semrede) .semrede_aviso{display:none}
 .tabdist select{padding:3px 6px;font-size:13px;min-width:8em}
 .tabhotel td:first-child,.tabhotel th:first-child{text-align:left}
 .tabhotel .ok{color:var(--ok);font-weight:700}
+.tabhotel .atn{color:#B45309;font-weight:700} .tabhotel .rmd{color:#B91C1C;font-weight:700}
+.qcmot{font-size:12.5px;margin:4px 0 0;padding-left:18px}
 .tabhotel .falta{color:var(--mau);font-weight:700}
 .lupafoto{position:fixed;inset:0;z-index:50;background:rgba(8,14,18,.97);
  overscroll-behavior:contain;
@@ -708,7 +710,10 @@ você cabe o que nenhum arquivo registra.</p>
       observação pela API do IBGE (modo estático; antena e altura do cabeçalho
       do RINEX, ou a altura registrada no ponto) e aplica a coordenada que volta,
       em segundos. O ZIP completo segue para o e-mail informado e fica no link
-      do cartão. Aceita até 20 MB por arquivo, também .zip, .crx e .??d.</p>
+      do cartão. O IBGE-PPP só aceita RINEX até a versão 2.11: o RINEX 3 (.rnx, .crx) é
+      convertido aqui para 2.11, com GPS e GLONASS, que é o que o PPP processa. O arquivo vai
+      compactado (Hatanaka, .AAd, cerca de um quarto do tamanho), o que faz rastreios de horas
+      caberem nos 20 MB que o PPP aceita por arquivo. O arquivo guardado no ponto não muda.</p>
       <p>O PPP só processa depois de publicadas as órbitas precisas: a rápida
       sai de 12 a 36 h depois do rastreio; a final, de 11 a 17 dias depois
       (Manual do Usuário IBGE-PPP, 2023). Reenviado depois, o resultado de órbita
@@ -782,7 +787,7 @@ você cabe o que nenhum arquivo registra.</p>
     <span class="marca">Registro do Dia_DDD.pdf</span> (um por dia) e
     <span class="marca">Relatórios dos Pontos_LCnnn.pdf</span>;
     e, em <span class="marca">Equipe_NN\Dia_DDD\</span> (dia juliano):
-    <span class="marca">Dados_GNSS\Originais</span>, <span class="marca">Renomeados\PPPPDDD.YYo</span>,
+    <span class="marca">Dados_GNSS\Originais</span>, <span class="marca">Renomeados\PPPPDDD.AAd</span> (AA = ano; observação em RINEX compacto),
     <span class="marca">Coordenadas_calculadas_PPP</span>;
     <span class="marca">Formulários\PPPP_Form.jpg</span> (o formulário da CCAR "Determinações GNSS — registro de dados de campo",
     versão 6, preenchido pela folha; o relatório do ponto vai no PDF dos relatórios dos pontos);
@@ -880,10 +885,11 @@ você cabe o que nenhum arquivo registra.</p>
   <p>Em cada ponto, <b>Ler RINEX</b> aceita o arquivo do receptor
   que fez a determinação, seja ele qual for, e tira dali o marcador, o receptor, a
   antena, a altura gravada, o início e o fim do rastreio, a duração, a taxa e as
-  constelações. Lê só o cabeçalho e o fim do arquivo, então um rastreio de horas se
-  resolve em segundos. Arquivos comprimidos — <code>.zip</code>, <code>.crx</code>,
-  <code>.gz</code> — precisam ser descompactados antes, e o RINEX compacto
-  (Hatanaka) precisa do <code>CRX2RNX</code>.</p>
+  constelações. O RINEX compacto (Hatanaka, <code>.AAd</code> ou <code>.crx</code>)
+  é lido na própria folha (AA = os dois últimos algarismos do ano, ex.: <code>.26d</code>).
+  O arquivo de observação fica guardado compactado — <code>.AAd</code> / <code>.crx</code>, um quarto
+  do tamanho — e é assim que vai ao pacote LC e ao Drive.
+  Arquivos <code>.zip</code> e <code>.gz</code> precisam ser abertos antes.</p>
   <p>Vale para os <b>dois padrões de nome</b>. No do RINEX 2,
   <code>ssssdddf.AAt</code>: as quatro letras da estação, o dia do ano, a sequência
   do dia, o ano em dois dígitos e a letra do tipo — <code>PT022950.13o</code> é a
@@ -1382,6 +1388,7 @@ function leCabecalhoRinex(txt){
       r.sat_sis = (l.slice(40,41) || '').trim().toUpperCase();
     }
     else if (rot === 'MARKER NAME') r.marcador = l.slice(0,60).trim();
+    else if (rot === 'MARKER NUMBER') r.marcador_num = l.slice(0,20).trim();
     else if (rot === 'REC # / TYPE / VERS'){ r.receptor = l.slice(20,40).trim(); r.receptor_sn = l.slice(0,20).trim(); }
     else if (rot === 'ANT # / TYPE'){ r.antena = l.slice(20,40).trim(); r.antena_sn = l.slice(0,20).trim(); }
     else if (rot === 'ANTENNA: DELTA H/E/N'){
@@ -1467,7 +1474,375 @@ function ultimaEpoca(txt){
 const NOME_SIS = {G:'GPS', R:'GLONASS', E:'Galileo', C:'BeiDou', J:'QZSS',
                   I:'NavIC', S:'SBAS'};
 
+/* ---------- RINEX compacto (Hatanaka) ----------
+   Leitura e escrita do Compact RINEX 1.0 (RINEX 2.x) e 3.0 (RINEX 3.x), no navegador,
+   seguindo HATANAKA (2008): a linha de época e os indicadores LLI/SSI são diferenças de
+   texto em relação à época anterior (espaço = igual, "&" = virou espaço); o relógio e
+   cada observação são inteiros (milésimos; o relógio em 10^-9 no RINEX 2 e 10^-12 no 3)
+   em diferenças de ordem crescente até M = 3, reiniciados com "M&valor". O conteúdo
+   volta idêntico; só se perdem espaços finais e grafias como "-.123" (que vira -0.123).
+   Os números cabem com folga no inteiro exato do JavaScript (2^53). */
+const CRX_M = 3;
+
+function _crxFix(s, dec){                 // texto F14.3 / F12.9 / F15.12 -> inteiro
+  s = s.trim(); if (!s) return null;
+  let neg = false; if (s[0] === '-'){ neg = true; s = s.slice(1); } else if (s[0] === '+') s = s.slice(1);
+  const p = s.split('.'); const ip = p[0] || '0', fp = ((p[1] || '') + '0'.repeat(dec)).slice(0, dec);
+  if (!/^\d+$/.test(ip) || !/^\d*$/.test(fp)) return NaN;
+  const v = Number(ip) * Math.pow(10, dec) + Number(fp || '0');
+  return neg ? -v : v;
+}
+function _crxFmt(v, dec, larg){           // inteiro -> texto com o ponto decimal
+  const neg = v < 0, a = Math.abs(v), b = Math.pow(10, dec);
+  const s = (neg ? '-' : '') + Math.floor(a / b) + '.' + String(a % b).padStart(dec, '0');
+  return s.padStart(larg);
+}
+function _crxDifTxt(ant, novo){           // codifica: igual -> espaço, sumiu -> "&"
+  let o = ''; const n = Math.max(ant.length, novo.length);
+  for (let j = 0; j < n; j++){
+    const a = ant[j] || ' ', b = novo[j] || ' ';
+    o += a === b ? ' ' : (b === ' ' ? '&' : b);
+  }
+  return o.replace(/ +$/, '');
+}
+function _crxAplTxt(ant, dif){            // decodifica a diferença de texto
+  const n = Math.max(ant.length, dif.length); let o = '';
+  for (let j = 0; j < n; j++){
+    const d = dif[j];
+    o += d === undefined || d === ' ' ? (ant[j] || ' ') : (d === '&' ? ' ' : d);
+  }
+  return o;
+}
+/* série numérica: estado {k (ordem máxima), y[] (valor e diferenças), n (ordem atual)} */
+function _crxLe(tok, st){
+  if (tok === '') return {v: null, st: null};
+  const a = tok.indexOf('&');
+  if (a >= 0){ const v = Number(tok.slice(a + 1)); return {v: v, st: {k: +tok.slice(0, a), y: [v], n: 0}}; }
+  if (!st) throw new Error('diferença sem inicialização');
+  const d = Number(tok), n = Math.min(st.n + 1, st.k), y = st.y.slice();
+  y[n] = d; for (let j = n - 1; j >= 0; j--) y[j] = st.y[j] + y[j + 1];
+  return {v: y[0], st: {k: st.k, y: y, n: n}};
+}
+function _crxEscreve(v, st){
+  if (v == null) return {tok: '', st: null};
+  if (!st) return {tok: CRX_M + '&' + v, st: {k: CRX_M, y: [v], n: 0}};
+  const n = Math.min(st.n + 1, st.k), y = [v];
+  for (let j = 1; j <= n; j++) y[j] = y[j - 1] - st.y[j - 1];
+  return {tok: String(y[n]), st: {k: st.k, y: y, n: n}};
+}
+function _crxTipos(cab, v3){
+  const t = {}; let ult = null, n2 = 0, l2 = [];
+  for (const l of cab){
+    const rot = l.slice(60).trim();
+    if (!v3 && rot === '# / TYPES OF OBSERV'){
+      if (l.slice(0, 6).trim()) n2 = parseInt(l.slice(0, 6), 10);
+      l2 = l2.concat(l.slice(6, 60).trim().split(/\s+/).filter(Boolean));
+    }
+    if (v3 && rot === 'SYS / # / OBS TYPES'){
+      if (l[0] !== ' '){ ult = l[0]; t[ult] = parseInt(l.slice(3, 6), 10); }
+    }
+  }
+  if (!v3) return {_: n2 || l2.length};
+  return t;
+}
+function eCompacto(txt){ return /COMPACT RINEX FORMAT/.test(String(txt).slice(0, 200)); }
+
+/* Compact RINEX -> RINEX */
+function crx2rnx(txt){
+  const L = txt.split(/\r?\n/);
+  if (!/COMPACT RINEX FORMAT/.test(L[0] || '')) throw new Error('não é RINEX compacto (Hatanaka)');
+  const v3 = parseFloat(L[0].slice(0, 9)) >= 3;
+  const out = [], cab = [];
+  let i = 2;
+  for (; i < L.length; i++){ out.push(L[i]); cab.push(L[i]); if (L[i].slice(60).trim() === 'END OF HEADER'){ i++; break; } }
+  let tipos = _crxTipos(cab, v3);
+  let ep = '', clk = null, sats = {}, antes = new Set();
+  const nTipos = s => v3 ? (tipos[s[0]] || 0) : tipos._;
+  for (; i < L.length; i++){
+    let l = L[i];
+    if (l === '' && i === L.length - 1) break;
+    if (v3){
+      if (l[0] === '&') continue;                         // linha opcional
+      ep = l[0] === '>' ? l : _crxAplTxt(ep, l);
+    } else ep = l[0] === '&' ? ' ' + l.slice(1) : _crxAplTxt(ep, l);
+    const flag = parseInt(v3 ? ep.slice(31, 32) : ep.slice(28, 29), 10) || 0;
+    const ns = parseInt(v3 ? ep.slice(32, 35) : ep.slice(29, 32), 10) || 0;
+    if (flag > 1){                                          // eventos: registros copiados como estão
+      out.push(v3 ? ep.slice(0, 35).replace(/ +$/, '') : ep.slice(0, 32).replace(/ +$/, ''));
+      const novos = [];
+      for (let q = 0; q < ns; q++){ const r = L[++i] || ''; out.push(r); novos.push(r); }
+      if (novos.some(r => /TYPES OF OBSERV|OBS TYPES/.test(r.slice(60))))
+        tipos = v3 ? Object.assign({}, tipos, _crxTipos(novos, true)) : _crxTipos(novos, false);
+      ep = ''; clk = null; sats = {}; antes = new Set();
+      continue;
+    }
+    // relógio do receptor
+    const lc = L[++i] || '';
+    let rel = null;
+    if (lc.trim()){ const r = _crxLe(lc.trim(), clk); clk = r.st; rel = r.v; } else clk = null;
+    const base = v3 ? 41 : 32, lista = [];
+    for (let q = 0; q < ns; q++) lista.push(ep.slice(base + 3 * q, base + 3 * q + 3));
+    // linha de época no formato RINEX
+    if (v3){
+      out.push((ep.slice(0, 41).padEnd(41) + (rel != null ? _crxFmt(rel, 12, 15) : '')).replace(/ +$/, ''));
+    } else {
+      for (let q = 0; q < Math.max(1, Math.ceil(ns / 12)); q++){
+        let s = (q === 0 ? ep.slice(0, 32) : ' '.repeat(32)) + lista.slice(12 * q, 12 * q + 12).join('');
+        if (q === 0 && rel != null) s = s.padEnd(68) + _crxFmt(rel, 9, 12);
+        out.push(s.replace(/ +$/, ''));
+      }
+    }
+    const agora = new Set();
+    for (const s of lista){
+      const d = L[++i] || '', N = nTipos(s);
+      let st = sats[s];
+      if (!st || !antes.has(s)) st = sats[s] = {c: [], f: ''};
+      agora.add(s);
+      let pos = 0; const vals = [];
+      for (let j = 0; j < N; j++){
+        let tok;
+        if (pos >= d.length){ tok = ''; }
+        else { const e = d.indexOf(' ', pos); if (e < 0){ tok = d.slice(pos); pos = d.length; } else { tok = d.slice(pos, e); pos = e + 1; } }
+        const r = _crxLe(tok, st.c[j]); st.c[j] = r.st; vals.push(r.v);
+      }
+      st.f = _crxAplTxt(st.f, d.slice(pos)).padEnd(2 * N).slice(0, 2 * N);
+      for (let j = 0; j < N; j++) if (vals[j] == null) st.f = st.f.slice(0, 2 * j) + '  ' + st.f.slice(2 * j + 2);   // dado ausente não tem indicador
+      const campo = j => vals[j] == null ? ' '.repeat(16) : _crxFmt(vals[j], 3, 14) + st.f.slice(2 * j, 2 * j + 2);
+      if (v3){
+        let s3 = s; for (let j = 0; j < N; j++) s3 += campo(j);
+        out.push(s3.replace(/ +$/, ''));
+      } else {
+        for (let a = 0; a < Math.max(1, Math.ceil(N / 5)); a++){
+          let s2 = ''; for (let j = 5 * a; j < Math.min(N, 5 * a + 5); j++) s2 += campo(j);
+          out.push(s2.replace(/ +$/, ''));
+        }
+      }
+    }
+    antes = agora;
+  }
+  return out.join('\n') + '\n';
+}
+
+/* RINEX -> Compact RINEX (para enviar menor ao IBGE-PPP e ao servidor) */
+function rnx2crx(txt, prog, quando){
+  const L = txt.split(/\r?\n/);
+  const v3 = parseFloat(L[0].slice(0, 9)) >= 3;
+  /* a data do cabeçalho é a do arquivo de origem, não a de agora: compactar duas
+     vezes o mesmo RINEX dá os mesmos bytes (o envio ao Drive não repete à toa) */
+  const agora = quando ? new Date(quando) : new Date(), mes = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][agora.getUTCMonth()];
+  const data = String(agora.getUTCDate()).padStart(2, '0') + '-' + mes + '-' + String(agora.getUTCFullYear()).slice(2)
+    + ' ' + String(agora.getUTCHours()).padStart(2, '0') + ':' + String(agora.getUTCMinutes()).padStart(2, '0');
+  const out = [(v3 ? '3.0' : '1.0').padEnd(20) + 'COMPACT RINEX FORMAT'.padEnd(40) + 'CRINEX VERS   / TYPE',
+               (prog || 'folha GGC rnx2crx').slice(0, 40).padEnd(40) + data.padEnd(20) + 'CRINEX PROG / DATE'];
+  const cab = []; let i = 0;
+  for (; i < L.length; i++){ out.push(L[i].replace(/ +$/, '')); cab.push(L[i]); if (L[i].slice(60).trim() === 'END OF HEADER'){ i++; break; } }
+  let tipos = _crxTipos(cab, v3);
+  const nTipos = s => v3 ? (tipos[s[0]] || 0) : tipos._;
+  let ep = null, clk = null, sats = {}, antes = new Set();
+  while (i < L.length){
+    const l = L[i];
+    if (!l.trim()){ i++; continue; }
+    let flag, ns, texto, rel = null, lista = [];
+    if (v3){
+      if (l[0] !== '>') throw new Error('linha ' + (i + 1) + ': esperava uma época (">")');
+      flag = parseInt(l.slice(31, 32), 10) || 0; ns = parseInt(l.slice(32, 35), 10) || 0;
+      if (flag <= 1){ rel = _crxFix(l.slice(41, 56), 12); }
+      texto = l.slice(0, 41).padEnd(41);
+      i++;
+    } else {
+      flag = parseInt(l.slice(28, 29), 10) || 0; ns = parseInt(l.slice(29, 32), 10) || 0;
+      texto = l.slice(0, 32).padEnd(32);
+      if (flag <= 1){
+        rel = _crxFix(l.slice(68, 80), 9);
+        let s = l.slice(32, 68), k = i;
+        while (lista.length < ns){
+          for (let j = 0; j + 3 <= s.length && lista.length < ns; j += 3) lista.push(s.slice(j, j + 3));
+          if (lista.length < ns){ k++; s = (L[k] || '').slice(32, 68); }
+        }
+        i = k;
+      }
+      i++;
+    }
+    if (flag > 1){
+      out.push((v3 ? texto : '&' + texto.slice(1)).replace(/ +$/, ''));
+      const novos = [];
+      for (let q = 0; q < ns; q++){ const r = (L[i++] || '').replace(/ +$/, ''); out.push(r); novos.push(r); }
+      if (novos.some(r => /TYPES OF OBSERV|OBS TYPES/.test(r.slice(60))))
+        tipos = v3 ? Object.assign({}, tipos, _crxTipos(novos, true)) : _crxTipos(novos, false);
+      ep = null; clk = null; sats = {}; antes = new Set();
+      continue;
+    }
+    // satélites e linhas de dados desta época
+    const dados = [];
+    if (v3){
+      for (let q = 0; q < ns; q++){ const d = L[i++] || ''; const s = d.slice(0, 3).replace(' ', '0'); lista.push(s); dados.push(d.slice(3)); }
+    } else {
+      for (const s of lista){
+        const N = nTipos(s), n = Math.max(1, Math.ceil(N / 5)); let b = '';
+        for (let q = 0; q < n; q++) b += (L[i++] || '').padEnd(80).slice(0, 80);
+        dados.push(b);
+      }
+    }
+    const tx = texto + lista.join('');
+    if (ep == null) out.push((v3 ? tx : '&' + tx.slice(1)).replace(/ +$/, ''));
+    else out.push(_crxDifTxt(ep, tx));
+    ep = tx;
+    const rc = _crxEscreve(rel, clk); clk = rc.st; out.push(rc.tok);
+    const novos = new Set();
+    lista.forEach((s, q) => {
+      const N = nTipos(s), d = dados[q];
+      let st = sats[s];
+      const novo = !st || !antes.has(s);
+      if (novo) st = sats[s] = {c: [], f: null};
+      novos.add(s);
+      let linha = '', fl = '';
+      for (let j = 0; j < N; j++){
+        const v = _crxFix(d.slice(16 * j, 16 * j + 14), 3);
+        if (Number.isNaN(v)) throw new Error('valor ilegível na observação do ' + s + ' (linha ' + i + ')');
+        const r = _crxEscreve(v, st.c[j]); st.c[j] = r.st; linha += r.tok + ' ';
+        fl += v == null ? '  ' : (d[16 * j + 14] || ' ') + (d[16 * j + 15] || ' ');
+      }
+      linha += st.f == null ? fl.replace(/ /g, '&') : _crxDifTxt(st.f, fl);
+      st.f = fl;
+      out.push(linha.replace(/ +$/, ''));
+    });
+    antes = novos;
+  }
+  return out.join('\n') + '\n';
+}
+
+/* ---------- RINEX 3 -> RINEX 2.11 (para o IBGE-PPP, que só aceita até a 2.11) ----------
+   Só GPS e GLONASS (o que o IBGE-PPP processa). Cada tipo do RINEX 2 sai do primeiro
+   código do RINEX 3 que existir, na ordem da lista: P-code (W/P) antes do civil no P1/P2
+   e na fase L2, como fazem os conversores usuais. Os valores e os indicadores LLI/SSI
+   passam sem mudança. */
+const R32_TIPOS = ['C1', 'P1', 'L1', 'D1', 'S1', 'C2', 'P2', 'L2', 'D2', 'S2'];
+const R32_MAPA = {
+  G: {C1: ['C1C'], P1: ['C1W', 'C1P', 'C1Y'], L1: ['L1C', 'L1W', 'L1P'], D1: ['D1C', 'D1W', 'D1P'], S1: ['S1C', 'S1W', 'S1P'],
+      C2: ['C2L', 'C2X', 'C2S', 'C2C'], P2: ['C2W', 'C2P', 'C2Y', 'C2D'], L2: ['L2W', 'L2P', 'L2Y', 'L2D', 'L2L', 'L2X', 'L2S', 'L2C'],
+      D2: ['D2W', 'D2P', 'D2L', 'D2X', 'D2S', 'D2C'], S2: ['S2W', 'S2P', 'S2L', 'S2X', 'S2S', 'S2C']},
+  R: {C1: ['C1C'], P1: ['C1P'], L1: ['L1C', 'L1P'], D1: ['D1C', 'D1P'], S1: ['S1C', 'S1P'],
+      C2: ['C2C'], P2: ['C2P'], L2: ['L2P', 'L2C'], D2: ['D2P', 'D2C'], S2: ['S2P', 'S2C']}
+};
+function rnx3para2(txt){
+  const L = txt.split(/\r?\n/);
+  if (!(parseFloat(L[0].slice(0, 9)) >= 3)) throw new Error('não é RINEX 3');
+  const cab = []; let i = 0;
+  for (; i < L.length; i++){ cab.push(L[i]); if (L[i].slice(60).trim() === 'END OF HEADER'){ i++; break; } }
+  const t3 = {}; let ult = null;
+  for (const l of cab) if (l.slice(60).trim() === 'SYS / # / OBS TYPES'){
+    if (l[0] !== ' ') ult = l[0];
+    t3[ult] = (t3[ult] || []).concat(l.slice(7, 60).trim().split(/\s+/).filter(Boolean));
+  }
+  // índice, em cada sistema, de cada tipo do RINEX 2
+  const idx = {};
+  for (const s of ['G', 'R']){
+    idx[s] = {};
+    for (const t of R32_TIPOS){ const c = (R32_MAPA[s][t] || []).find(c => (t3[s] || []).includes(c)); idx[s][t] = c ? t3[s].indexOf(c) : -1; }
+  }
+  const tipos = R32_TIPOS.filter(t => ['G', 'R'].some(s => idx[s][t] >= 0));
+  if (!tipos.includes('L1')) throw new Error('o RINEX 3 não tem fase L1 de GPS nem de GLONASS');
+  const sis = ['G', 'R'].filter(s => t3[s]);
+  const out = [('     2.11').padEnd(20) + 'OBSERVATION DATA'.padEnd(20) + (sis.length > 1 ? 'M (MIXED)' : sis[0] === 'R' ? 'R (GLONASS)' : 'G (GPS)').padEnd(20) + 'RINEX VERSION / TYPE'];
+  const fica = /^(PGM \/ RUN BY \/ DATE|COMMENT|MARKER NAME|MARKER NUMBER|OBSERVER \/ AGENCY|REC # \/ TYPE \/ VERS|ANT # \/ TYPE|APPROX POSITION XYZ|ANTENNA: DELTA H\/E\/N|INTERVAL|TIME OF FIRST OBS|TIME OF LAST OBS|LEAP SECONDS|RCV CLOCK OFFS APPL)$/;
+  for (const l of cab){
+    const rot = l.slice(60).trim();
+    if (rot === 'END OF HEADER'){
+      out.push('     1     1'.padEnd(60) + 'WAVELENGTH FACT L1/2');
+      for (let k = 0; k < tipos.length; k += 9)
+        out.push(((k === 0 ? String(tipos.length).padStart(6) : ' '.repeat(6)) + tipos.slice(k, k + 9).map(t => t.padStart(6)).join('')).padEnd(60) + '# / TYPES OF OBSERV');
+      out.push(' '.repeat(60) + 'END OF HEADER'); continue;
+    }
+    if (!fica.test(rot)) continue;
+    if (rot === 'LEAP SECONDS') out.push(l.slice(0, 6).padEnd(60) + 'LEAP SECONDS');
+    else out.push(l.replace(/ +$/, ''));
+  }
+  const f2 = (v, n) => String(v).padStart(n);
+  while (i < L.length){
+    const l = L[i];
+    if (!l.trim()){ i++; continue; }
+    if (l[0] !== '>') throw new Error('linha ' + (i + 1) + ': esperava uma época (">")');
+    const p = l.slice(2, 29).trim().split(/\s+/);
+    const flag = parseInt(l.slice(31, 32), 10) || 0, ns = parseInt(l.slice(32, 35), 10) || 0;
+    const datas = ' ' + String(+p[0] % 100).padStart(2, '0') + f2(+p[1], 3) + f2(+p[2], 3) + f2(+p[3], 3) + f2(+p[4], 3) + l.slice(18, 29).padStart(11);
+    i++;
+    if (flag > 1){                                  // eventos: copia os registros como estão
+      out.push(datas + '  ' + flag + f2(ns, 3));
+      for (let q = 0; q < ns; q++) out.push((L[i++] || '').replace(/ +$/, ''));
+      continue;
+    }
+    const linhas = [];
+    for (let q = 0; q < ns; q++){
+      const d = L[i++] || ''; const s = d.slice(0, 3).replace(' ', '0');
+      if (s[0] !== 'G' && s[0] !== 'R') continue;
+      let b = '';
+      for (const t of tipos){
+        const j = idx[s[0]][t];
+        b += j < 0 ? ' '.repeat(16) : (d.slice(3 + 16 * j, 3 + 16 * j + 16) || '').padEnd(16);
+      }
+      if (b.trim()) linhas.push([s, b]);              // satélite sem nenhum dado de GPS/GLONASS: fica de fora
+    }
+    // relógio: F15.12 -> F12.9
+    let rel = '';
+    const c = _crxFix(l.slice(41, 56), 12);
+    if (c != null && !Number.isNaN(c)) rel = _crxFmt(Math.round(c / 1000), 9, 12);
+    for (let q = 0; q < Math.max(1, Math.ceil(linhas.length / 12)); q++){
+      let s = (q === 0 ? datas + '  ' + flag + f2(linhas.length, 3) : ' '.repeat(32))
+        + linhas.slice(12 * q, 12 * q + 12).map(x => x[0]).join('');
+      if (q === 0 && rel) s = s.padEnd(68) + rel;
+      out.push(s.replace(/ +$/, ''));
+    }
+    for (const [, b] of linhas)
+      for (let a = 0; a < Math.ceil(tipos.length / 5); a++) out.push(b.slice(80 * a, 80 * a + 80).replace(/ +$/, ''));
+  }
+  return out.join('\n') + '\n';
+}
+/* nome curto do RINEX 2 (ssssdddh.aao) a partir do nome longo do RINEX 3 */
+function nomeRinex2(nome, txt){
+  const m = String(nome).match(/^(\w{4})\w{5}_\w_(\d{4})(\d{3})(\d{2})\d{2}_(\w{3})_/);
+  if (m) return m[1].toLowerCase() + m[3] + (m[5] === '01D' ? '0' : String.fromCharCode(97 + Math.min(23, +m[4]))) + '.' + m[2].slice(2) + 'o';
+  const t = String(txt || '').match(/^\s*(\d{4})\s.{0,54}TIME OF FIRST OBS/m);
+  return String(nome).replace(/\.[^.]*$/, '') + '.' + (t ? t[1].slice(2) : '00') + 'o';
+}
+function _bytesLatin1(t){ const u = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) u[i] = t.charCodeAt(i) & 255; return u; }
+function nomeDescompactado(n){
+  if (/\.\d\dd$/i.test(n)) return n.replace(/d$/i, m => m === 'D' ? 'O' : 'o');
+  if (/\.crx$/i.test(n)) return n.replace(/\.crx$/i, '.rnx');
+  return n + '.rnx';
+}
+function nomeCompactado(n){
+  if (/\.\d\do$/i.test(n)) return n.replace(/o$/i, m => m === 'O' ? 'D' : 'd');
+  if (/\.rnx$/i.test(n)) return n.replace(/\.rnx$/i, '.crx');
+  return n + '.crx';
+}
+async function descompactaRinex(file){
+  const txt = crx2rnx(new TextDecoder('latin1').decode(await file.arrayBuffer()));
+  return new File([_bytesLatin1(txt)], nomeDescompactado(file.name), {type: 'text/plain', lastModified: file.lastModified});
+}
+async function compactaRinex(file){
+  const txt = rnx2crx(new TextDecoder('latin1').decode(await file.arrayBuffer()), 'folha GGC (RNX2CRX)', file.lastModified || 0);
+  return new File([_bytesLatin1(txt)], nomeCompactado(file.name), {type: 'text/plain', lastModified: file.lastModified});
+}
+
+/* O RINEX de observação fica guardado compactado (Hatanaka): um quarto do espaço no
+   celular, e é assim que vai ao Drive e ao pacote LC (decisão de out/2026). Arquivo de
+   navegação, ou o que não compactar, fica como está. */
+async function rinexParaGuardar(file){
+  try {
+    const cab = new TextDecoder('latin1').decode(await file.slice(0, 400).arrayBuffer());
+    if (eCompacto(cab)) return file;
+    const l0 = cab.split(/\r?\n/)[0] || '';
+    if (!/RINEX VERSION \/ TYPE/.test(l0) || l0.slice(20, 21).toUpperCase() !== 'O') return file;
+    return await compactaRinex(file);
+  } catch (e){ return file; }
+}
 async function leRinex(file){
+  /* RINEX compacto (Hatanaka, .AAd / .crx): descompacta aqui para ler e conferir;
+     o que fica guardado no ponto é o compactado (rinexParaGuardar) */
+  let compacto = '';
+  if (eCompacto(new TextDecoder('latin1').decode(await file.slice(0, 200).arrayBuffer()))){
+    compacto = file.name; file = await descompactaRinex(file);
+  }
   const cab = new TextDecoder('latin1').decode(
     await file.slice(0, Math.min(RX_CAB, file.size)).arrayBuffer());
   if (cab.indexOf('RINEX VERSION / TYPE') < 0)
@@ -1486,9 +1861,7 @@ async function leRinex(file){
       + 'ponto — no padrão antigo, o de extensão terminada em "o" (por exemplo '
       + '.13o); no padrão novo, terminada em "MO.rnx".');
   Object.defineProperty(r, '_file', {value: file, enumerable: false});
-  if (/COMPACT RINEX/i.test(cab.slice(0, 200)))
-    throw new Error(file.name + ' está em RINEX compacto (Hatanaka). Converta '
-      + 'com o CRX2RNX antes de ler.');
+  if (compacto) r.compacto = compacto;
 
   if (!r.fim){
     const ini = Math.max(0, file.size - RX_RABO);
@@ -1529,7 +1902,10 @@ async function leRinex(file){
      quem configurou o receptor usaram nomes diferentes — acontece, e é melhor
      dizer do que escolher um dos dois em silêncio. */
   const pre = (file.name.match(/^([A-Za-z0-9]{4})/) || [])[1] || '';
-  if (pre && r.marcador && pre.toUpperCase() !== r.marcador.toUpperCase())
+  /* Na Leica (CS10/CS15) o nome do arquivo começa pelo MARKER NUMBER (G011, G013…),
+     não pelo ponto: aí a diferença é a regra, e não merece aviso. */
+  if (pre && r.marcador && pre.toUpperCase() !== r.marcador.toUpperCase()
+      && !(r.marcador_num && pre.toUpperCase() === r.marcador_num.slice(0, 4).toUpperCase()))
     r.aviso_marcador = 'o arquivo começa por "' + pre + '" e o cabeçalho diz "'
       + r.marcador + '" — confira qual é o identificador do ponto';
 
@@ -1537,7 +1913,254 @@ async function leRinex(file){
   if (!r.ini && !r.fim)
     throw new Error(file.name + ' não tem época alguma legível — confira se o '
       + 'arquivo veio inteiro do receptor.');
+  /* controle de qualidade do arquivo inteiro (perdas de ciclo, multicaminho,
+     lacunas, corrupção) — ver qcRinex */
+  try {
+    const txt = new TextDecoder('latin1').decode(await file.arrayBuffer());
+    r.qc = qcResumo(qcRinex(txt, {glonass: qcGloCanais()}));
+  } catch (e){ r.qc = {parecer: '', motivos: [['atencao', 'controle de qualidade não rodou: ' + e.message]]}; }
   return r;
+}
+
+/* ---------- controle de qualidade do RINEX de observação ----------
+   O que o modo "qc" do teqc fazia (ESTEY; MEERTENS, 1999), aqui no navegador — o
+   teqc foi descontinuado em 2019. Mede, por arquivo: integridade (épocas legíveis,
+   tempo crescente, arquivo inteiro), eventos do receptor, completude e lacunas,
+   perdas de ciclo (indicador LLI do receptor e saltos das combinações livre de
+   geometria e de Melbourne-Wübbena, como no TurboEdit de BLEWITT, 1990),
+   multicaminho MP1/MP2 (RMS por arco, sem a média) e satélites GPS+GLONASS por
+   época. GLONASS entra nas combinações quando se conhece o canal de frequência de
+   cada satélite: vem do RINEX de navegação GLONASS (.YYg) ou do cabeçalho do RINEX 3.
+
+   Limiares conferidos em out/2026 contra os desvios-padrão do IBGE-PPP de dois
+   conjuntos: LC427/LC428 (96 ocupações de ~25 min a 1 s, Leica GS08plus) e
+   BR-304/RN (93 ocupações de ~50 min a 5 s, Topcon Hiper VR, RINEX compacto). Nos
+   dois, o que mais acompanha o desvio é o número de satélites GPS+GLONASS por
+   época (correlação de Spearman de -0,65 e -0,64); perdas de ciclo e multicaminho
+   pesam pouco. Com "menos de 15 satélites ou menos de 300 observações por perda
+   de ciclo", o aviso pegou as 8 de 8 ocupações com desvio acima de 8 cm na LC e 30
+   de 36 na BR-304, com 13 de 88 e 14 de 57 avisos sem desvio alto. "Atenção" é
+   triagem: o IBGE-PPP decide. "Remedir" fica para o que impede o processamento —
+   arquivo corrompido ou menos de 20 min de dado. Recalibrar com mais campanhas. */
+const QC_C = 299792458, QC_FG = [1575.42e6, 1227.60e6];
+const QC_LIM = {duracao_remedir_min: 20,
+  completude_min: 0.98, lacuna_s: 10, o_slps_min: 300, sat_gr_min: 15,
+  mp1_max: 0.5, mp2_max: 0.75, gf_salto_m: 0.08, mw_salto_ciclos: 4, arco_min: 60};
+function qcGloCanais(){ F.config = F.config || {}; return F.config.glo_canais || {}; }
+function qcGuardaCanais(k){
+  F.config = F.config || {};
+  F.config.glo_canais = Object.assign({}, F.config.glo_canais || {}, k);
+}
+/* canais de frequência GLONASS a partir do RINEX de navegação GLONASS 2.x (.YYg) */
+function qcCanaisGlonass(txt){
+  const k = {}; if (!txt) return k;
+  const L = txt.split(/\r?\n/); let i = L.findIndex(l => l.slice(60).trim() === 'END OF HEADER');
+  if (i < 0 || !/GLONASS|GLO|^.{20}G/i.test(L[0].slice(20, 40))) return k;
+  const num = s => parseFloat(s.replace(/D/gi, 'E'));
+  for (i = i + 1; i + 3 < L.length; i += 4){
+    const prn = parseInt(L[i].slice(0, 2), 10);
+    if (!(prn > 0)) break;
+    const fr = num(L[i + 2].slice(60, 79));
+    if (isFinite(fr)) k['R' + String(prn).padStart(2, '0')] = Math.round(fr);
+  }
+  return k;
+}
+function qcRinex(txt, opc){
+  opc = opc || {};
+  const R = {erros: [], truncado: false, epocas: 0, esperadas: null, completude: null,
+             intervalo: null, ini: null, fim: null, lacunas: [], eventos: 0, sats: {},
+             sat_gr: null, perdas: 0, perdas_lli: 0, obs: 0, o_slps: null, mp1: null, mp2: null};
+  const L = txt.split(/\r?\n/);
+  const fimCab = L.findIndex(l => l.slice(60).trim() === 'END OF HEADER');
+  if (fimCab < 0){ R.erros.push('cabeçalho sem END OF HEADER'); return R; }
+  const v3 = parseFloat(L[0].slice(0, 9)) >= 3;
+  let tipos2 = [], tipos3 = {}, intervalo = null, ultSis = 'G';
+  const glo = Object.assign({}, opc.glonass || {});
+  for (let i = 0; i < fimCab; i++){
+    const l = L[i], rot = l.slice(60).trim();
+    if (rot === '# / TYPES OF OBSERV') tipos2 = tipos2.concat(l.slice(6, 60).trim().split(/\s+/).filter(Boolean));
+    else if (rot === 'SYS / # / OBS TYPES'){
+      if (l[0] !== ' ') ultSis = l[0];
+      tipos3[ultSis] = (tipos3[ultSis] || []).concat(l.slice(7, 60).trim().split(/\s+/).filter(Boolean));
+    }
+    else if (rot === 'INTERVAL') intervalo = parseFloat(l.slice(0, 10)) || null;
+    else if (rot === 'GLONASS SLOT / FRQ #'){
+      const p = l.slice(4, 60).trim().split(/\s+/);
+      for (let j = 0; j + 1 < p.length; j += 2) glo[p[j].replace(' ', '0')] = parseInt(p[j + 1], 10);
+    }
+  }
+  const idx = (lista, nomes) => { for (const n of nomes){ const j = lista.indexOf(n); if (j >= 0) return j; } return -1; };
+  const mapa = s => {
+    if (!v3) return {p1: idx(tipos2, ['P1', 'C1']), l1: idx(tipos2, ['L1']), p2: idx(tipos2, ['P2', 'C2']), l2: idx(tipos2, ['L2']), n: tipos2.length};
+    const t = tipos3[s] || [];
+    return {p1: idx(t, ['C1W', 'C1P', 'C1C']), l1: idx(t, ['L1W', 'L1P', 'L1C']),
+            p2: idx(t, ['C2W', 'C2P', 'C2L', 'C2X', 'C2C']), l2: idx(t, ['L2W', 'L2P', 'L2L', 'L2X', 'L2C']), n: t.length};
+  };
+  const M = {};
+  const lam = s => {
+    let f = null;
+    if (s[0] === 'G') f = QC_FG;
+    else if (s[0] === 'R' && glo[s] != null) f = [1602e6 + glo[s] * 0.5625e6, 1246e6 + glo[s] * 0.4375e6];
+    return f ? [QC_C / f[0], QC_C / f[1], f[0], f[1]] : null;
+  };
+  const est = {};
+  const nov = s => (est[s] = est[s] || {n: 0, ult: null, gf: [], mw: 0, mwn: 0, mwq: 0, arco: [], arcos: [], perdas: 0, lli: 0});
+  const fecha = e => { if (e.arco.length) e.arcos.push(e.arco); e.arco = []; e.mw = 0; e.mwn = 0; e.mwq = 0; e.gf = []; };
+  const val = (lin, j) => { if (j < 0) return null; const c = lin.slice(j * 16, j * 16 + 14).trim(); return c === '' ? null : parseFloat(c); };
+  const lli = (lin, j) => { if (j < 0) return 0; const c = lin.slice(j * 16 + 14, j * 16 + 15); return c === ' ' || c === '' ? 0 : (parseInt(c, 10) || 0); };
+  const trata = (t, s, linha) => {
+    const m = M[s[0]] || (M[s[0]] = mapa(s[0]));
+    if (m.l1 < 0) return;
+    const L1 = val(linha, m.l1); if (L1 == null) return;
+    const P1 = val(linha, m.p1), P2 = val(linha, m.p2), L2 = val(linha, m.l2);
+    R.obs++;
+    const e = nov(s); e.n++;
+    const dt = e.ult != null ? (t - e.ult) / 1000 : null;
+    if (dt != null && intervalo && dt > 1.5 * intervalo) fecha(e);   // lacuna do satélite: novo arco
+    e.ult = t;
+    /* o limite da livre de geometria cresce com o intervalo: a 15–30 s a ionosfera
+       já se afasta da reta entre épocas (RBMC a 15 s dava perdas falsas a 8 cm) */
+    const gfLim = Math.max(QC_LIM.gf_salto_m, 0.05 + 0.01 * (dt || intervalo || 1));
+    let perda = false;
+    if (((lli(linha, m.l1) | lli(linha, m.l2)) & 1) && e.arco.length){ perda = true; e.lli++; R.perdas_lli++; }
+    const l = lam(s);
+    if (l && P1 != null && P2 != null && L2 != null){
+      const gf = l[0] * L1 - l[1] * L2;
+      const mw = ((l[2] * l[0] * L1 - l[3] * l[1] * L2) / (l[2] - l[3]) - (l[2] * P1 + l[3] * P2) / (l[2] + l[3])) / (QC_C / (l[2] - l[3]));
+      if (!perda && e.gf.length >= 2 && Math.abs(gf - (2 * e.gf[e.gf.length - 1] - e.gf[e.gf.length - 2])) > gfLim) perda = true;
+      if (!perda && e.mwn >= 10){
+        const med = e.mw / e.mwn, sd = Math.max(0.5, Math.sqrt(Math.max(0, e.mwq / e.mwn - med * med)));
+        if (Math.abs(mw - med) > Math.max(QC_LIM.mw_salto_ciclos, 4 * sd)) perda = true;
+      }
+      if (perda){ e.perdas++; R.perdas++; fecha(e); }
+      e.gf.push(gf); if (e.gf.length > 3) e.gf.shift();
+      e.mw += mw; e.mwn++; e.mwq += mw * mw;
+      const a = (l[2] * l[2]) / (l[3] * l[3]);
+      e.arco.push([P1 - (1 + 2 / (a - 1)) * l[0] * L1 + (2 / (a - 1)) * l[1] * L2,
+                   P2 - (2 * a / (a - 1)) * l[0] * L1 + (2 * a / (a - 1) - 1) * l[1] * L2]);
+    } else if (perda){ e.perdas++; R.perdas++; fecha(e); }
+  };
+  let tAnt = null, contGR = 0, i = fimCab + 1;
+  const passos = [];
+  while (i < L.length){
+    const l = L[i];
+    if (!l.trim()){ i++; continue; }
+    let t, flag, nsat, sats = [];
+    /* eventos (flag 2 a 5): a data pode vir em branco; pula o cabeçalho que vem
+       junto. Flag 3 é "novo sítio": o arquivo junta mais de uma ocupação. */
+    const fe = v3 ? (l[0] === '>' ? parseInt(l.slice(31, 32), 10) : NaN) : parseInt(l.slice(28, 29), 10);
+    if (fe >= 2 && fe <= 5 && /^\s*\d+\s*$/.test(v3 ? l.slice(32, 35) : l.slice(29, 32))){
+      R.eventos++; if (fe === 3) R.novo_sitio = (R.novo_sitio || 0) + 1;
+      i += 1 + parseInt(v3 ? l.slice(32, 35) : l.slice(29, 32), 10); continue;
+    }
+    try {
+      if (v3){
+        if (l[0] !== '>') throw 0;
+        const p = l.slice(2, 29).trim().split(/\s+/).map(Number);
+        t = Date.UTC(p[0], p[1] - 1, p[2], p[3], p[4], 0) + p[5] * 1000;
+        flag = parseInt(l.slice(31, 32), 10) || 0; nsat = parseInt(l.slice(32, 35), 10);
+      } else {
+        const p = l.slice(0, 26).trim().split(/\s+/).map(Number);
+        if (p.length < 6 || p.some(x => !isFinite(x))) throw 0;
+        t = Date.UTC(p[0] + (p[0] < 80 ? 2000 : 1900), p[1] - 1, p[2], p[3], p[4], 0) + p[5] * 1000;
+        flag = parseInt(l.slice(28, 29), 10) || 0; nsat = parseInt(l.slice(29, 32), 10);
+        if (flag <= 1){
+          let s = l.slice(32, 68), k = i;
+          while (sats.length < nsat){
+            for (let j = 0; j + 3 <= s.length && sats.length < nsat; j += 3) sats.push(s.slice(j, j + 3).replace(' ', 'G').replace(' ', '0'));
+            if (sats.length < nsat){ k++; if (k >= L.length) break; s = L[k].slice(32, 68); }
+          }
+          i = k;
+        }
+      }
+      if (!isFinite(t) || !isFinite(nsat)) throw 0;
+    } catch (e){ if (R.erros.length < 20) R.erros.push('linha ' + (i + 1) + ': época ilegível'); i++; continue; }
+    if (flag > 1){ R.eventos++; i += 1 + nsat; continue; }        // registros especiais / eventos
+    if (flag === 1) R.eventos++;                                  // queda de energia antes desta época
+    if (tAnt != null){
+      if (t <= tAnt){ if (R.erros.length < 20) R.erros.push('época fora de ordem ou repetida (linha ' + (i + 1) + ')'); }
+      else passos.push((t - tAnt) / 1000);
+    }
+    tAnt = t; if (R.ini == null) R.ini = t; R.fim = t; R.epocas++;
+    i++;
+    if (v3){
+      for (let q = 0; q < nsat; q++, i++){
+        const lin = L[i]; if (lin == null){ R.truncado = true; break; }
+        const s = lin.slice(0, 3).replace(' ', '0');
+        if (s[0] === 'G' || s[0] === 'R') contGR++;
+        trata(t, s, lin.slice(3));
+      }
+    } else {
+      const lpp = Math.max(1, Math.ceil(tipos2.length / 5));
+      for (const s of sats){
+        if (s[0] === 'G' || s[0] === 'R') contGR++;
+        let bloco = '';
+        for (let q = 0; q < lpp; q++, i++){
+          if (L[i] == null){ R.truncado = true; break; }
+          bloco += (L[i] + ' '.repeat(80)).slice(0, 80);
+        }
+        trata(t, s, bloco);
+      }
+    }
+  }
+  if (!intervalo && passos.length){
+    const c = {}; passos.forEach(p => c[p] = (c[p] || 0) + 1);
+    intervalo = +Object.keys(c).sort((a, b) => c[b] - c[a])[0];
+  }
+  R.intervalo = intervalo;
+  if (intervalo && R.ini != null){
+    R.esperadas = Math.round((R.fim - R.ini) / 1000 / intervalo) + 1;
+    R.completude = Math.min(1, R.epocas / R.esperadas);
+    passos.forEach(p => { if (p > Math.max(QC_LIM.lacuna_s, 1.5 * intervalo)) R.lacunas.push(p); });
+  }
+  R.sat_gr = R.epocas ? contGR / R.epocas : null;
+  let s1 = 0, s2 = 0, n = 0;
+  for (const s in est){
+    const e = est[s]; fecha(e);
+    R.sats[s] = {obs: e.n, perdas: e.perdas};
+    for (const a of e.arcos){
+      if (a.length < QC_LIM.arco_min) continue;
+      let m1 = 0, m2 = 0; for (const v of a){ m1 += v[0]; m2 += v[1]; } m1 /= a.length; m2 /= a.length;
+      for (const v of a){ s1 += (v[0] - m1) ** 2; s2 += (v[1] - m2) ** 2; n++; }
+    }
+  }
+  if (n){ R.mp1 = Math.sqrt(s1 / n); R.mp2 = Math.sqrt(s2 / n); }
+  R.o_slps = R.perdas ? Math.round(R.obs / R.perdas) : null;
+  R.duracao_min = R.ini != null ? (R.fim - R.ini) / 60000 : null;
+  R.glonass = Object.keys(glo).length > 0;
+  return R;
+}
+/* o que fica no ponto: números arredondados e o parecer, com os motivos escritos */
+function qcResumo(R){
+  const mot = [], fx = (v, d) => v == null ? null : +v.toFixed(d);
+  if (R.erros.length) mot.push(['remedir', 'arquivo corrompido: ' + R.erros.length + (R.erros.length >= 20 ? '+' : '') + ' problema(s) de leitura — ' + R.erros[0]]);
+  /* o que conta é o tempo de dado que existe: épocas × intervalo */
+  const efetivo = R.intervalo ? R.epocas * R.intervalo / 60 : R.duracao_min;
+  if (efetivo != null && efetivo < QC_LIM.duracao_remedir_min)
+    mot.push(['remedir', 'só ' + efetivo.toFixed(1) + ' min de dado no arquivo (mínimo ' + QC_LIM.duracao_remedir_min + ' min)']);
+  if (R.novo_sitio) mot.push(['atencao', 'o arquivo junta mais de uma ocupação (registro de novo sítio): confira se é um ponto só']);
+  if (R.completude != null && R.completude < QC_LIM.completude_min)
+    mot.push(['atencao', 'faltam ' + ((1 - R.completude) * 100).toFixed(1) + '% das épocas']);
+  if (R.truncado) mot.push(['atencao', 'o arquivo termina no meio de uma época (cortado no fim)']);
+  if (R.lacunas.length) mot.push(['atencao', R.lacunas.length + ' lacuna(s) no registro; a maior, ' + Math.round(Math.max(...R.lacunas)) + ' s']);
+  if (R.eventos - (R.novo_sitio || 0) > 0) mot.push(['atencao', (R.eventos - (R.novo_sitio || 0)) + ' evento(s) do receptor no arquivo (queda de energia ou registro especial)']);
+  if (R.o_slps != null && R.o_slps < QC_LIM.o_slps_min)
+    mot.push(['atencao', R.perdas + ' perdas de ciclo (uma a cada ' + R.o_slps + ' observações; referência: ' + QC_LIM.o_slps_min + ' ou mais)']);
+  if (R.sat_gr != null && R.sat_gr < QC_LIM.sat_gr_min)
+    mot.push(['atencao', 'poucos satélites: ' + R.sat_gr.toFixed(1) + ' GPS+GLONASS por época (referência: ' + QC_LIM.sat_gr_min + ' ou mais)']);
+  if (R.mp1 != null && R.mp1 > QC_LIM.mp1_max) mot.push(['atencao', 'multicaminho alto em L1: MP1 = ' + R.mp1.toFixed(2) + ' m']);
+  if (R.mp2 != null && R.mp2 > QC_LIM.mp2_max) mot.push(['atencao', 'multicaminho alto em L2: MP2 = ' + R.mp2.toFixed(2) + ' m']);
+  mot.forEach(m => { m[1] = m[1].replace(/(\d)\.(\d)/g, '$1,$2'); });   // vírgula decimal
+  return {parecer: mot.some(m => m[0] === 'remedir') ? 'remedir' : mot.length ? 'atencao' : 'ok', motivos: mot,
+          min: fx(R.duracao_min, 1), epocas: R.epocas, completude: fx(R.completude, 3), sat_gr: fx(R.sat_gr, 1),
+          perdas: R.perdas, perdas_receptor: R.perdas_lli, o_slps: R.o_slps, mp1: fx(R.mp1, 2), mp2: fx(R.mp2, 2),
+          lacunas: R.lacunas.length, eventos: R.eventos, erros: R.erros.length, glonass: R.glonass,
+          feito: new Date().toISOString()};
+}
+const QC_NOME = {ok: 'ok', atencao: 'atenção', remedir: 'remedir'};
+function qcTexto(q){
+  if (!q || !q.parecer) return '';
+  return 'qualidade do RINEX: ' + QC_NOME[q.parecer] + (q.motivos.length ? ' — ' + q.motivos.map(m => m[1]).join('; ') : '');
 }
 
 function hhmm(d){ return d ? d.toISOString().slice(11,19) : ''; }
@@ -3255,6 +3878,7 @@ function aplicaRinex(o, r){
   o.intervalo_de = r.intervalo_de || '';
   o.sistemas = (r.sistemas || []).map(s => NOME_SIS[s] || s).join(', ');
   o.rinex = r.arquivo;
+  if (r.qc) o.qc = r.qc;
   if (r.xyz && 'lat' in o){
     const g = ecefGeo(r.xyz[0], r.xyz[1], r.xyz[2]);
     if (g){ o.lat = g.lat; o.lon = g.lon; o.h = g.h; }
@@ -3597,9 +4221,9 @@ function cartaoPonto(p, k){
   });
   d.querySelector('[data-lerinex]').addEventListener('click', () =>
     pedeRinex(r => { aplicaRinex(p, r); pintaPontos(); grava();
-      guardaArqPonto(p, 'rinex', r._file).then(grava).catch(() => {});
+      rinexParaGuardar(r._file).then(g => guardaArqPonto(p, 'rinex', g)).then(grava).catch(() => {});
       marca('RINEX lido: ' + r.arquivo
-        + (r.aviso_marcador ? ' — ' + r.aviso_marcador : '')); }));
+        + (r.aviso_marcador ? ' — ' + r.aviso_marcador : '') + (r.qc && r.qc.parecer ? ' · ' + qcTexto(r.qc) : '')); }));
   const bseq = d.querySelector('[data-fotoseq]');
   if (bseq) bseq.addEventListener('click', () => {
     let L = filaFotos(p);
@@ -4974,7 +5598,7 @@ $('#b_ponto_rinex').addEventListener('click', () => pedeRinex(r => {
   if (r.duracao != null && r.duracao >= 2*3600) p.tipo = 'controle';
   F.dia.pontos.push(p); F.dia.foco = F.dia.pontos.length - 1; pintaPontos(); pintaAlvos(); grava(); window.scrollTo(0, 0);
   marca('ponto criado a partir de ' + r.arquivo
-    + (r.aviso_marcador ? ' — ' + r.aviso_marcador : ''));
+    + (r.aviso_marcador ? ' — ' + r.aviso_marcador : '') + (r.qc && r.qc.parecer ? ' · ' + qcTexto(r.qc) : ''));
 }));
 
 /* um seletor para as fotos dos pontos */
@@ -10646,14 +11270,27 @@ function pintaHotel(){
   if (!P.length){ e.innerHTML = '<p class="leg">Nenhum ponto na caderneta do dia.</p>'; return; }
   const col = [['rinex', 'RINEX'], ['altura', 'altura'], ['fotos', 'fotos'],
                ['croqui', 'croqui'], ['municipio', 'município'], ['relatorio', 'relatório']];
+  const qc = p => { const q = p.qc;
+    if (!q || !q.parecer) return '<td class="falta">—</td>';
+    const c = {ok: ['ok', '✓'], atencao: ['atn', '!'], remedir: ['rmd', '✗']}[q.parecer];
+    return '<td class="' + c[0] + '" title="' + esc(qcTexto(q)) + '">' + c[1] + '</td>'; };
+  const ruins = P.filter(p => p.qc && p.qc.parecer && p.qc.parecer !== 'ok');
   e.innerHTML = '<table class="tabhotel"><tr><th>ponto</th>'
-    + col.map(c => '<th>' + c[1] + '</th>').join('') + '</tr>'
+    + col.map(c => '<th>' + c[1] + '</th>').join('') + '<th title="qualidade do RINEX">QC</th></tr>'
     + P.map(p => { const s = pendenciasPonto(p);
         return '<tr><td>' + esc(p.id || '(sem id)') + '</td>' + col.map(c =>
           '<td class="' + (s[c[0]] ? 'ok' : 'falta') + '">' + (s[c[0]] ? '✓' : '—') + '</td>').join('')
-          + '</tr>'; }).join('')
-    + '</table><p class="leg">✓ feito · — falta. RINEX e altura vêm do receptor; '
-    + 'município e relatório precisam de internet; fotos e croqui são de campo.</p>';
+          + qc(p) + '</tr>'; }).join('')
+    + '</table>'
+    + (ruins.length ? '<ul class="qcmot">' + ruins.map(p => '<li><b>' + esc(p.id || '') + '</b> — '
+        + (p.qc.parecer === 'remedir' ? '<b style="color:#B91C1C">remedir</b>' : '<b style="color:#B45309">atenção</b>') + ': '
+        + esc(p.qc.motivos.map(m => m[1]).join('; ')) + '</li>').join('') + '</ul>' : '')
+    + '<p class="leg">✓ feito · — falta. RINEX e altura vêm do receptor; '
+    + 'município e relatório precisam de internet; fotos e croqui são de campo. '
+    + '<b>QC</b>, qualidade do RINEX: ✓ ok · <b style="color:#B45309">!</b> atenção (perdas de ciclo, poucos satélites, '
+    + 'multicaminho ou lacunas — o IBGE-PPP decide; se o desvio vier alto, remedir) · '
+    + '<b style="color:#B91C1C">✗</b> remedir (arquivo corrompido, ocupação curta ou épocas faltando). '
+    + 'Para o GLONASS entrar na conta, leia junto o arquivo de navegação (.YYg).</p>';
 }
 
 function _normId(t){ return String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
@@ -10694,6 +11331,12 @@ function casaRinex(r, nomeArq, livres){
 }
 async function leRinexLote(files){
   const livres = F.dia.pontos.slice(), linhas = [], casou = {}, outros = [];
+  /* canais GLONASS dos arquivos de navegação do dia, antes das observações: com
+     eles, as perdas de ciclo e o multicaminho valem também para o GLONASS */
+  for (const f of files){
+    if (!/\.\d\dg$|_GN\.rnx$|GN\.rnx$/i.test(f.name) || f.size > 5e6) continue;
+    try { qcGuardaCanais(qcCanaisGlonass(new TextDecoder('latin1').decode(await f.arrayBuffer()))); } catch (e){}
+  }
   const raiz = n => String(n).replace(/\.[^.]*$/, '').toUpperCase();
   for (const f of files){
     let r;
@@ -10703,10 +11346,11 @@ async function leRinexLote(files){
     const [p, como] = casaRinex(r, f.name, livres);
     if (!p){ linhas.push(f.name + ': sem ponto correspondente — leia pelo cartão do ponto'); continue; }
     aplicaRinex(p, r);
-    await guardaArqPonto(p, 'rinex', f).catch(() => {});
+    await guardaArqPonto(p, 'rinex', await rinexParaGuardar(r._file || f)).catch(() => {});
     casou[raiz(f.name)] = p;
     livres.splice(livres.indexOf(p), 1);
-    linhas.push(f.name + ' → ' + p.id + ' (' + como + ')');
+    linhas.push(f.name + (r.compacto ? ' (compacto, descompactado: ' + r.arquivo + ')' : '') + ' → ' + p.id + ' (' + como + ')'
+      + (r.qc && r.qc.parecer ? ' · ' + qcTexto(r.qc) : ''));
   }
   // navegação (.YYn, .YYg…) do mesmo nome vai junto com a observação, para o pacote
   for (const f of outros){
@@ -11105,7 +11749,8 @@ async function enviaAoServidor(){
        Relatório da Campanha_LCnnn.pdf, Registro do Dia_DDD.pdf, Relatórios dos Pontos_LCnnn.pdf
        Dia_DDD/                                  (dia juliano)
          Dados_GNSS/Originais/                   os arquivos do receptor, com o nome de origem
-         Dados_GNSS/Renomeados/PPPPDDD.YYo/.YYn/.YYg
+                                                 (a observação em RINEX compacto, Hatanaka: .YYd / .crx)
+         Dados_GNSS/Renomeados/PPPPDDD.YYd/.YYn/.YYg
          Dados_GNSS/Coordenadas_calculadas_PPP/PPPPDDD.YYo.pdf/.sum/.pos/.kml/.txt + _LEIAME.txt
          Formulários/PPPP_Form.jpg                (formulário CCAR v6 preenchido pela folha: formularioCCAR)
          Fotos/Originais/AAAAMMDD_hhmmss.jpg
@@ -12116,9 +12761,16 @@ async function exportaLC(op){
     const rx = (p.arqs && p.arqs.rinex) || [];
     if (rx.length) comRinex++; else faltas.push(num + ': sem os arquivos do receptor (leia os RINEX do dia na folha)');
     for (const a of rx){
-      const b = await idbPega(a.chave); if (!b) continue;
-      itens.push({nome: dd + 'Dados_GNSS/Originais/' + a.nome, dados: b, src: a.chave});
-      itens.push({nome: dd + 'Dados_GNSS/Renomeados/' + nomeRinexLC(num, ddd, a.nome), dados: b, src: a.chave});
+      let b = await idbPega(a.chave); if (!b) continue;
+      let nome = a.nome;
+      /* RINEX de observação vai compactado (Hatanaka); o guardado antes desta versão
+         sem compactar é compactado aqui */
+      if (/\.\d\do$|\.rnx$/i.test(nome)){
+        const c = await rinexParaGuardar(new File([b], nome, {lastModified: 0}));
+        if (c.name !== nome){ b = c; nome = c.name; }
+      }
+      itens.push({nome: dd + 'Dados_GNSS/Originais/' + nome, dados: b, src: a.chave});
+      itens.push({nome: dd + 'Dados_GNSS/Renomeados/' + nomeRinexLC(num, ddd, nome), dados: b, src: a.chave});
     }
     const pp = (p.arqs && p.arqs.ppp) || [];
     if (p.ppp_coord && p.ppp_coord.orbita) orbitas.add(p.ppp_coord.orbita.toLowerCase().replace('ultra-rápida', 'ultrarrápida'));
@@ -12497,10 +13149,27 @@ function _altNum(v){ const n = parseFloat(String(v == null ? '' : v).replace(','
 async function enviaRinexPPP(file, p){
   const email = ((F.config || {}).email_ppp || '').trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('informe o e-mail para o IBGE-PPP (quadro Coordenadas do IBGE-PPP, no fechamento)');
-  if (file.size > 20e6) throw new Error(file.name + ': ' + (file.size / 1e6).toFixed(1) + ' MB — o IBGE-PPP aceita até 20 MB');
   if (!navigator.onLine) throw new Error('sem internet neste aparelho');
-  const r = await cabecalhoParaPPP(file);
+  let r = await cabecalhoParaPPP(file);
   if (r && r.nav) throw new Error(file.name + ' é de navegação; envie o de observação');
+  let jaCompacto = eCompacto(new TextDecoder('latin1').decode(await file.slice(0, 200).arrayBuffer()));
+  /* o IBGE-PPP só aceita RINEX até a versão 2.11: o RINEX 3 é convertido aqui
+     (GPS e GLONASS, o que o PPP processa) — o arquivo guardado no ponto não muda */
+  if (r && r.versao && parseFloat(r.versao) >= 3){
+    const f3 = jaCompacto ? await descompactaRinex(file) : file;
+    const txt = rnx3para2(new TextDecoder('latin1').decode(await f3.arrayBuffer()));
+    const nome = nomeRinex2(f3.name, txt);
+    marca(file.name + ': convertido de RINEX ' + r.versao + ' para 2.11 (GPS e GLONASS) → ' + nome);
+    file = new File([_bytesLatin1(txt)], nome, {type: 'text/plain'});
+    r = await cabecalhoParaPPP(file); jaCompacto = false;
+  }
+  /* vai em RINEX compacto (Hatanaka, .YYd): um quarto do tamanho, e rastreios de
+     horas cabem nos 20 MB do PPP. O IBGE-PPP aceitou .YYd em teste real (out/2026). */
+  if (r && r.versao && !jaCompacto && file.size > 1e5){
+    try { const c = await compactaRinex(file); marca(file.name + ': compactado para o PPP, ' + (file.size / 1e6).toFixed(1) + ' → ' + (c.size / 1e6).toFixed(1) + ' MB'); file = c; }
+    catch (e){ marca(file.name + ': não compactou (' + e.message + '), vai como está'); }
+  }
+  if (file.size > 20e6) throw new Error(file.name + ': ' + (file.size / 1e6).toFixed(1) + ' MB — o IBGE-PPP aceita até 20 MB');
   const ant = (r && r.antena) || (p && p.antena) || '';
   const alt = (p && _altNum(p.altura) != null) ? _altNum(p.altura) : (r && r.altura != null ? r.altura : null);
   if (!ant) throw new Error(file.name + ': modelo da antena desconhecido — leia o RINEX no cartão do ponto ou informe a antena');

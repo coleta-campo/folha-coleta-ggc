@@ -1852,8 +1852,8 @@ async function leRinex(file){
 
   /* Um arquivo de NAVEGACAO tambem traz RINEX VERSION / TYPE, e ate' agora
      passava — devolvia um registro vazio, sem marcador, sem horario e sem
-     coordenada, sem dizer por que. Cada ponto costuma vir com o par .YYo
-     (observacao) e .YYn (navegacao); o que descreve a ocupacao e' o primeiro. */
+     coordenada, sem dizer por que. Cada ponto costuma vir com o par .AAo
+     (observacao) e .AAn (navegacao); o que descreve a ocupacao e' o primeiro. */
   if (r.tipo && r.tipo !== 'O')
     throw new Error(file.name + ' é um arquivo de '
       + (r.tipo_nome || 'tipo "' + r.tipo + '"')
@@ -1930,7 +1930,7 @@ async function leRinex(file){
    geometria e de Melbourne-Wübbena, como no TurboEdit de BLEWITT, 1990),
    multicaminho MP1/MP2 (RMS por arco, sem a média) e satélites GPS+GLONASS por
    época. GLONASS entra nas combinações quando se conhece o canal de frequência de
-   cada satélite: vem do RINEX de navegação GLONASS (.YYg) ou do cabeçalho do RINEX 3.
+   cada satélite: vem do RINEX de navegação GLONASS (.AAg) ou do cabeçalho do RINEX 3.
 
    Limiares conferidos em out/2026 contra os desvios-padrão do IBGE-PPP de dois
    conjuntos: LC427/LC428 (96 ocupações de ~25 min a 1 s, Leica GS08plus) e
@@ -1951,7 +1951,7 @@ function qcGuardaCanais(k){
   F.config = F.config || {};
   F.config.glo_canais = Object.assign({}, F.config.glo_canais || {}, k);
 }
-/* canais de frequência GLONASS a partir do RINEX de navegação GLONASS 2.x (.YYg) */
+/* canais de frequência GLONASS a partir do RINEX de navegação GLONASS 2.x (.AAg) */
 function qcCanaisGlonass(txt){
   const k = {}; if (!txt) return k;
   const L = txt.split(/\r?\n/); let i = L.findIndex(l => l.slice(60).trim() === 'END OF HEADER');
@@ -5184,6 +5184,7 @@ function montaImpressao(mapas, fotos, fig, tempos){
     ['campanha', F.campanha.nome], ['município / UF',
       (F.campanha.municipio || '') + (F.campanha.uf ? '/' + F.campanha.uf : '')],
     ['dia', F.dia.data], ['local', F.dia.local],
+    ['pernoite (município)', munPernoite(F.dia.data || _isoHoje())],
     ['equipe', eq.join(' · ')],
     ['receptor / antena (padrão)', [F.campanha.ponto_receptor, F.campanha.ponto_antena]
        .filter(Boolean).join(' · ')],
@@ -5343,8 +5344,8 @@ function montaImpressaoCampanha(fotos, tempos){
       + '<td class="n">' + q.nPontos + '</td>'
       + '<td class="n">' + q.nCtrl + '</td>'
       + '<td class="n">' + q.nChk + '</td>'
-      + '<td class="n">' + (q.semAltura || '—') + '</td></tr>'
-      + (e.dia.ocorrencias ? '<tr><td colspan="6" class="ocor">'
+      + '<td class="n">' + (q.semAltura || '—') + '</td><td>' + esc(munPernoite(e.dia.data) || '—') + '</td></tr>'
+      + (e.dia.ocorrencias ? '<tr><td colspan="7" class="ocor">'
          + esc(e.dia.ocorrencias).replace(/\n/g,' · ') + '</td></tr>' : '');
   }).join('');
   const todos = [];
@@ -5379,10 +5380,11 @@ function montaImpressaoCampanha(fotos, tempos){
     + ident.map(l => '<tr><td>' + l[0] + '</td><td class="n">' + esc(l[1])
         + '</td></tr>').join('') + '</table>'
     + '<h2>Os dias da campanha</h2><table><tr><th>dia</th><th>local</th>'
-    + '<th>pontos</th><th>controle</th><th>checagem</th><th>sem altura</th></tr>'
-    + (dias || '<tr><td colspan="6">nenhum dia registrado</td></tr>') + '</table>'
+    + '<th>pontos</th><th>controle</th><th>checagem</th><th>sem altura</th><th>pernoite</th></tr>'
+    + (dias || '<tr><td colspan="7">nenhum dia registrado</td></tr>') + '</table>'
     + (function(){ const pcR = F.campanha.planoCampanha, cal = calendarioPlano(pcR, null); return cal ? '<h2>Calendário: plano e realizado</h2>'
         + (pcR ? '<p class="ocor">Plano: ' + esc(resumoCalendario(pcR)) + '</p>' : '<p class="ocor">Sem plano da campanha: só o realizado.</p>') + cal : ''; })()
+    + htmlPlanejadoExecutado(todos)
     + '<h2>Os pontos da campanha</h2>'
     + (todos.length ? _tabelaPontos(todos, true) : '<p>nenhum ponto registrado</p>')
     + '<h2>A campanha em números</h2><table>' + nums + '</table>'
@@ -7239,9 +7241,9 @@ const ORDEM_DIA = {
   perto: 'Menor tempo: do mais próximo ao mais distante'};
 function _llTxt(c){ return c.lat.toFixed(6) + ', ' + c.lon.toFixed(6); }
 /* trechos partida → pontos → partida; com rede, até 3 caminhos por trecho pelo OSRM */
-async function _rotasDia(P, seq){
+async function _rotasDia(P, seq, Q){
   const rede = navigator.onLine, pt = paramTempo(), avisos = [];
-  const nos = [Object.assign({id: 'partida'}, P)].concat(seq).concat([Object.assign({id: 'partida'}, P)]);
+  const nos = [Object.assign({id: 'partida'}, P)].concat(seq).concat([Q ? Object.assign({id: 'pouso'}, Q) : Object.assign({id: 'partida'}, P)]);
   const pernas = [];
   for (let j = 0; j + 1 < nos.length; j++){
     const a = nos[j], b = nos[j + 1];
@@ -7266,18 +7268,36 @@ async function _rotasDia(P, seq){
   const volta = pernas.pop();
   return {paradas: pernas, volta: volta, avisos: avisos, rede: rede};
 }
-/* inserção mais barata (linha reta) de um ponto num circuito partida → ... → partida */
-function _insereBarato(P, seq, a){
+/* inserção mais barata (linha reta) de um ponto no caminho partida → ... → pouso (ou de volta à partida) */
+function _insereBarato(P, seq, a, Q){
   const d = (x, y) => geodInversa(x.lat, x.lon, y.lat, y.lon).s;
   let melhor = 0, custo = Infinity;
   for (let k = 0; k <= seq.length; k++){
-    const ant = k ? seq[k - 1] : P, prox = k < seq.length ? seq[k] : P;
+    const ant = k ? seq[k - 1] : P, prox = k < seq.length ? seq[k] : (Q || P);
     const c = d(ant, a) + d(a, prox) - d(ant, prox);
     if (c < custo){ custo = c; melhor = k; }
   }
   seq.splice(melhor, 0, a); return seq;
 }
+/* coordenadas de uma escolha da partida ou do pouso: base do plano (b0, b1…), posição do aparelho, outro lugar */
+function _coordDaEscolha(v, txt, oQue){
+  if (/^b\d+$/.test(v || '')){ const B = basesDe(F.campanha.planoCampanha)[+v.slice(1)]; if (B) return {lat: B.lat, lon: B.lon}; }
+  if (v === 'outra'){
+    const c = coordDeTexto(String(txt || '').trim());
+    if (!c) throw new Error(oQue + ': informe as coordenadas do outro lugar (lat, lon ou link do Google Maps com coordenadas)');
+    return c;
+  }
+  return null;
+}
 async function _partidaDoDia(){
+  const sb = $('#plano_base0');
+  if (sb && sb.value !== 'gps'){ const c = _coordDaEscolha(sb.value, ($('#plano_partida') || {}).value, 'partida'); if (c) return c; }
+  if (sb && sb.value === 'gps'){
+    marca('plano do dia: procurando a posição do aparelho…');
+    const P = await posicaoAgora(15);
+    if (!P) throw new Error('sem posição do aparelho — libere a localização ou escolha a base de partida');
+    return P;
+  }
   const txt = (($('#plano_partida') || {}).value || '').trim();
   if (txt){
     const P = coordDeTexto(txt);
@@ -7288,6 +7308,32 @@ async function _partidaDoDia(){
   const P = await posicaoAgora(15);
   if (!P) throw new Error('sem posição do aparelho — libere a localização, use a minha posição ou cole as coordenadas da partida');
   return P;
+}
+/* onde a equipe dorme hoje: a mesma partida, uma base do plano ou outro lugar */
+function _pousoDoDia(P){
+  const sf = $('#plano_base1'); if (!sf || sf.value === 'igual') return null;
+  const Q = _coordDaEscolha(sf.value, ($('#plano_fim') || {}).value, 'pouso de hoje');
+  return Q && geodInversa(P.lat, P.lon, Q.lat, Q.lon).s > 200 ? Q : null;
+}
+/* registra a partida (pouso da noite anterior) e o pouso de hoje; mudança do plano, com o motivo */
+function registraPernoites(){
+  const pc = F.campanha.planoCampanha, sb = $('#plano_base0'), sf = $('#plano_base1'); if (!pc || !sb || !sf) return;
+  const iso = _isoHoje(), ontem = _maisDias(iso, -1), pv = basePrevista(pc, equipeDoPlano(), iso) || {b0: 0, b1: 0};
+  const motivo = String(($('#plano_motivo') || {}).value || '').trim(), R = pernoites(), BS = basesDe(pc);
+  const reg = (data, v, txt, plano) => {
+    if (v === 'gps' || !v) return;
+    const r = {plano: plano, quando: new Date().toISOString()};
+    if (/^b\d+$/.test(v)){ r.b = +v.slice(1); if (BS[r.b] && BS[r.b].mun) r.mun = BS[r.b].mun; }
+    else { const c = coordDeTexto(String(txt || '')); if (!c) return; r.b = null; r.lat = +c.lat.toFixed(6); r.lon = +c.lon.toFixed(6);
+           const ant = R[data]; if (ant && ant.mun && ant.lat === r.lat && ant.lon === r.lon) r.mun = ant.mun; }
+    r.origem = r.b === plano ? 'plano' : 'campo';
+    if (r.origem === 'campo') r.motivo = motivo || (R[data] && R[data].motivo) || '';
+    R[data] = r;
+    if (r.b == null && !r.mun && navigator.onLine) municipioDe(r.lat, r.lon, 15).then(m => { if (m && R[data] === r){ r.mun = {nome: m.nome, uf: m.uf, cod: m.cod}; grava(); } }).catch(() => {});
+  };
+  reg(ontem, sb.value, ($('#plano_partida') || {}).value, pv.b0);
+  reg(iso, sf.value === 'igual' ? sb.value : sf.value, sf.value === 'igual' ? ($('#plano_partida') || {}).value : ($('#plano_fim') || {}).value, pv.b1);
+  grava();
 }
 async function planejaDia(){
   { const pcH = F.campanha.planoCampanha, hj = pcH && hojeNoPlano(pcH, F.dia.data || undefined);
@@ -7303,6 +7349,8 @@ async function planejaDia(){
   let obrig = listaRemedir().map(r => A.find(a => a.id === r.id)).filter(Boolean);
   let cand;
   const P = await _partidaDoDia();
+  const Q = _pousoDoDia(P);
+  registraPernoites();
   if (EQ){
     // com o plano da campanha: só a região desta equipe, na ordem dos dias
     const ordemK = EQ.dias.flatMap(d => d.ks);
@@ -7319,9 +7367,9 @@ async function planejaDia(){
   if (!cand.length && !obrig.length) return marca('nada a planejar: todos os círculos atendidos e nenhum ponto a remedir');
   let seq, fonteOrdem;
   if (ordem === 'escritorio'){
-    seq = cand.slice(); obrig.forEach(a => _insereBarato(P, seq, a)); fonteOrdem = 'escritório';
+    seq = cand.slice(); obrig.forEach(a => _insereBarato(P, seq, a, Q)); fonteOrdem = 'escritório';
   } else {
-    const L = obrig.concat(cand), nos = [P].concat(L);
+    const L = obrig.concat(cand), nos = [P].concat(L).concat(Q ? [Q] : []);
     let M = null;
     if (navigator.onLine && L.length > 1){
       try {
@@ -7332,11 +7380,12 @@ async function planejaDia(){
       } catch (e){ M = null; }
     }
     if (!M){ M = nos.map(a => nos.map(b => geodInversa(a.lat, a.lon, b.lat, b.lon).s)); fonteOrdem = 'linha reta (sem internet)'; }
-    seq = ordemDoDia(M, ordem).map(i => L[i - 1]);
+    seq = (Q ? ordemCaminho(M) : ordemDoDia(M, ordem)).map(i => L[i - 1]);
   }
-  const r = await _rotasDia(P, seq);
+  const r = await _rotasDia(P, seq, Q);
   r.paradas.forEach(x => { if (obrig.some(a => a.id === x.id)) x.remedir = true; });
   F.dia.plano = {criado: new Date().toISOString(), origem: {lat: +P.lat.toFixed(6), lon: +P.lon.toFixed(6)},
+                 destino: Q ? {lat: +Q.lat.toFixed(6), lon: +Q.lon.toFixed(6)} : undefined,
                  equipe: EQ ? EQ.nome : undefined, ordem: ordem, fonteOrdem: fonteOrdem, ajustado: false,
                  fonte: r.rede ? 'OSRM, até 3 caminhos por trecho — dados © colaboradores do OpenStreetMap' : 'linha reta (sem internet)',
                  paradas: r.paradas, volta: r.volta, avisos: r.avisos};
@@ -7355,16 +7404,78 @@ async function ajustaPlanoDia(acao, id){
   if (acao === 'sobe' && k > 0) [seq[k - 1], seq[k]] = [seq[k], seq[k - 1]];
   else if (acao === 'desce' && k >= 0 && k < seq.length - 1) [seq[k + 1], seq[k]] = [seq[k], seq[k + 1]];
   else if (acao === 'tira' && k >= 0) seq.splice(k, 1);
-  else if (acao === 'inclui'){ const a = A.find(z => z.id === id); if (!a || k >= 0) return; _insereBarato(P, seq, a); }
+  else if (acao === 'inclui'){ const a = A.find(z => z.id === id); if (!a || k >= 0) return; _insereBarato(P, seq, a, p.destino); }
   else return;
   if (!seq.length){ delete F.dia.plano; grava(); pintaPlano(); return marca('plano do dia: sem pontos'); }
   const rem = new Set(p.paradas.filter(x => x.remedir).map(x => x.id));
-  const r = await _rotasDia(P, seq);
+  const r = await _rotasDia(P, seq, p.destino);
   r.paradas.forEach(x => { if (rem.has(x.id) || listaRemedir().some(z => z.id === x.id)) x.remedir = true; });
   Object.assign(p, {paradas: r.paradas, volta: r.volta, avisos: r.avisos, ajustado: true, ajustadoEm: new Date().toISOString(),
     fonte: r.rede ? 'OSRM, até 3 caminhos por trecho — dados © colaboradores do OpenStreetMap' : 'linha reta (sem internet)'});
   grava(); pintaPlano();
   marca('plano do dia ajustado: ' + r.paradas.length + ' ponto(s)' + (r.rede ? '' : ' — sem internet: trechos em linha reta'));
+}
+/* Partida e pouso do dia. Com o plano da campanha, as bases dele: a prevista vem marcada
+   "(plano)", e a equipe pode escolher outra base ou outro lugar — a mudança pede o motivo e
+   fica registrada (pernoites). Sem plano, a partida é a hospedagem digitada ou a posição. */
+function _escolhasBase(EQd){
+  const pc = F.campanha.planoCampanha, BS = basesDe(pc);
+  if (!BS.length || !BS.some(B => !B.semHotel)) return null;
+  const iso = _isoHoje(), pv = basePrevista(pc, EQd, iso) || {b0: 0, b1: 0}, R = pernoites(), sel = F.dia.bases || {};
+  const deReg = r => r ? (r.b != null ? 'b' + r.b : 'outra') : '';
+  let p = sel.p || deReg(R[_maisDias(iso, -1)]) || (BS[pv.b0] && !BS[pv.b0].semHotel ? 'b' + pv.b0 : 'gps');
+  let f = sel.f || deReg(R[iso]) || (pv.b1 === pv.b0 ? 'igual' : 'b' + pv.b1);
+  if (!sel.f && f === p) f = 'igual';
+  const fe = f === 'igual' ? p : f;
+  const desvio = (p !== 'gps' && p !== 'b' + pv.b0) || (fe !== 'gps' && fe !== 'b' + pv.b1);
+  return {pc: pc, BS: BS, pv: pv, p: p, f: f, desvio: desvio, sel: sel};
+}
+function htmlPartidaPouso(EQd){
+  const E = _escolhasBase(EQd);
+  if (!E) return '<label class="c" for="plano_partida">Partida (a hospedagem)</label>'
+    + '<input type="text" id="plano_partida" placeholder="vazio = posição do aparelho; ou lat, lon / link do Google Maps" value="'
+    + esc(F.campanha.partida || '') + '">'
+    + '<div class="acoes"><button type="button" class="btn sec peq" id="b_part_maps">Buscar no Google Maps</button>'
+    + '<button type="button" class="btn sec peq" id="b_part_aqui">Usar a minha posição (GPS)</button></div>'
+    + '<p class="leg" id="plano_part_aviso" style="margin-top:2px"></p>';
+  const {pc, BS, pv, p, f, desvio, sel} = E;
+  const op = (v, prev) => BS.map((B, b) => B.semHotel ? '' : '<option value="b' + b + '"' + (v === 'b' + b ? ' selected' : '') + '>'
+    + esc(rotBase(pc, b)) + (b === prev ? ' (plano)' : '') + '</option>').join('');
+  const mud = pv.b0 !== pv.b1;
+  return '<p class="leg" style="margin:6px 0 2px"><b>Pelo plano:</b> ' + (mud ? 'dia de <b>mudança de base</b>, de ' + esc(rotBase(pc, pv.b0)) + ' para ' + esc(rotBase(pc, pv.b1))
+      : 'partida e pouso em ' + esc(rotBase(pc, pv.b0))) + '. O plano é a referência; se a equipe mudar, escolha abaixo e diga o motivo — fica registrado.</p>'
+    + '<label class="c" for="plano_base0">Partida (onde a equipe dormiu)</label><select id="plano_base0">' + op(p, pv.b0)
+    + '<option value="gps"' + (p === 'gps' ? ' selected' : '') + '>a posição do aparelho, agora</option>'
+    + '<option value="outra"' + (p === 'outra' ? ' selected' : '') + '>outro lugar (coordenadas)</option></select>'
+    + '<div id="plano_part_outra"' + (p === 'outra' ? '' : ' hidden') + '>'
+    + '<input type="text" id="plano_partida" placeholder="lat, lon do lugar / link do Google Maps" value="' + esc(F.campanha.partida || '') + '">'
+    + '<div class="acoes"><button type="button" class="btn sec peq" id="b_part_maps">Buscar no Google Maps</button>'
+    + '<button type="button" class="btn sec peq" id="b_part_aqui">Usar a minha posição (GPS)</button></div>'
+    + '<p class="leg" id="plano_part_aviso" style="margin-top:2px"></p></div>'
+    + '<label class="c" for="plano_base1">Pouso de hoje (onde a equipe dorme)</label><select id="plano_base1">'
+    + '<option value="igual"' + (f === 'igual' ? ' selected' : '') + '>o mesmo lugar da partida</option>' + op(f, pv.b1)
+    + '<option value="outra"' + (f === 'outra' ? ' selected' : '') + '>outro lugar (coordenadas)</option></select>'
+    + '<div id="plano_fim_outra"' + (f === 'outra' ? '' : ' hidden') + '>'
+    + '<input type="text" id="plano_fim" placeholder="lat, lon do novo pouso / link do Google Maps" value="' + esc(sel.ftxt || '') + '">'
+    + '<div class="acoes"><button type="button" class="btn sec peq" id="b_fim_maps">Buscar no Google Maps</button>'
+    + '<button type="button" class="btn sec peq" id="b_fim_aqui">Usar a minha posição (GPS)</button></div>'
+    + '<p class="leg" id="plano_fim_aviso" style="margin-top:2px"></p></div>'
+    + '<div id="plano_mot_box"' + (desvio ? '' : ' hidden') + '><label class="c" for="plano_motivo">Motivo da mudança do plano</label>'
+    + '<input type="text" id="plano_motivo" placeholder="ex.: hospedagem sem vaga; estrada interditada; mais perto dos pontos que faltam" value="'
+    + esc(sel.motivo || '') + '"></div>';
+}
+function ligaPartidaPouso(EQd){
+  const sb = $('#plano_base0'), sf = $('#plano_base1'); if (!sb || !sf) return;
+  const salva = () => {
+    const E = F.dia.bases = Object.assign(F.dia.bases || {}, {p: sb.value, f: sf.value,
+      ftxt: (($('#plano_fim') || {}).value || '').trim(), motivo: (($('#plano_motivo') || {}).value || '').trim()});
+    $('#plano_part_outra').hidden = sb.value !== 'outra'; $('#plano_fim_outra').hidden = sf.value !== 'outra';
+    const X = _escolhasBase(EQd); $('#plano_mot_box').hidden = !(X && X.desvio);
+    registraPernoites(); grava(); return E;
+  };
+  [sb, sf].forEach(x => x.addEventListener('change', salva));
+  ['#plano_fim', '#plano_motivo'].forEach(q => { const i = $(q); if (i) i.addEventListener('change', salva); });
+  if ($('#plano_fim')) ligaCampoCoord('#plano_fim', '#plano_fim_aviso', '#b_fim_maps', '#b_fim_aqui', 'o novo pouso');
 }
 function pintaPlano(){
   const el = $('#plano_dia'); if (!el) return;
@@ -7402,12 +7513,7 @@ function pintaPlano(){
     + 'e toque em <b>Planejar</b>. Cada trecho, inclusive a volta, ganha até três caminhos de carro (OSRM; LUXEN; VETTER, 2011), '
     + 'guardados para navegar sem rede. <b>Do escritório</b> mantém a ordem do plano da campanha; <b>menor tempo</b> calcula a ordem exata '
     + 'de menor tempo total partida → pontos → partida (HELD; KARP, 1962). Depois dá para subir, descer, tirar ou incluir pontos.</p>'
-    + '<label class="c" for="plano_partida">Partida (a hospedagem)</label>'
-    + '<input type="text" id="plano_partida" placeholder="vazio = posição do aparelho; ou lat, lon / link do Google Maps" value="'
-    + esc(F.campanha.partida || '') + '">'
-    + '<div class="acoes"><button type="button" class="btn sec peq" id="b_part_maps">Buscar no Google Maps</button>'
-    + '<button type="button" class="btn sec peq" id="b_part_aqui">Usar a minha posição (GPS)</button></div>'
-    + '<p class="leg" id="plano_part_aviso" style="margin-top:2px"></p>'
+    + htmlPartidaPouso(EQd)
     + '<label class="c" for="plano_ordem">Ordem dos pontos</label><select id="plano_ordem">'
     + Object.entries(ORDEM_DIA).filter(([k]) => EQd || k !== 'escritorio').map(([k, t]) => '<option value="' + k + '"'
       + (k === (F.campanha.planoDiaOrdem || (EQd ? 'escritorio' : 'longe')) ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>'
@@ -7442,6 +7548,7 @@ function pintaPlano(){
     });
     const met = p.ordem === 'escritorio' ? 'a do plano da campanha feito no escritório, com os pontos que faltam'
       + (p.paradas.some(x => x.remedir) ? ' (remedições encaixadas onde menos alongam o caminho)' : '')
+      : p.ordem && p.destino ? 'o menor tempo total da partida, pelos pontos, até o pouso de hoje, exato (HELD; KARP, 1962), por ' + esc(p.fonteOrdem || 'tempos de carro')
       : p.ordem ? 'o menor tempo total partida → pontos → partida, exato (HELD; KARP, 1962), por ' + esc(p.fonteOrdem || 'tempos de carro')
         + ', começando pelo ponto ' + (p.ordem === 'perto' ? 'mais próximo' : 'mais distante') + ' da partida'
       : 'a do ponto pendente mais próximo, um após o outro (plano antigo)';
@@ -7458,7 +7565,7 @@ function pintaPlano(){
         + '<button type="button" class="btn sec peq" data-pdia="tira" data-pid="' + esc(x.id) + '" title="tirar do dia">tirar</button></div>'
         + '</li>';
     }).join('') + '</ol>'
-      + (p.volta ? '<p class="leg" style="margin:0 0 4px">Volta à partida: ' + _numBR(p.volta.km, 1) + ' km' + (p.volta.min != null ? ' · ~' + p.volta.min + ' min' : '')
+      + (p.volta ? '<p class="leg" style="margin:0 0 4px">' + (p.destino ? 'Até o pouso de hoje' : 'Volta à partida') + ': ' + _numBR(p.volta.km, 1) + ' km' + (p.volta.min != null ? ' · ~' + p.volta.min + ' min' : '')
         + ' desde ' + esc(p.volta.de) + '.</p>' : '');
     const fora = pendentesA().filter(a => !p.paradas.some(x => x.id === a.id) && daMinhaEquipe(a));
     if (fora.length) h += '<div class="lin" style="margin:4px 0"><select id="plano_inclui" style="flex:1;min-width:9em"><option value="">incluir um ponto pendente…</option>'
@@ -7491,6 +7598,7 @@ function pintaPlano(){
     tiraRemedir(b.dataset.tirarem); pintaAlvos(); }));
   $('#b_plano').addEventListener('click', () => planejaDia().catch(e => marca('plano do dia: ' + e.message)));
   ligaCampoCoord('#plano_partida', '#plano_part_aviso', '#b_part_maps', '#b_part_aqui', 'a partida (a hospedagem)');
+  ligaPartidaPouso(EQd);
   const pp0 = $('#plano_partida'); if (pp0) pp0.addEventListener('change', () => { F.campanha.partida = pp0.value.trim(); grava(); });
   const po = $('#plano_ordem'); if (po) po.addEventListener('change', () => { F.campanha.planoDiaOrdem = po.value; grava(); });
   el.querySelectorAll('[data-pdia]').forEach(b => b.addEventListener('click', () =>
@@ -7734,14 +7842,21 @@ function textoMunHosp(pc){
     : 'Nos relatórios, só o município da hospedagem (sai das coordenadas ao planejar).';
 }
 async function municipioHospedagem(pc){
-  const h = pc && pc.hotel; if (!h || h.semHotel || h.lat == null) { if (h) delete h.mun; return; }
-  try { const r = await municipioDe(h.lat, h.lon, 15);
-        if (r && F.campanha.planoCampanha === pc){ h.mun = {nome: r.nome, uf: r.uf, cod: r.cod}; grava();
-          const e = $('#pc_hosp_mun'); if (e) e.innerHTML = textoMunHosp(pc); } } catch (e){}
+  for (const h of basesDe(pc)){
+    if (!h || h.semHotel || h.lat == null){ if (h) delete h.mun; continue; }
+    try { const r = await municipioDe(h.lat, h.lon, 15);
+          if (r && F.campanha.planoCampanha === pc){ h.mun = {nome: r.nome, uf: r.uf, cod: r.cod}; grava();
+            const e = $('#pc_hosp_mun'); if (e) e.innerHTML = textoMunHosp(pc); } } catch (e){}
+  }
 }
 function sedeCampanha(){
-  const m = F.campanha.planoCampanha && F.campanha.planoCampanha.hotel && F.campanha.planoCampanha.hotel.mun;
-  if (m) return m.nome + '/' + m.uf;
+  const L = [], poe = t => { if (t && !L.includes(t)) L.push(t); };
+  const pc = F.campanha.planoCampanha, EQ = equipeDoPlano(), c = (pc && pc.calendario) || {};
+  const ini = c.ida || F.campanha.inicio, fim = c.volta || F.campanha.fim;
+  if (ini && fim && fim >= ini) for (let iso = ini; iso < fim; iso = _diaSeg(iso)) poe(munPernoite(iso));
+  const R = pernoites(); Object.keys(R).sort().forEach(iso => poe(R[iso].mun ? R[iso].mun.nome + '/' + R[iso].mun.uf : ''));
+  if (!L.length) basesDe(pc).forEach((B, b) => { if (!EQ || !multiBase(pc) || EQ.dias.some(d => (d.b0 || 0) === b || (d.b1 || 0) === b)) poe(munBase(B)); });
+  if (L.length) return _lista(L);
   return F.campanha.municipio ? F.campanha.municipio + (F.campanha.uf ? '/' + F.campanha.uf : '') : '';
 }
 function _hotelDaTela(){
@@ -7853,6 +7968,224 @@ function ligaCampoCoord(sInp, sAv, sMaps, sAqui, oQue){
        {enableHighAccuracy: true, timeout: 20000, maximumAge: 0});
   });
 }
+/* ---------- bases de pouso: uma ou mais hospedagens na mesma campanha ----------
+   Campanhas maiores, equipes que ficam em lugares diferentes ou que mudam de base ao
+   longo da campanha. A base 1 é a hospedagem do quadro acima; as outras ficam aqui,
+   cada uma com as equipes que a usam. Uma equipe marcada em mais de uma base passa por
+   elas nessa ordem: o dia da mudança sai da base anterior, faz os pontos que menos
+   desviam do caminho e termina na nova.
+   Princípio do processo: o plano é a proposta; a execução é o registro. A folha da
+   equipe parte do plano, mas a equipe pode mudar a base de qualquer noite, com o
+   motivo; a mudança fica em F.campanha.pernoites e vai ao relatório da campanha, no
+   quadro Planejado × executado. Nos relatórios entra só o MUNICÍPIO de cada base. */
+function basesDe(pc){ return pc && pc.hotel ? [pc.hotel].concat(pc.basesExtra || []) : []; }
+function multiBase(pc){ return !!(pc && pc.basesExtra && pc.basesExtra.length); }
+function rotBase(pc, b){ const B = basesDe(pc)[b]; return 'B' + (b + 1) + (B && B.nome ? ' · ' + B.nome : ''); }
+function munBase(B){ return B && B.mun ? B.mun.nome + '/' + B.mun.uf : ''; }
+function _rascBases(){ const r = (F.campanha.basesPlano = F.campanha.basesPlano || {}); r.extras = r.extras || []; return r; }
+/* bases e equipes como estão no quadro (o rascunho fica na campanha) */
+function htmlBasesLista(){
+  const r = _rascBases(), b1 = r.b1eq || [0, 1, 2, 3];
+  const cks = (b, sel) => [0, 1, 2, 3].map(i => '<label style="white-space:nowrap;margin-right:10px;font-weight:400">'
+    + '<input type="checkbox" data-beq="' + b + ':' + i + '"' + (sel.includes(i) ? ' checked' : '') + '> Eq. ' + (i + 1) + '</label>').join('');
+  return '<div class="lin" style="flex-wrap:wrap"><b style="margin-right:8px">Base 1 (a hospedagem acima)</b>' + cks(0, b1) + '</div>'
+    + r.extras.map((x, j) => '<div style="border-top:1px solid #E5E7EB;margin-top:8px;padding-top:6px">'
+      + '<div class="lin"><b style="margin-right:8px">Base ' + (j + 2) + '</b><input type="text" data-bnome="' + j + '" style="flex:1;min-width:8em" '
+      + 'placeholder="nome ou descrição" value="' + esc(x.nome || '') + '"></div>'
+      + '<div class="lin"><label>Coordenadas</label><input type="text" data-btxt="' + j + '" style="flex:1;min-width:10em" '
+      + 'placeholder="lat, lon (Google Maps: botão direito sobre o lugar)" value="' + esc(x.txt || '') + '"></div>'
+      + '<div class="lin"><label>Link (opcional)</label><input type="url" data-blink="' + j + '" style="flex:1;min-width:10em" '
+      + 'placeholder="Google Maps, Airbnb, anúncio…" value="' + esc(x.link || '') + '"></div>'
+      + '<div class="lin" style="flex-wrap:wrap">' + cks(j + 1, x.eq || []) + '<button type="button" class="btn sec peq" data-btira="' + j + '">tirar esta base</button></div></div>').join('')
+    + '<div class="acoes"><button type="button" class="btn sec peq" id="b_base_add"' + (r.extras.length >= 3 ? ' disabled' : '') + '>Incluir uma base</button></div>';
+}
+function htmlBasesConfig(){
+  const r = _rascBases();
+  return '<details class="ajuda" id="pc_bases_det"' + (r.extras.length ? ' open' : '') + '><summary>Mais de um local de pouso '
+    + '(campanha maior, equipes separadas ou mudança de base)</summary>'
+    + '<p class="leg">A hospedagem acima é a <b>base 1</b>. Inclua as outras bases e marque as equipes de cada uma. Os círculos vão para a base '
+    + 'mais próxima (pelas ruas, com internet), e cada base divide os seus entre as equipes dela. <b>Equipe marcada em mais de uma base</b> passa '
+    + 'por elas nessa ordem (base 1, depois base 2…): o dia da mudança sai da base anterior, faz os pontos que menos desviam do caminho e termina na nova. '
+    + 'Equipe sem base marcada fica na base 1. Como na base 1, nome, link e coordenadas não são divulgados: nos relatórios entra só o município.</p>'
+    + '<div id="pc_bases_lista">' + htmlBasesLista() + '</div></details>';
+}
+function ligaBasesConfig(){
+  const box = $('#pc_bases_lista'); if (!box) return;
+  const repinta = () => { box.innerHTML = htmlBasesLista(); ligaBasesConfig(); };
+  const r = _rascBases();
+  box.querySelectorAll('[data-beq]').forEach(c => c.addEventListener('change', () => {
+    const [b, i] = c.dataset.beq.split(':').map(Number);
+    const L = b === 0 ? (r.b1eq = r.b1eq || [0, 1, 2, 3]) : (r.extras[b - 1].eq = r.extras[b - 1].eq || []);
+    const k = L.indexOf(i); if (c.checked && k < 0) L.push(i); if (!c.checked && k >= 0) L.splice(k, 1);
+    L.sort((p, q) => p - q); grava(); }));
+  [['bnome', 'nome'], ['btxt', 'txt'], ['blink', 'link']].forEach(([a, campo]) =>
+    box.querySelectorAll('[data-' + a + ']').forEach(inp => inp.addEventListener('change', () => {
+      const x = r.extras[+inp.dataset[a]]; let v = inp.value.trim();
+      if (campo === 'txt'){ const c = coordDeTexto(v); if (c){ v = c.lat.toFixed(6) + ', ' + c.lon.toFixed(6); inp.value = v; } }
+      if (campo === 'link' && v && !/^https:\/\//i.test(v)) v = '';
+      x[campo] = v;
+      // link do Google Maps com coordenadas: preenche as coordenadas se estiverem vazias
+      if (campo === 'link' && v && !x.txt){ const c = coordDeTexto(v); if (c){ x.txt = c.lat.toFixed(6) + ', ' + c.lon.toFixed(6); repinta(); } }
+      grava(); })));
+  box.querySelectorAll('[data-btira]').forEach(bt => bt.addEventListener('click', () => {
+    r.extras.splice(+bt.dataset.btira, 1); grava(); repinta(); }));
+  const add = $('#b_base_add'); if (add) add.addEventListener('click', () => {
+    if (r.extras.length >= 3) return; r.extras.push({nome: '', txt: '', link: '', eq: []}); grava(); repinta(); });
+}
+/* as bases válidas do rascunho e o itinerário de cada equipe (índices das bases, em ordem) */
+function basesDoRascunho(N, avisos){
+  const r = _rascBases(), extras = [];
+  r.extras.forEach((x, j) => {
+    const c = coordDeTexto(x.txt || '') || (x.link ? coordDeTexto(x.link) : null);
+    const eq = (x.eq || []).filter(i => i < N);
+    if (!c){ if (x.nome || x.txt || eq.length) avisos.push('base ' + (j + 2) + ' sem coordenadas: ficou de fora'); return; }
+    if (!eq.length){ avisos.push('base ' + (j + 2) + ' sem equipe marcada: ficou de fora'); return; }
+    extras.push({lat: +c.lat.toFixed(6), lon: +c.lon.toFixed(6), txt: x.txt || '', nome: x.nome || '', link: /^https:\/\//i.test(x.link || '') ? x.link : '', eq: eq});
+  });
+  const eq1 = (r.b1eq || [0, 1, 2, 3]).filter(i => i < N);
+  const itin = Array.from({length: N}, (_, i) => {
+    const L = []; if (!extras.length || eq1.includes(i)) L.push(0);
+    extras.forEach((x, j) => { if (x.eq.includes(i)) L.push(j + 1); });
+    return L.length ? L : [0];
+  });
+  if (extras.length) itin.forEach((L, i) => { if (!eq1.includes(i) && !extras.some(x => x.eq.includes(i))) avisos.push('EQUIPE ' + (i + 1) + ' sem base marcada: ficou na base 1'); });
+  return {extras: extras, eq1: extras.length ? eq1 : Array.from({length: N}, (_, i) => i), itin: itin};
+}
+/* Caminho de menor custo do nó 0 ao nó n+1, passando uma vez por 1..n — o dia de mudança
+   sai de uma base e termina na outra. Exato por programação dinâmica (HELD; KARP, 1962).
+   Devolve os índices 1..n na ordem de visita. */
+function ordemCaminho(M){
+  const n = M.length - 2;
+  if (n <= 0) return [];
+  if (n === 1) return [1];
+  const N = 1 << n, INF = 1e18;
+  const dp = new Float64Array(N * n).fill(INF), pai = new Int8Array(N * n).fill(-1);
+  for (let j = 0; j < n; j++) dp[(1 << j) * n + j] = M[0][j + 1];
+  for (let m = 1; m < N; m++) for (let j = 0; j < n; j++){
+    const v = dp[m * n + j]; if (!(m & (1 << j)) || v >= INF) continue;
+    for (let k = 0; k < n; k++){
+      if (m & (1 << k)) continue;
+      const m2 = m | (1 << k), c = v + M[j + 1][k + 1];
+      if (c < dp[m2 * n + k]){ dp[m2 * n + k] = c; pai[m2 * n + k] = j; }
+    }
+  }
+  let melhor = INF, fim = 0;
+  for (let j = 0; j < n; j++){ const c = dp[(N - 1) * n + j] + M[j + 1][n + 1]; if (c < melhor){ melhor = c; fim = j; } }
+  const seq = []; let m = N - 1, j = fim;
+  while (j >= 0){ seq.unshift(j + 1); const p = pai[m * n + j]; m &= ~(1 << j); j = p; }
+  return seq;
+}
+/* dia de mudança de base: os círculos que sobraram na base A (fixos) e os x da base B que
+   menos alongam o caminho A → B (desvio em linha reta), na ordem de menor percurso de A a B */
+function _diaMudanca(G, A, B, x, fixos){
+  const d = (p, q) => geodInversa(p.lat, p.lon, q.lat, q.lon).s, dAB = d(A, B);
+  const esc_ = (fixos || []).concat(x > 0 ? G.map(u => ({u: u, c: d(A, u) + d(u, B) - dAB})).sort((p, q) => p.c - q.c).slice(0, x).map(z => z.u) : []);
+  const nos = [A].concat(esc_).concat([B]);
+  return ordemCaminho(nos.map(p => nos.map(q => d(p, q)))).map(i => esc_[i - 1]);
+}
+/* as bases do itinerário de uma equipe, com os dias: "B1 (dias 1 a 3) → B2 (dias 4 a 6)" */
+function itinerarioTexto(pc, e){
+  if (!multiBase(pc) || !e) return '';
+  const G = [];
+  e.dias.forEach((d, j) => { const b = d.b1 || 0, u = G[G.length - 1];
+    if (u && u.b === b) u.ate = j + 1; else G.push({b: b, de: j + 1, ate: j + 1, muda: (d.b0 || 0) !== b}); });
+  return G.map(g => 'B' + (g.b + 1) + ' (' + (g.de === g.ate ? 'dia ' + g.de : 'dias ' + g.de + ' a ' + g.ate) + (g.muda ? ', chegando no dia ' + g.de : '') + ')').join(' → ');
+}
+/* as bases do plano para mostrar (nome, link, coordenadas: só ao plano e às equipes) */
+function htmlBases(pc, EQ, curto){
+  if (!multiBase(pc)) return htmlHotel(pc.hotel, curto);
+  const usa = b => !EQ || EQ.dias.some(d => (d.b0 || 0) === b || (d.b1 || 0) === b);
+  return basesDe(pc).map((B, b) => usa(b) ? '<b>B' + (b + 1) + '</b> ' + htmlHotel(B, true) + (munBase(B) ? ' · ' + esc(munBase(B)) : '') : '').filter(Boolean).join('<br>')
+    + (EQ ? '<br><small>Itinerário: ' + esc(itinerarioTexto(pc, EQ)) + '</small>' : '');
+}
+/* ---------- execução: o pouso de cada noite ----------
+   F.campanha.pernoites[data] = onde a equipe dormiu na noite daquela data: {b (base do
+   plano) ou lat/lon (outro lugar), mun, origem: 'plano' | 'campo', plano (base prevista),
+   motivo}. A partida do dia é o pouso da noite anterior. */
+function pernoites(){ return (F.campanha.pernoites = F.campanha.pernoites || {}); }
+function _isoHoje(){ return (F.dia && F.dia.data) || new Date().toISOString().slice(0, 10); }
+/* bases previstas para a data: b0 = partida (onde a equipe dormiu), b1 = onde dorme */
+function basePrevista(pc, EQ, iso){
+  if (!pc || !pc.hotel) return null;
+  if (!EQ || !EQ.dias.length) return {b0: 0, b1: 0, dia: null};
+  const hj = hojeNoPlano(pc, iso);
+  if (hj && hj.util && hj.j < EQ.dias.length){ const d = EQ.dias[hj.j]; return {b0: d.b0 || 0, b1: d.b1 || 0, dia: hj.j + 1}; }
+  if (hj && hj.antes){ const b = EQ.dias[0].b0 || 0; return {b0: b, b1: b, dia: null}; }
+  const DT = datasDoPlano(pc, EQ.dias.length) || []; let k = -1;
+  DT.forEach((t, i) => { if (_isoDia(t) <= iso) k = i; });
+  const b = k >= 0 ? (EQ.dias[k].b1 || 0) : (EQ.dias[0].b0 || 0);
+  return {b0: b, b1: b, dia: null};
+}
+/* município do pouso de uma noite: o registrado; senão, o da base do plano */
+function munPernoite(iso){
+  const r = pernoites()[iso];
+  if (r && r.mun) return r.mun.nome + '/' + r.mun.uf;
+  const pc = F.campanha.planoCampanha, B = basesDe(pc);
+  if (r && r.b != null && B[r.b]) return munBase(B[r.b]);
+  if (r) return '';
+  const pv = basePrevista(pc, equipeDoPlano(), iso);
+  return pv && B[pv.b1] && !B[pv.b1].semHotel ? munBase(B[pv.b1]) : '';
+}
+/* locais de pernoite do afastamento, agrupados: "04/11 a 08/11: Natal/RN; 09/11: Parnamirim/RN" */
+function textoPernoites(){
+  const pc = F.campanha.planoCampanha, c = (pc && pc.calendario) || {};
+  const ini = c.ida || F.campanha.inicio, fim = c.volta || F.campanha.fim;
+  if (!ini || !fim || fim < ini) return '';
+  const G = [];
+  for (let iso = ini; iso < fim; iso = _diaSeg(iso)){                 // a última data é a da volta: sem pernoite
+    const m = munPernoite(iso) || 'a informar', u = G[G.length - 1];
+    if (u && u.m === m) u.ate = iso; else G.push({m: m, de: iso, ate: iso});
+  }
+  const dd = iso => iso.slice(8, 10) + '/' + iso.slice(5, 7);
+  return G.map(g => (g.de === g.ate ? dd(g.de) : dd(g.de) + ' a ' + dd(g.ate)) + ': ' + g.m).join('; ');
+}
+/* Planejado × executado: o que mudou do plano e por quê (relatório da campanha) */
+function htmlPlanejadoExecutado(todos){
+  const pc = F.campanha.planoCampanha; if (!pc || !pc.equipes) return '';
+  const EQ = equipeDoPlano(), B = basesDe(pc), L = [], cont = {prev: 0, ante: 0, adia: 0, fora: 0, outra: 0, opcao: 0, campo: 0, remed: 0, pouso: 0};
+  const onde = id => {
+    if (String(id).startsWith('campo:')){ const k = 'c' + String(id).slice(6);
+      for (let i = 0; i < pc.equipes.length; i++) for (let j = 0; j < pc.equipes[i].dias.length; j++)
+        if (pc.equipes[i].dias[j].ks.includes(k)) return {e: pc.equipes[i], j: j};
+      return null; }
+    return _ondePlanejado(pc, id);
+  };
+  const datas = new Map();
+  for (const t of todos){
+    const p = t.p, id = chaveOcup(p), o = onde(id), feito = String(t.data || p.ocup_ini || '').slice(0, 10);
+    const obs = [];
+    let prev = '';
+    if (!o){ cont.fora++; obs.push('fora do plano da campanha'); }
+    else {
+      if (!datas.has(o.e)) datas.set(o.e, datasDoPlano(pc, o.e.dias.length) || []);
+      const DT = datas.get(o.e); prev = DT[o.j] ? _isoDia(DT[o.j]) : '';
+      if (EQ && o.e !== EQ){ cont.outra++; obs.push('previsto para a ' + o.e.nome); }
+      if (prev && feito){ if (feito < prev){ cont.ante++; obs.push('antecipado'); } else if (feito > prev){ cont.adia++; obs.push('adiado'); } else cont.prev++; }
+    }
+    if (p.planejado && p.planejado.id && opcaoDe(p.planejado.id) && opcaoDe(p.planejado.id) !== 'A'){ cont.opcao++; obs.push('opção ' + opcaoDe(p.planejado.id) + ' no lugar da A'); }
+    if (p.campo){ cont.campo++; obs.push('escolhido em campo' + (p.campo.motivo ? ': ' + p.campo.motivo : '')); }
+    if (p.remedicao){ cont.remed++; obs.push('remedição' + (p.remedicao.motivo ? ': ' + p.remedicao.motivo : '')); }
+    if (obs.length) L.push({data: feito, id: p.id || id, prev: prev ? _dataBr(prev) + (o ? ' (Dia ' + (o.j + 1) + ')' : '') : '—', obs: obs});
+  }
+  const R = pernoites(), pous = Object.keys(R).sort().filter(iso => R[iso].origem === 'campo');
+  cont.pouso = pous.length;
+  const linhaPouso = iso => { const r = R[iso], pv = r.plano != null && B[r.plano] ? 'B' + (r.plano + 1) + (munBase(B[r.plano]) ? ' (' + munBase(B[r.plano]) + ')' : '') : '—';
+    return '<tr><td>' + _dataBr(iso) + '</td><td>' + esc(pv) + '</td><td>' + esc(r.mun ? r.mun.nome + '/' + r.mun.uf : r.b != null ? 'B' + (r.b + 1) + (munBase(B[r.b]) ? ' (' + munBase(B[r.b]) + ')' : '') : 'outro local')
+      + '</td><td>' + esc(r.motivo || 'motivo não informado') + '</td></tr>'; };
+  const num = [['ocupações no dia previsto', cont.prev], ['antecipadas', cont.ante], ['adiadas', cont.adia],
+    ['previstas para outra equipe', cont.outra], ['fora do plano', cont.fora], ['opção B, C ou D no lugar da A', cont.opcao],
+    ['pontos escolhidos em campo', cont.campo], ['remedições', cont.remed], ['noites em pouso diferente do plano', cont.pouso]];
+  const desv = L.filter(x => x.obs.length);
+  return '<h2>Planejado × executado</h2>'
+    + '<p class="ocor">O plano da campanha (gerado em ' + new Date(pc.criado).toLocaleString('pt-BR').slice(0, 17) + (EQ ? ', ' + esc(EQ.nome) : '')
+    + ') é a proposta; o que segue é o que foi feito e o porquê das mudanças. Executar como planejado é o objetivo, quando o plano se mostra eficiente; '
+    + 'mudar é decisão da equipe em campo, registrada aqui.</p>'
+    + '<table>' + num.map(r => '<tr><td>' + r[0] + '</td><td class="n">' + r[1] + '</td></tr>').join('') + '</table>'
+    + (desv.length ? '<table><tr><th>data</th><th>ponto</th><th>previsto</th><th>mudança</th></tr>'
+        + desv.map(x => '<tr><td>' + (x.data ? _dataBr(x.data) : '—') + '</td><td>' + esc(x.id) + '</td><td>' + esc(x.prev) + '</td><td>' + esc(x.obs.join('; ')) + '</td></tr>').join('') + '</table>' : '')
+    + (pous.length ? '<h3 style="margin:8px 0 4px">Pouso (só o município)</h3><table><tr><th>noite de</th><th>plano</th><th>usado</th><th>motivo</th></tr>'
+        + pous.map(linhaPouso).join('') + '</table>' : '');
+}
 async function planejaCampanha(){
   const v = s => ($(s) || {}).value;
   const x = Math.max(1, Math.min(15, parseInt(v('#pc_n'), 10) || 5));
@@ -7876,49 +8209,119 @@ async function planejaCampanha(){
   const semHotel = !H;
   if (!H) H = med;
   const rede = navigator.onLine, avisos = [];
-  // distância do hotel a cada círculo: pelas ruas (tabela OSRM) ou em linha reta
-  const dH = {};
-  U.forEach(u => { dH[u.k] = geodInversa(H.lat, H.lon, u.lat, u.lon).s; });
+  // bases de pouso: a hospedagem (base 1) e as outras do quadro; itinerário de cada equipe
+  const BX = basesDoRascunho(N, avisos);
+  const bases = [H].concat(BX.extras), multi = bases.length > 1, itin = BX.itin;
+  const usadas = bases.map((_, b) => b).filter(b => itin.some(L => L.includes(b)));
+  // distância de cada base a cada círculo: pelas ruas (tabela OSRM) ou em linha reta
+  const dB = bases.map(Bb => { const o = {}; U.forEach(u => { o[u.k] = geodInversa(Bb.lat, Bb.lon, u.lat, u.lon).s; }); return o; });
   let fonteD = 'linha reta';
   if (rede){
     try {
-      for (let i = 0; i < U.length; i += 90){
-        const parte = U.slice(i, i + 90);
-        marca('plano da campanha: distâncias pelas ruas a partir da hospedagem…');
-        const coords = [H].concat(parte).map(c => c.lon.toFixed(6) + ',' + c.lat.toFixed(6)).join(';');
-        const t = await _osrm('table/v1/driving/' + coords + '?sources=0&annotations=distance');
-        parte.forEach((u, j) => { const d = t.distances[0][j + 1]; if (d != null) dH[u.k] = d; });
-        await _espera(1100);
+      for (const b of usadas){
+        for (let i = 0; i < U.length; i += 90){
+          const parte = U.slice(i, i + 90);
+          marca('plano da campanha: distâncias pelas ruas a partir da ' + (multi ? 'base ' + (b + 1) : 'hospedagem') + '…');
+          const coords = [bases[b]].concat(parte).map(c => c.lon.toFixed(6) + ',' + c.lat.toFixed(6)).join(';');
+          const t = await _osrm('table/v1/driving/' + coords + '?sources=0&annotations=distance');
+          parte.forEach((u, j) => { const d = t.distances[0][j + 1]; if (d != null) dB[b][u.k] = d; });
+          await _espera(1100);
+        }
       }
       fonteD = 'pelas ruas (OSRM)';
     } catch (e){
       avisos.push('distâncias em linha reta (' + (e.name === 'AbortError' ? 'servidor não respondeu' : e.message) + ')');
     }
   }
+  const dH = dB[0];
   const dv = v('#pc_div'), divisao = dv === 'vazios' || dv === 'manual' ? dv : 'dias';
   const par = {ocup: ocup, vel: velUrb};
-  let div;
-  if (divisao === 'manual'){
-    // a distribuição escolhida na tabela; círculo sem equipe vai para a equipe com o ponto mais perto dele
-    const at = F.campanha.atribEquipes || {}, grupos = Array.from({length: N}, () => []), sem = [];
-    U.forEach(u => { const i = at[u.k]; if (i != null && i >= 0 && i < N) grupos[i].push(u); else sem.push(u); });
+  const at = F.campanha.atribEquipes || {};
+  // grupos[i] = [{b, G}] — os círculos da equipe i em cada base do itinerário dela
+  const grupos = Array.from({length: N}, () => []);
+  let cortes = [], cortesB = [], compara = null;
+  const divManual = (L, T) => {            // a equipe escolhida na tabela; sem escolha, a do ponto mais perto
+    const gs = T.map(() => []), sem = [];
+    L.forEach(u => { const t = T.indexOf(at[u.k]); if (t >= 0) gs[t].push(u); else sem.push(u); });
     sem.forEach(u => {
-      let bi = grupos.findIndex(g => !g.length), bd = Infinity;
-      if (bi < 0) grupos.forEach((g, i) => g.forEach(w => { const d = geodInversa(u.lat, u.lon, w.lat, w.lon).s; if (d < bd){ bd = d; bi = i; } }));
-      grupos[bi].push(u);
+      let bi = gs.findIndex(g => !g.length), bd = Infinity;
+      if (bi < 0) gs.forEach((g, t) => g.forEach(w => { const d = geodInversa(u.lat, u.lon, w.lat, w.lon).s; if (d < bd){ bd = d; bi = t; } }));
+      gs[bi].push(u);
     });
-    div = {grupos: grupos, cortes: []};
-  } else div = divideEquipes(U, H, N, x, divisao, par);
-  const alt = divisao === 'manual' ? null : divideEquipes(U, H, N, x, divisao === 'dias' ? 'vazios' : 'dias', par);
-  const nd_ = t => t.map(k => Math.ceil(k / x));
-  const compara = alt && alt.tam && div.tam && alt.tam.join() !== div.tam.join()
-    ? {modo: divisao === 'dias' ? 'vazios' : 'dias', tam: alt.tam, dias: nd_(alt.tam)} : null;
-  const equipes = div.grupos.map((G, i) => ({nome: 'EQUIPE ' + (i + 1), cor: CORES_EQ[i % CORES_EQ.length],
-    dias: montaDias(G, H, x, ordem, dH).map(d => ({ids: d.map(u => u.id), ks: d.map(u => u.k), pernas: null}))}));
+    return gs;
+  };
+  if (!multi){
+    let div;
+    if (divisao === 'manual') div = {grupos: divManual(U, Array.from({length: N}, (_, i) => i)), cortes: []};
+    else div = divideEquipes(U, H, N, x, divisao, par);
+    const alt = divisao === 'manual' ? null : divideEquipes(U, H, N, x, divisao === 'dias' ? 'vazios' : 'dias', par);
+    const nd_ = t => t.map(k => Math.ceil(k / x));
+    compara = alt && alt.tam && div.tam && alt.tam.join() !== div.tam.join()
+      ? {modo: divisao === 'dias' ? 'vazios' : 'dias', tam: alt.tam, dias: nd_(alt.tam)} : null;
+    div.grupos.forEach((G, i) => grupos[i].push({b: 0, G: G}));
+    cortes = div.cortes;
+  } else {
+    // cada círculo vai para a base mais próxima (na divisão manual, a mais próxima entre as bases da equipe escolhida)
+    const maisPerto = (u, L) => L.reduce((m, b) => dB[b][u.k] < dB[m][u.k] ? b : m, L[0]);
+    const porBase = {};
+    U.forEach(u => { const i = at[u.k], L = divisao === 'manual' && i != null && i < N ? itin[i] : usadas;
+      const b = maisPerto(u, L); (porBase[b] = porBase[b] || []).push(u); });
+    /* equipes em bases separadas (cada uma numa só): a base com mais dias passa à outra os círculos
+       que menos alongam o caminho (até 15 km a mais), enquanto isso reduzir a campanha */
+    if (divisao !== 'manual' && itin.every(L => L.length === 1)){
+      const nT = b => itin.filter(L => L[0] === b).length, dias = b => Math.ceil((porBase[b] || []).length / Math.max(1, nT(b)) / x);
+      const bs = usadas.filter(b => nT(b)); let mov = 0;
+      for (let it = 0; it < U.length && bs.length > 1; it++){
+        const h = bs.reduce((m, b) => dias(b) > dias(m) ? b : m, bs[0]), l = bs.reduce((m, b) => dias(b) < dias(m) ? b : m, bs[0]);
+        if (h === l || dias(h) - dias(l) < 1) break;
+        let best = null, bc = Infinity;
+        (porBase[h] || []).forEach(u => { const c = dB[l][u.k] - dB[h][u.k]; if (c < bc){ bc = c; best = u; } });
+        if (!best || bc > 15000) break;
+        porBase[h] = porBase[h].filter(u => u !== best); (porBase[l] = porBase[l] || []).push(best);
+        if (dias(l) > dias(h)){ porBase[l].pop(); porBase[h].push(best); break; }
+        mov++;
+      }
+      if (mov) avisos.push(mov + ' círculo(s) foram para a base com menos dias, para equilibrar as equipes');
+    }
+    for (const b of usadas){
+      const Ub = porBase[b] || []; if (!Ub.length) continue;
+      const T = Array.from({length: N}, (_, i) => i).filter(i => itin[i].includes(b));
+      let gs;
+      if (divisao === 'manual') gs = divManual(Ub, T);
+      else {
+        const dvb = divideEquipes(Ub, bases[b], T.length, x, divisao, par);
+        gs = dvb.grupos;
+        if (dvb.cortes && dvb.cortes.length)
+          cortesB.push({b: b, cortes: dvb.cortes, r: Math.round(Math.max(...Ub.map(u => geodInversa(bases[b].lat, bases[b].lon, u.lat, u.lon).s)) * 1.08)});
+      }
+      T.forEach((i, t) => grupos[i].push({b: b, G: gs[t] || []}));
+    }
+    grupos.forEach((L, i) => L.sort((p, q) => itin[i].indexOf(p.b) - itin[i].indexOf(q.b)));
+  }
+  // dias de cada equipe, base por base; entre duas bases, o dia de mudança
+  const equipes = grupos.map((L, i) => {
+    const dias = []; let prev = null;
+    for (const g of L){
+      if (!g.G.length) continue;
+      let R = g.G.slice();
+      if (prev != null && prev !== g.b){
+        // o último dia na base anterior, se não está cheio, vai junto com a mudança
+        const ult = dias[dias.length - 1], sobra = ult && ult.b0 === prev && ult.b1 === prev && ult.u.length < x ? dias.pop().u : [];
+        const tr = _diaMudanca(R, bases[prev], bases[g.b], x - sobra.length, sobra);
+        R = R.filter(u => !tr.includes(u));
+        dias.push({u: tr, b0: prev, b1: g.b});
+      }
+      montaDias(R, bases[g.b], x, ordem, dB[g.b]).forEach(d => dias.push({u: d, b0: g.b, b1: g.b}));
+      prev = g.b;
+    }
+    return {nome: 'EQUIPE ' + (i + 1), cor: CORES_EQ[i % CORES_EQ.length], bases: itin[i].slice(),
+      dias: dias.map(d => ({ids: d.u.map(u => u.id), ks: d.u.map(u => u.k), pernas: null, b0: d.b0, b1: d.b1}))};
+  });
   /* Rotas de carro de cada dia, feitas aqui no gabinete para todas as equipes:
      1) a ordem de visita é refeita pelos tempos de carro entre os pontos (tabela do OSRM),
-        começando pelo mais distante do hotel (ou pelo mais próximo, conforme a opção);
-     2) cada trecho (hotel → 1º ponto, ponto → ponto, último → hotel) ganha até 3 opções
+        começando pelo mais distante da base (ou pelo mais próximo, conforme a opção); no dia
+        de mudança, o caminho de menor tempo da base de saída à de chegada;
+     2) cada trecho (base → 1º ponto, ponto → ponto, último → base) ganha até 3 opções
         de caminho, com o traçado, que vão na folha da equipe e servem à navegação sem rede. */
   let rotas = 0;
   if (rede){
@@ -7926,19 +8329,21 @@ async function planejaCampanha(){
     let n = 0;
     for (const e of equipes) for (const d of e.dias){
       n++;
+      const H0 = bases[d.b0 || 0], H1 = bases[d.b1 || 0], aberto = (d.b0 || 0) !== (d.b1 || 0);
       let pts = d.ids.map(id => F.campanha.alvos.find(a => a.id === id));
       const ks = {}; d.ids.forEach((id, j) => { ks[id] = d.ks[j]; });
       try {
-        if (pts.length > 2){
+        if (pts.length > 2 || (aberto && pts.length > 1)){
           marca('plano da campanha: dia ' + n + ' de ' + tot + ' — ordem pelo menor tempo de carro…');
-          const c = [H].concat(pts).map(p => p.lon.toFixed(6) + ',' + p.lat.toFixed(6)).join(';');
+          const c = [H0].concat(pts).concat(aberto ? [H1] : []).map(p => p.lon.toFixed(6) + ',' + p.lat.toFixed(6)).join(';');
           const t = await _osrm('table/v1/driving/' + c + '?annotations=duration,distance');
-          const seq = ordemDoDia(t.durations.map(r => r.map(v => v == null ? 1e9 : v)), ordem);
+          const Mt = t.durations.map(r => r.map(v => v == null ? 1e9 : v));
+          const seq = aberto ? ordemCaminho(Mt) : ordemDoDia(Mt, ordem);
           pts = seq.map(j => pts[j - 1]);
           d.ids = pts.map(p => p.id); d.ks = d.ids.map(id => ks[id]);
           await _espera(1100);
         }
-        const seqP = [Object.assign({id: 'hotel'}, H)].concat(pts).concat([Object.assign({id: 'hotel'}, H)]);
+        const seqP = [Object.assign({id: 'hotel'}, H0)].concat(pts).concat([Object.assign({id: 'hotel'}, H1)]);
         const trechos = [], pernas = [];
         for (let j = 0; j + 1 < seqP.length; j++){
           marca('plano da campanha: dia ' + n + ' de ' + tot + ' — trecho ' + (j + 1) + ' de ' + (seqP.length - 1) + '…');
@@ -7960,9 +8365,10 @@ async function planejaCampanha(){
   }
   F.campanha.planoCampanha = {criado: new Date().toISOString(), porDia: x, ordem: ordem, ocup: ocup, jornada: jornada,
     velUrb: velUrb, velRod: velRod, saida: saida, almoco: almoco, divisao: divisao, compara: compara,
-    hotel: Object.assign({lat: +H.lat.toFixed(6), lon: +H.lon.toFixed(6), txt: txt, semHotel: semHotel}, _hotelDaTela()),
+    hotel: Object.assign({lat: +H.lat.toFixed(6), lon: +H.lon.toFixed(6), txt: txt, semHotel: semHotel, eq: BX.eq1}, _hotelDaTela()),
+    basesExtra: BX.extras.length ? BX.extras : undefined, cortesB: cortesB.length ? cortesB : undefined,
     baricentro: {lat: +bar.lat.toFixed(6), lon: +bar.lon.toFixed(6)}, mediana: {lat: +med.lat.toFixed(6), lon: +med.lon.toFixed(6)},
-    cortes: div.cortes, fonteDist: fonteD, rotas: rotas ? 'OSRM, até 3 caminhos por trecho — dados © colaboradores do OpenStreetMap' : 'sem rotas (sem internet)',
+    cortes: cortes, fonteDist: fonteD, rotas: rotas ? 'OSRM, até 3 caminhos por trecho — dados © colaboradores do OpenStreetMap' : 'sem rotas (sem internet)',
     nUnid: U.length, equipes: equipes, avisos: avisos};
   F.campanha.planoCampanha.calendario = _calDaTela();
   _datasNaCampanha(F.campanha.planoCampanha);
@@ -7973,7 +8379,7 @@ async function planejaCampanha(){
   delete F.campanha.planoCampanha.hotel.tipo;
   grava(); pintaAlvos(); municipioHospedagem(F.campanha.planoCampanha);
   const nd = equipes.map(e => e.nome + ': ' + e.dias.length + ' dia(s)').join(', ');
-  marca('plano da campanha: ' + U.length + ' círculo(s) — ' + nd + (avisos.length ? ' — ' + avisos.join('; ') : ''));
+  marca('plano da campanha: ' + U.length + ' círculo(s)' + (multi ? ' em ' + usadas.length + ' bases' : '') + ' — ' + nd + (avisos.length ? ' — ' + avisos.join('; ') : ''));
 }
 /* Situação de um dia do plano: quantos círculos já atendidos. */
 /* Andamento, para a simbologia do plano: COLETADO = ocupação encerrada (ou dia
@@ -8027,7 +8433,8 @@ function svgPlanoCampanha(pc, W, Hh){
             L.push({lat: a.lat, lon: a.lon, cor: e.cor, dia: j + 1, ord: d.ids.indexOf(id) + 1, id: id, eq: i,
                     estado: (estadoDaUnidade(k, id, Ez) || {}).st || null}); }
   })));
-  const ex = L.concat([pc.hotel, pc.baricentro, pc.mediana]);
+  const BS = basesDe(pc), mb = multiBase(pc);
+  const ex = L.concat(BS, [pc.baricentro, pc.mediana]);
   pc.equipes.forEach(e => e.dias.forEach(d => (d.trechos || []).forEach(t => {     // o quadro abrange os caminhos
     const g = t.op && t.op[0] && t.op[0].g || [];
     for (let i = 0; i < g.length; i += Math.max(1, Math.floor(g.length / 20))) ex.push({lat: g[i][1], lon: g[i][0]});
@@ -8044,11 +8451,12 @@ function svgPlanoCampanha(pc, W, Hh){
     + 'px;background:#fff;border:1px solid #ccc;border-radius:6px;font-family:system-ui,sans-serif">';
   const h = tela(pc.hotel);
   // divisas: raios do hotel até a borda, tracejados
-  (pc.cortes || []).forEach(t => {
-    const dx = Math.sin(t), dy = -Math.cos(t), R = W + Hh;
-    s += '<line x1="' + h[0].toFixed(1) + '" y1="' + h[1].toFixed(1) + '" x2="' + (h[0] + dx * R).toFixed(1) + '" y2="' + (h[1] + dy * R).toFixed(1)
-      + '" stroke="#555" stroke-width="1.2" stroke-dasharray="6 5" stroke-opacity=".55"/>';
-  });
+  const raio = (o, t, R) => { const dx = Math.sin(t), dy = -Math.cos(t);
+    s += '<line x1="' + o[0].toFixed(1) + '" y1="' + o[1].toFixed(1) + '" x2="' + (o[0] + dx * R).toFixed(1) + '" y2="' + (o[1] + dy * R).toFixed(1)
+      + '" stroke="#555" stroke-width="1.2" stroke-dasharray="6 5" stroke-opacity=".55"/>'; };
+  (pc.cortes || []).forEach(t => raio(h, t, W + Hh));
+  // várias bases: as divisas de cada uma vão só até o círculo mais distante dela
+  (pc.cortesB || []).forEach(cb => { const o = tela(BS[cb.b]); cb.cortes.forEach(t => raio(o, t, cb.r * esc_)); });
   // caminhos de carro do plano (opção 1 de cada trecho), por baixo dos pontos
   pc.equipes.forEach(e => e.dias.forEach(d => (d.trechos || []).forEach(t => {
     const g = t.op && t.op[0] && t.op[0].g; if (!g || g.length < 2) return;
@@ -8060,8 +8468,9 @@ function svgPlanoCampanha(pc, W, Hh){
   const bate = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   const T = L.map(p => ({p: p, xy: tela(p)}));
   T.forEach(t => ocupado.push(caixa(t.xy[0] - 4, t.xy[1] - 4, 8, 8)));
-  const S = [[pc.hotel, 'h'], [pc.baricentro, 'b'], [pc.mediana, 'm']].map(z => ({xy: tela(z[0]), t: z[1]}));
+  const S = BS.map((B, b) => [B, 'h', b]).concat([[pc.baricentro, 'b'], [pc.mediana, 'm']]).map(z => ({xy: tela(z[0]), t: z[1], b: z[2]}));
   S.forEach(z => ocupado.push(caixa(z.xy[0] - 7, z.xy[1] - 7, 14, 14)));
+  if (mb) S.filter(z => z.t === 'h').forEach(z => ocupado.push(caixa(z.xy[0] + 8, z.xy[1] - 20, 20, 14)));
   T.forEach(t => {
     const cx = t.xy[0].toFixed(1), cy = t.xy[1].toFixed(1);
     // atendido: anel vazado com visto; pendente: ponto cheio na cor da equipe
@@ -8095,7 +8504,8 @@ function svgPlanoCampanha(pc, W, Hh){
   });
   S.forEach(z => {
     const [x, y] = z.xy;
-    if (z.t === 'h') s += '<rect x="' + (x - 6) + '" y="' + (y - 6) + '" width="12" height="12" fill="#111" stroke="#fff" stroke-width="1.5"/>';
+    if (z.t === 'h') s += '<rect x="' + (x - 6) + '" y="' + (y - 6) + '" width="12" height="12" fill="#111" stroke="#fff" stroke-width="1.5"/>'
+      + (mb ? '<text x="' + (x + 9) + '" y="' + (y - 9) + '" font-size="12" font-weight="700" fill="#111" stroke="#fff" stroke-width="3" paint-order="stroke">B' + (z.b + 1) + '</text>' : '');
     if (z.t === 'b') s += '<circle cx="' + x + '" cy="' + y + '" r="6" fill="none" stroke="#111" stroke-width="2"/>';
     if (z.t === 'm') s += '<path d="M' + (x - 6) + ' ' + y + 'H' + (x + 6) + 'M' + x + ' ' + (y - 6) + 'V' + (y + 6) + '" stroke="#111" stroke-width="2.4"/>';
   });
@@ -8118,16 +8528,22 @@ function legendaPlano(pc){
     + '<circle cx="7" cy="7" r="1.8" fill="#B45309"/></svg> em coleta (ocupação aberta)</span>'
     + '<span><b>0037A</b> sobre <b style="font-size:11px">2.3</b> = ponto 0037A; dia 2 da equipe, 3º ponto do dia</span>'
     + (pc.equipes.some(e => e.dias.some(d => (d.trechos || []).length)) ? '<span><b style="letter-spacing:-1px">—</b> caminho de carro do dia (opção 1 de cada trecho)</span>' : '')
-    + '<span><i class="q"></i>hospedagem' + (pc.hotel.semHotel ? ' (não informado: posto na mediana)' : '') + '</span>'
+    + (multiBase(pc) ? '<span><i class="q"></i>base de pouso (B1, B2…)</span>'
+       : '<span><i class="q"></i>hospedagem' + (pc.hotel.semHotel ? ' (não informado: posto na mediana)' : '') + '</span>')
     + '<span><i class="o"></i>baricentro</span><span><b style="font-size:15px">+</b> mediana geométrica</span>'
-    + '<span><b style="letter-spacing:-1px">- - -</b> divisa entre as regiões das equipes</span></div>';
+    + ((pc.cortes || []).length || (pc.cortesB || []).length ? '<span><b style="letter-spacing:-1px">- - -</b> divisa entre as regiões das equipes</span>' : '') + '</div>';
 }
 function textoHospedagem(pc){
   const g = p => p.lat.toFixed(5) + ', ' + p.lon.toFixed(5);
   const busca = p => 'https://www.google.com/maps/search/hot%C3%A9is/@' + p.lat.toFixed(5) + ',' + p.lon.toFixed(5) + ',13z';
-  return (pc.hotel && !(pc.hotel.semHotel && !pc.hotel.link) ? '<p><b>Hospedagem do plano:</b> ' + htmlHotel(pc.hotel) + '</p>' : '')
+  const mb = multiBase(pc), BS = basesDe(pc);
+  const eqs = B => (B.eq || []).map(i => pc.equipes[i] ? pc.equipes[i].nome : '').filter(Boolean).join(', ');
+  return (mb ? '<p><b>Bases de pouso do plano:</b></p><ul>' + BS.map((B, b) => '<li><b>B' + (b + 1) + '</b> — ' + htmlHotel(B)
+        + (eqs(B) ? ' · ' + esc(eqs(B)) : '') + '</li>').join('') + '</ul>'
+      : pc.hotel && !(pc.hotel.semHotel && !pc.hotel.link) ? '<p><b>Hospedagem do plano:</b> ' + htmlHotel(pc.hotel) + '</p>' : '')
     + '<p><b>A hospedagem não é divulgada:</b> nome, link e coordenadas ficam no plano e na folha da equipe; nos relatórios da campanha entra só o município'
-    + (pc.hotel && pc.hotel.mun ? ' (' + esc(pc.hotel.mun.nome) + '/' + esc(pc.hotel.mun.uf) + ')' : '') + '.</p>'
+    + (mb ? (BS.some(munBase) ? ' (' + BS.map(munBase).filter(Boolean).map(esc).join('; ') + ')' : '')
+       : pc.hotel && pc.hotel.mun ? ' (' + esc(pc.hotel.mun.nome) + '/' + esc(pc.hotel.mun.uf) + ')' : '') + '.</p>'
     + '<p><b>Baricentro</b> (média das coordenadas dos ' + pc.nUnid + ' círculos pendentes): ' + g(pc.baricentro)
     + ' · <a href="' + busca(pc.baricentro) + '" target="_blank" rel="noopener">hotéis e pousadas perto</a><br>'
     + '<b>Mediana geométrica</b> (menor soma das distâncias em linha reta até os círculos; Weiszfeld, 1937): '
@@ -8363,7 +8779,8 @@ function calendarioPlano(pc, so){
       P.forEach(x => {
         const f = _feitosDia(x.d, Et), n = x.d.ids.length;
         h += '<span class="eq' + (f === n ? ' feito' : '') + '" style="border-color:' + x.e.cor + '"><b style="color:' + x.e.cor + '">'
-          + (so ? 'Dia ' + (x.j + 1) : '<span class="lng">' + esc(x.e.nome.replace(/^EQUIPE\s*/i, 'Eq. ')) + ' · </span>D' + (x.j + 1)) + '</b>'
+          + (so ? 'Dia ' + (x.j + 1) : '<span class="lng">' + esc(x.e.nome.replace(/^EQUIPE\s*/i, 'Eq. ')) + ' · </span>D' + (x.j + 1))
+          + (multiBase(pc) ? ' <small>' + ((x.d.b0 || 0) !== (x.d.b1 || 0) ? 'B' + ((x.d.b0 || 0) + 1) + '→' : '') + 'B' + ((x.d.b1 || 0) + 1) + '</small>' : '') + '</b>'
           + (f ? ' <small>✓' + f + '/' + n + '</small>' : ' <span class="qt">' + n + '</span>') + '<span class="ids">'
           + x.d.ids.map((id, i) => { const u = estadoDaUnidade(x.d.ks[i], id, Et); return '<span' + (u && u.st === 'coletado' ? ' class="ok"' : '') + '>' + esc(id) + '</span>'; }).join(' ')
           + '</span></span>';
@@ -8400,13 +8817,17 @@ function tabelaPlano(pc, so){
       + ' · <span style="color:#15803D">✓ ' + feitosE + ' de ' + n + ' coletados</span>'
       + (andE ? ' · <span style="color:#B45309">◐ ' + andE + ' em coleta</span>' : '')
       + (kmT ? ', ' + _numBR(kmT, 0) + ' km e ' + _hm(carT) + ' de carro' : '')
-      + ' · <b>trabalho ≈ ' + _hm(carT + n * p.ocup) + '</b> (' + n + ' × ' + p.ocup + ' min de ocupação' + (kmT ? ' + carro' : '') + ')</h5><div class="dplano">'
+      + ' · <b>trabalho ≈ ' + _hm(carT + n * p.ocup) + '</b> (' + n + ' × ' + p.ocup + ' min de ocupação' + (kmT ? ' + carro' : '') + ')</h5>'
+      + (multiBase(pc) ? '<p class="leg" style="margin:0 0 4px"><b>Itinerário:</b> ' + esc(itinerarioTexto(pc, e)) + '</p>' : '') + '<div class="dplano">'
       + e.dias.map((d, j) => {
           const x = H[j], f = _feitosDia(d);
+          const mud = (d.b0 || 0) !== (d.b1 || 0);
           return '<div class="d' + (f === d.ids.length ? ' feito' : '') + '"><div class="cab"><b>Dia ' + (j + 1) + (DT ? ' · ' + _ddmm(DT[j]) : '') + '</b>'
+            + (multiBase(pc) ? (mud ? ' · <b style="color:#B45309">mudança B' + ((d.b0 || 0) + 1) + ' → B' + (d.b1 + 1) + '</b>' : ' · B' + ((d.b1 || 0) + 1)) : '')
             + (x ? ' · ' + _numBR(x.km, 0) + ' km (' + _numBR(x.rod, 0) + ' em rodovia) · carro ' + _hm(x.car)
                  + ' + ocupação ' + _hm(d.ids.length * p.ocup)
-                 + ' · almoço ' + (x.almoco != null ? _hora(x.almoco) : 'na volta') + ' · <span' + (x.passa ? ' style="color:#B91C1C;font-weight:700"' : '') + '>volta à hospedagem '
+                 + ' · almoço ' + (x.almoco != null ? _hora(x.almoco) : 'na volta') + ' · <span' + (x.passa ? ' style="color:#B91C1C;font-weight:700"' : '') + '>'
+                 + (mud ? 'chegada à B' + (d.b1 + 1) + ' ' : 'volta à hospedagem ')
                  + _hora(x.retorno) + (x.passa ? ' ⚠' : '') + '</span>' : ' · sem rota (horários não estimados)')
             + (f ? ' · <small>' + f + '/' + d.ids.length + ' coletados</small>' : '') + '</div><div class="pts">'
             + d.ids.map((id, k) => { const u = estadoDaUnidade(d.ks[k], id, Et), st = u && u.st;
@@ -8434,7 +8855,7 @@ function tabelaDistribuicao(pc){
   pc.equipes.forEach((e, i) => e.dias.forEach((d, j) => d.ids.forEach((id, k) => {
     const a = A.find(z => z.id === id); if (!a) return;
     L.push({k: d.ks[k], id: id, i: i, dia: j + 1, ord: k + 1,
-            dist: geodInversa(pc.hotel.lat, pc.hotel.lon, a.lat, a.lon).s});
+            dist: Math.min(...basesDe(pc).map(B => geodInversa(B.lat, B.lon, a.lat, a.lon).s))});
   })));
   if (pc.equipes.length < 2 || !L.length) return '';
   L.sort((a, b) => a.id < b.id ? -1 : 1);
@@ -8442,7 +8863,7 @@ function tabelaDistribuicao(pc){
   return '<details class="ajuda" id="pc_dist"><summary>Mudar a distribuição entre as equipes</summary>'
     + '<p class="leg">Escolha a equipe de cada círculo e toque em <b>Refazer o plano</b>: os dias, a ordem de visita, os horários '
     + 'e as rotas são calculados de novo com essa distribuição (Divisão passa a “manual”).</p>'
-    + '<table class="tabdist"><tr><th>ponto</th><th>hoje</th><th>da hospedagem</th><th>equipe</th></tr>'
+    + '<table class="tabdist"><tr><th>ponto</th><th>hoje</th><th>da ' + (multiBase(pc) ? 'base mais perto' : 'hospedagem') + '</th><th>equipe</th></tr>'
     + L.map(r => '<tr><td><b>' + esc(r.id) + '</b></td><td>dia ' + r.dia + '.' + r.ord + '</td><td>' + _metros(r.dist) + '</td>'
       + '<td><select data-atrib="' + esc(r.k) + '" style="border-left:6px solid ' + pc.equipes[r.i].cor + '">' + op(r.i) + '</select></td></tr>').join('')
     + '</table><div class="acoes"><button type="button" class="btn peq" id="b_pc_refaz">Refazer o plano com esta distribuição</button></div></details>';
@@ -8468,7 +8889,7 @@ function pintaPlanoCampanha(){
     el.innerHTML = '<h4>Plano da campanha' + (EQ ? ' — ' + esc(EQ.nome) : '') + '</h4>'
       + '<p class="leg" style="margin:0 0 6px">Feito no escritório em ' + new Date(pc.criado).toLocaleString('pt-BR').slice(0, 17)
       + '. O <b>Plano do dia</b>, logo abaixo, usa só a região desta equipe, na ordem destes dias, e refaz a cada rodada com o que falta.</p>'
-      + '<p class="leg" style="margin:0 0 6px"><b>Hospedagem:</b> ' + htmlHotel(pc.hotel, true) + '</p>'
+      + '<p class="leg" style="margin:0 0 6px"><b>' + (multiBase(pc) ? 'Bases de pouso' : 'Hospedagem') + ':</b> ' + htmlBases(pc, EQ, true) + '</p>'
       + svgPlanoCampanha(pc, 420) + legendaPlano(pc) + tabelaPlano(pc, EQ) + '<p class="leg">' + esc(notaHorario(pc)) + '</p>'
       + '<details class="ajuda"><summary>Onde se hospedar</summary>' + textoHospedagem(pc) + '</details>';
     return;
@@ -8477,7 +8898,7 @@ function pintaPlanoCampanha(){
   const eqN = pc ? pc.equipes.length : 2;
   let h = '<h4>Plano da campanha</h4>'
     + '<p class="leg" style="margin:0 0 6px">No gabinete, com internet: divide os círculos pendentes entre as equipes, '
-    + 'em regiões <b>sem sobreposição</b> (setores em volta da hospedagem comum), e monta os dias com o número de pontos '
+    + 'em regiões <b>sem sobreposição</b> (setores em volta da hospedagem comum, ou de cada base, quando há mais de uma), e monta os dias com o número de pontos '
     + 'que você indicar. Cada dia começa pelo círculo pendente mais distante da hospedagem (equipe descansada) e leva os mais '
     + 'próximos dele — ou o contrário. B, C e D seguem o círculo da A. Planejar de novo considera só o que falta.</p>'
     + '<h4 style="margin:10px 0 2px">Hospedagem da equipe</h4>'
@@ -8499,6 +8920,7 @@ function pintaPlanoCampanha(){
     + '<div class="lin"><label for="pc_hotel_nome">Nome ou descrição</label><input type="text" id="pc_hotel_nome" style="flex:1;min-width:10em" '
     + 'placeholder="ex.: Pousada Mar Azul · casa na Rua X" value="' + esc(pc && pc.hotel.nome || '') + '"></div>'
     + '<p class="leg" id="pc_hosp_mun" style="margin-top:2px">' + textoMunHosp(pc) + '</p>'
+    + htmlBasesConfig()
     + '<div class="lin"><label for="pc_n">Pontos por dia</label><input type="number" id="pc_n" min="1" max="15" value="' + val('porDia', 5) + '">'
     + '<label for="pc_eq">Equipes</label><input type="number" id="pc_eq" min="1" max="4" value="' + eqN + '"></div>'
     + '<div class="lin"><label for="pc_ocup">Ocupação (min/ponto)</label><input type="number" id="pc_ocup" min="5" max="240" value="' + val('ocup', 40) + '">'
@@ -8541,7 +8963,7 @@ function pintaPlanoCampanha(){
       + '<option value="">— escolha —</option>'
       + pc.equipes.map((e, i) => '<option value="' + i + '"' + (eu === i ? ' selected' : '') + '>' + esc(e.nome) + '</option>').join('')
       + '</select><small>o plano do dia usa só a região e a ordem desta equipe</small></div>'
-      + '<p class="leg" style="margin:4px 0"><b>Hospedagem:</b> ' + htmlHotel(pc.hotel, true) + '</p>'
+      + '<p class="leg" style="margin:4px 0"><b>' + (multiBase(pc) ? 'Bases de pouso' : 'Hospedagem') + ':</b> ' + htmlBases(pc, null, true) + '</p>'
       + '<p class="leg" style="margin:4px 0">Planejado em ' + new Date(pc.criado).toLocaleString('pt-BR').slice(0, 17)
       + ' · ' + pc.porDia + ' ponto(s)/dia · ' + pc.ocup + ' min por ocupação · jornada ' + _numBR(pc.jornada) + ' h · '
       + (pc.ordem === 'perto' ? 'do mais próximo para o mais distante' : 'do mais distante para o mais próximo') + ' · distâncias ' + esc(pc.fonteDist)
@@ -8552,7 +8974,7 @@ function pintaPlanoCampanha(){
   }
   el.innerHTML = h;
   $('#b_pc').addEventListener('click', () => planejaCampanha().catch(e => marca('plano da campanha: ' + e.message)));
-  ligaCamposHotel();
+  ligaCamposHotel(); ligaBasesConfig();
   // início e fim de semana mudam só as datas: não precisa planejar de novo
   // redesenha depois que o foco passou ao campo seguinte e devolve o foco a ele (o quadro é refeito)
   ['#pc_ida', '#pc_volta', '#pc_nida', '#pc_nvolta', '#pc_res', '#pc_fds', '#pc_fer', '#pc_ferloc'].forEach(s => { const e = $(s); if (e) e.addEventListener('change', () => {
@@ -8596,12 +9018,12 @@ function montaImpressaoPlano(){
   el.innerHTML = cabIBGE('Plano da campanha', 'IBGE · GGC/SES-CE · ' + esc(F.campanha.nome || '') + ' · gerado em '
     + new Date().toLocaleString('pt-BR').slice(0, 17) + ' · planejado em ' + new Date(pc.criado).toLocaleString('pt-BR').slice(0, 17))
     + '<h2>Parâmetros</h2><table>'
-    + [['círculos pendentes', pc.nUnid], ['equipes', pc.equipes.length + ' (mesma hospedagem, regiões sem sobreposição)'],
+    + [['círculos pendentes', pc.nUnid], ['equipes', pc.equipes.length + (multiBase(pc) ? ' (' + basesDe(pc).length + ' bases de pouso; regiões sem sobreposição)' : ' (mesma hospedagem, regiões sem sobreposição)')],
        ['pontos por dia', pc.porDia], ['ocupação por ponto', pc.ocup + ' min (montagem, rastreio, desmontagem e avaliações locais)'],
        ['jornada', _numBR(pc.jornada) + ' h + ' + pc.almoco + ' min de almoço, saída às ' + pc.saida],
        ['velocidades médias', 'urbano/vicinal ' + pc.velUrb + ' km/h · rodovia ' + pc.velRod + ' km/h'], ['divisão entre as equipes', pc.divisao === 'vazios' ? 'nos maiores vazios entre os pontos' : pc.divisao === 'manual' ? 'manual (escolhida pelo planejador)' : 'equilibrada pelo tempo de trabalho'],
        ['ordem dos dias e dos pontos', pc.ordem === 'perto' ? 'do mais próximo para o mais distante da hospedagem' : 'do mais distante para o mais próximo da hospedagem'],
-       ['hospedagem', {html: htmlHotel(pc.hotel)}],
+       [multiBase(pc) ? 'bases de pouso' : 'hospedagem', {html: multiBase(pc) ? htmlBases(pc, null, false) + '<br>' + pc.equipes.map(e => esc(e.nome) + ': ' + esc(itinerarioTexto(pc, e))).join('<br>') : htmlHotel(pc.hotel)}],
        ['distâncias da hospedagem', pc.fonteDist], ['rotas dos dias', pc.rotas]]
       .map(r => '<tr><th style="width:30%">' + r[0] + '</th><td>' + (r[1] && r[1].html ? r[1].html : esc(String(r[1]))) + '</td></tr>').join('') + '</table>'
     + '<h2>Regiões e dias</h2>' + svgPlanoCampanha(pc, 700) + legendaPlano(pc)
@@ -8626,6 +9048,10 @@ function montaImpressaoPlano(){
     + 'Cada trecho do dia (hospedagem → 1º ponto, ponto → ponto, '
     + 'último → hospedagem) tem até três caminhos de carro calculados pelo OSRM (LUXEN; VETTER, 2011), que seguem na folha da equipe para a navegação sem rede. '
     + 'Mediana geométrica pelo algoritmo de Weiszfeld (1937).</p>'
+    + (multiBase(pc) ? '<p class="ocor">Várias bases de pouso: cada círculo vai para a base mais próxima entre as que têm equipe (pelas ruas, com internet), '
+      + 'e cada base divide os seus círculos entre as equipes dela pelo mesmo método. A equipe que muda de base passa pelas bases na ordem do quadro; '
+      + 'o dia de mudança sai da base anterior, leva os círculos que menos alongam o caminho até a nova e segue a ordem de menor tempo de uma base à outra, '
+      + 'também exata (HELD; KARP, 1962). É um caso simples do problema de localização e roteamento (PRODHON; PRINS, 2014), com as bases escolhidas pelo planejador.</p>' : '')
     + '<p class="ocor">BALLOU, R. H.; RAHARDJA, H.; SAKAI, N. Selected country circuity factors for road travel distance estimation. '
     + '<i>Transportation Research Part A: Policy and Practice</i>, v. 36, n. 9, p. 843-848, 2002.<br>'
     + 'HELD, M.; KARP, R. M. A dynamic programming approach to sequencing problems. <i>Journal of the Society for Industrial and '
@@ -8634,6 +9060,8 @@ function montaImpressaoPlano(){
     + 'ON ADVANCES IN GEOGRAPHIC INFORMATION SYSTEMS, 19., 2011, Chicago. <b>Proceedings</b> [...]. New York: ACM, 2011. p. 513-516.<br>'
     + 'WEISZFELD, E. Sur le point pour lequel la somme des distances de n points donnés est minimum. '
     + '<i>Tôhoku Mathematical Journal</i>, v. 43, p. 355-386, 1937.<br>'
+    + (multiBase(pc) ? 'PRODHON, C.; PRINS, C. A survey of recent research on location-routing problems. <i>European Journal of Operational Research</i>, '
+      + 'v. 238, n. 1, p. 1-17, 2014.<br>' : '')
     + 'BRASIL. Decreto nº 5.992, de 19 de dezembro de 2006. Dispõe sobre a concessão de diárias no âmbito da administração federal direta, '
     + 'autárquica e fundacional, e dá outras providências. <i>Diário Oficial da União</i>, Brasília, DF, 20 dez. 2006.<br>'
     + 'Rotas: OSRM, dados © colaboradores do OpenStreetMap (ODbL).</p>';
@@ -11290,7 +11718,7 @@ function pintaHotel(){
     + '<b>QC</b>, qualidade do RINEX: ✓ ok · <b style="color:#B45309">!</b> atenção (perdas de ciclo, poucos satélites, '
     + 'multicaminho ou lacunas — o IBGE-PPP decide; se o desvio vier alto, remedir) · '
     + '<b style="color:#B91C1C">✗</b> remedir (arquivo corrompido, ocupação curta ou épocas faltando). '
-    + 'Para o GLONASS entrar na conta, leia junto o arquivo de navegação (.YYg).</p>';
+    + 'Para o GLONASS entrar na conta, leia junto o arquivo de navegação (.AAg).</p>';
 }
 
 function _normId(t){ return String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
@@ -11352,7 +11780,7 @@ async function leRinexLote(files){
     linhas.push(f.name + (r.compacto ? ' (compacto, descompactado: ' + r.arquivo + ')' : '') + ' → ' + p.id + ' (' + como + ')'
       + (r.qc && r.qc.parecer ? ' · ' + qcTexto(r.qc) : ''));
   }
-  // navegação (.YYn, .YYg…) do mesmo nome vai junto com a observação, para o pacote
+  // navegação (.AAn, .AAg…) do mesmo nome vai junto com a observação, para o pacote
   for (const f of outros){
     const p = casou[raiz(f.name)];
     if (p){ await guardaArqPonto(p, 'rinex', f).catch(() => {}); linhas.push(f.name + ' → ' + p.id + ' (navegação, junto da observação)'); }
@@ -11386,6 +11814,10 @@ async function completaComRede(){
   }
   monta();
   $('#hotel_res').innerHTML = res.map(esc).join('<br>') || 'nada faltava';
+  // município dos pousos fora do plano, anotados sem internet
+  for (const r of Object.values(pernoites())) if (!r.mun && r.lat != null){
+    try { const m = await municipioDe(r.lat, r.lon, 15); if (m) r.mun = {nome: m.nome, uf: m.uf, cod: m.cod}; } catch (e){} }
+  grava();
   marca('internet: ' + P.length + ' ponto(s) conferidos — veja a tabela da hospedagem');
 }
 $('#b_hotel_rede').addEventListener('click', () =>
@@ -11749,9 +12181,9 @@ async function enviaAoServidor(){
        Relatório da Campanha_LCnnn.pdf, Registro do Dia_DDD.pdf, Relatórios dos Pontos_LCnnn.pdf
        Dia_DDD/                                  (dia juliano)
          Dados_GNSS/Originais/                   os arquivos do receptor, com o nome de origem
-                                                 (a observação em RINEX compacto, Hatanaka: .YYd / .crx)
-         Dados_GNSS/Renomeados/PPPPDDD.YYd/.YYn/.YYg
-         Dados_GNSS/Coordenadas_calculadas_PPP/PPPPDDD.YYo.pdf/.sum/.pos/.kml/.txt + _LEIAME.txt
+                                                 (a observação em RINEX compacto, Hatanaka: .AAd / .crx)
+         Dados_GNSS/Renomeados/PPPPDDD.AAd/.AAn/.AAg
+         Dados_GNSS/Coordenadas_calculadas_PPP/PPPPDDD.AAo.pdf/.sum/.pos/.kml/.txt + _LEIAME.txt
          Formulários/PPPP_Form.jpg                (formulário CCAR v6 preenchido pela folha: formularioCCAR)
          Fotos/Originais/AAAAMMDD_hhmmss.jpg
          Fotos/Editadas/PPPP_F1..F4.jpg           800 px, tarja "PONTO PPPP_Fn"
@@ -11795,7 +12227,7 @@ function nomeCamera(t){
   const d = new Date(t || Date.now()), p = n => String(n).padStart(2, '0');
   return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '.jpg';
 }
-/* RINEX renomeado: PPPP + dia juliano + .YY + letra do tipo (o, n, g, d…). */
+/* RINEX renomeado: PPPP + dia juliano + .AA + letra do tipo (o, n, g, d…). */
 function nomeRinexLC(num, ddd, nomeOrig){
   const m = String(nomeOrig).match(/\.(\d{2})([a-z])$/i);
   if (m) return num + ddd + '.' + m[1] + m[2].toLowerCase();
@@ -12888,7 +13320,7 @@ async function exportaLC(op){
   itens.push({nome: eqd + 'Relatório de Viagem.docx', dados: await docxDe([
     {titulo: 'RELATÓRIO DE VIAGENS NACIONAIS'}, 'IDENTIFICAÇÃO DA EQUIPE',
     ...(integrantes().length ? integrantes() : [{nome: '', siape: ''}]).flatMap(m => ['Nome: ' + m.nome, 'Cargo:', 'PCDP:', 'SIAPE: ' + (m.siape || ''), 'Função:', 'Lotação: SES/CE – GGC', '']),
-    'IDENTIFICAÇÃO DO AFASTAMENTO COM LOCAIS DE PERNOITE', (sedeCampanha() ? 'Pernoite em ' + sedeCampanha() + '. ' : '') + 'Datas do afastamento: (a preencher pela equipe)',
+    'IDENTIFICAÇÃO DO AFASTAMENTO COM LOCAIS DE PERNOITE', (textoPernoites() ? 'Pernoites: ' + textoPernoites() + '. ' : sedeCampanha() ? 'Pernoite em ' + sedeCampanha() + '. ' : '') + 'Datas do afastamento: (a preencher pela equipe)',
     'DESCRIÇÃO SUCINTA DA VIAGEM (ATIVIDADES REALIZADAS)', ...linhasDia])});
   // os PDFs da folha, na pasta da equipe: campanha, cada dia, relatórios dos pontos
   try {
@@ -13163,8 +13595,8 @@ async function enviaRinexPPP(file, p){
     file = new File([_bytesLatin1(txt)], nome, {type: 'text/plain'});
     r = await cabecalhoParaPPP(file); jaCompacto = false;
   }
-  /* vai em RINEX compacto (Hatanaka, .YYd): um quarto do tamanho, e rastreios de
-     horas cabem nos 20 MB do PPP. O IBGE-PPP aceitou .YYd em teste real (out/2026). */
+  /* vai em RINEX compacto (Hatanaka, .AAd): um quarto do tamanho, e rastreios de
+     horas cabem nos 20 MB do PPP. O IBGE-PPP aceitou .AAd em teste real (out/2026). */
   if (r && r.versao && !jaCompacto && file.size > 1e5){
     try { const c = await compactaRinex(file); marca(file.name + ': compactado para o PPP, ' + (file.size / 1e6).toFixed(1) + ' → ' + (c.size / 1e6).toFixed(1) + ' MB'); file = c; }
     catch (e){ marca(file.name + ': não compactou (' + e.message + '), vai como está'); }
@@ -13174,7 +13606,7 @@ async function enviaRinexPPP(file, p){
   const alt = (p && _altNum(p.altura) != null) ? _altNum(p.altura) : (r && r.altura != null ? r.altura : null);
   if (!ant) throw new Error(file.name + ': modelo da antena desconhecido — leia o RINEX no cartão do ponto ou informe a antena');
   if (alt == null) throw new Error(file.name + ': altura da antena desconhecida — informe-a no cartão do ponto');
-  /* com o ponto conhecido, vai renomeado (PPPPDDD.YYo), como nas campanhas LC:
+  /* com o ponto conhecido, vai renomeado (PPPPDDD.AAo), como nas campanhas LC:
      o resultado do PPP volta com esse nome */
   let nomeEnvio = file.name;
   if (p){ const g = ptconPonto((p.planejado && p.planejado.id) || p.id), dt = _dataDoPonto(p, null);
@@ -13669,7 +14101,7 @@ async function atualizaPlanoKit(kit, tem){
   const velho = F.campanha, nova = JSON.parse(JSON.stringify(kit.registro.campanha || {}));
   ['ponto_receptor', 'ponto_antena', 'base', 'base_receptor', 'base_antena', 'celular', 'versoes', 'aeronave', 'anac']
     .forEach(c => { if (String(velho[c] || '').trim()) nova[c] = velho[c]; });
-  ['remedir', 'itens', 'bloqueios'].forEach(c => { if (velho[c] != null) nova[c] = velho[c]; });
+  ['remedir', 'itens', 'bloqueios', 'pernoites'].forEach(c => { if (velho[c] != null) nova[c] = velho[c]; });
   F.campanha = Object.assign(folhaNova().campanha, nova);
   if (F.dia) delete F.dia.plano;
   F.config.kit = {id: kit.id, equipe: kit.equipe.nome, gerado: kit.gerado, atualizada: new Date().toISOString()};

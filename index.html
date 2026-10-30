@@ -7072,12 +7072,51 @@ function calculaRotaOffline(){
   } catch (e){ NAV.rotaOff = null; marca('rota sem internet: ' + e.message); }
   desenhaNav();
 }
+/* Nova rota daqui, com internet: até 3 caminhos do OSRM da posição atual até o ponto;
+   ficam os que não passam pelas marcas "sem passagem" (o OSRM público não sabe de obras
+   nem de interdições: quem as conhece são as marcas da equipe). Se nenhum escapa, ou sem
+   internet, a rota é calculada no aparelho, pelas ruas guardadas. */
+async function rotaNovaDaqui(){
+  const a = (F.campanha.alvos || [])[NAV.i], P = NAV.pos;
+  if (!a) return;
+  if (!P) return marca('nova rota: esperando a posição do celular');
+  if (!navigator.onLine){ marca('nova rota: sem internet — calculando no aparelho'); return calculaRotaOffline(); }
+  marca('nova rota: pedindo caminhos ao OSRM…');
+  try {
+    const r = await _osrm('route/v1/driving/' + P.lon.toFixed(6) + ',' + P.lat.toFixed(6) + ';' + a.lon.toFixed(6) + ',' + a.lat.toFixed(6)
+      + '?alternatives=3&overview=full&geometries=geojson&steps=true');
+    const pt = paramTempo(), R = (r.routes || []).slice(0, 3);
+    const L = R.map((ro, k) => ({o: 81 + k, id: a.id, fonte: 'daqui', km: ro.distance / 1000,
+      min: _minTrecho(pt, _pernasUR(ro)[0]), g: ro.geometry.coordinates.map(c => [+c[0].toFixed(6), +c[1].toFixed(6)]), t: Date.now()}));
+    const livres = L.filter(t => !trajetoBloqueado(t));
+    if (!livres.length){
+      NAV.rotaNova = null;
+      marca('nova rota: ' + (L.length ? 'os ' + L.length + ' caminhos do OSRM passam por marca sem passagem' : 'o OSRM não achou caminho') + ' — calculando no aparelho');
+      return calculaRotaOffline();
+    }
+    livres.forEach((t, k) => { t.k = k + 1; t.n = livres.length; t.evita = bloqueios().length; t.de = L.length; });
+    NAV.rotaNova = livres; NAV.opc = livres[0].o; NAV.modo = 'carro'; NAV.dz = 0;
+    marca('nova rota daqui: ' + _numBR(livres[0].km, 1) + ' km, ~' + Math.max(1, Math.round(livres[0].min)) + ' min'
+      + (livres.length > 1 ? ' — ' + livres.length + ' caminhos; troque em Trajeto' : '')
+      + (L.length > livres.length ? ' (' + (L.length - livres.length) + ' descartado(s) por passar em marca sem passagem)' : ''));
+  } catch (e){
+    marca('nova rota: ' + (e.name === 'AbortError' ? 'o servidor não respondeu' : e.message) + ' — calculando no aparelho');
+    return calculaRotaOffline();
+  }
+  desenhaNav();
+}
+/* todos os caminhos que a navegação oferece para o ponto: os refeitos daqui (internet), o
+   calculado no aparelho e os do plano */
+function trajetosNav(a){
+  if (!a) return [];
+  return [].concat(NAV.rotaNova && NAV.rotaNova[0] && NAV.rotaNova[0].id === a.id ? NAV.rotaNova : [],
+    NAV.rotaOff && NAV.rotaOff.id === a.id ? [NAV.rotaOff] : [], trajetosDoPonto(a));
+}
 /* o obstáculo fica à frente de quem chega a ele: a marca vai 40 m adiante pelo caminho que se
    seguia (ou pelo rumo do deslocamento), para a nova rota poder voltar por onde se veio */
 function _aFrente(P, dist){
   const a = (F.campanha.alvos || [])[NAV.i];
-  const TL = [].concat(NAV.rotaOff && a && NAV.rotaOff.id === a.id ? [NAV.rotaOff] : [], a ? trajetosDoPonto(a) : [],
-    NAV.rotaOn && a && NAV.rotaOn.id === a.id ? [NAV.rotaOn] : []);
+  const TL = trajetosNav(a).concat(NAV.rotaOn && a && NAV.rotaOn.id === a.id ? [NAV.rotaOn] : []);
   const T = TL.find(t => t.o === NAV.opc) || TL[0];
   if (T && T.g && T.g.length > 1){
     let k0 = 0, d0 = Infinity;
@@ -7099,14 +7138,15 @@ function _aFrente(P, dist){
 function marcaSemPassagem(){
   const P = NAV.pos;
   if (!P) return marca('sem posição do celular para marcar o ponto sem passagem');
-  if (!confirm('Marcar "sem passagem" aqui (num raio de ' + RAIO_BLOQ + ' m) e calcular outro caminho, sem internet, '
-      + 'pelas ruas guardadas?\n\nA marca vale para toda a campanha e vai no registro da equipe.')) return;
+  if (!confirm('Marcar "sem passagem" aqui (num raio de ' + RAIO_BLOQ + ' m) e calcular outro caminho'
+      + (navigator.onLine ? ' (com a internet; sem caminho livre, pelas ruas guardadas no aparelho)' : ', sem internet, pelas ruas guardadas') + '?'
+      + '\n\nA marca vale para toda a campanha e vai no registro da equipe.')) return;
   const nota = prompt('O que impede a passagem? (opcional: porteira, ponte, alagado…)', '') || '';
   const f = _aFrente(P, 40);
   bloqueios().push({lat: +f.lat.toFixed(6), lon: +f.lon.toFixed(6), r: f.como === 'aqui' ? RAIO_BLOQ : 25, quando: new Date().toISOString(),
     nota: nota.trim(), onde: f.como === 'aqui' ? 'onde a equipe estava' : '40 m à frente, ' + f.como});
   grava();
-  calculaRotaOffline();
+  if (navigator.onLine) rotaNovaDaqui(); else calculaRotaOffline();
 }
 /* Google Maps (Maps URLs): navegação curva a curva, de carro, a partir de onde o
    celular está. Com o trajeto carregado para o ponto, o Maps recebe como pontos de
@@ -7253,11 +7293,22 @@ async function _rotasDia(P, seq, Q){
         marca('plano do dia: rotas, trecho ' + (j + 1) + ' de ' + (nos.length - 1) + '…');
         const r = await _osrm('route/v1/driving/' + a.lon.toFixed(6) + ',' + a.lat.toFixed(6) + ';' + b.lon.toFixed(6) + ',' + b.lat.toFixed(6)
           + '?alternatives=3&overview=full&geometries=geojson&steps=true');
-        const ro = r.routes[0];
-        km = ro.distance / 1000; ur = _pernasUR(ro)[0]; min = _minTrecho(pt, ur);
-        g = ro.geometry.coordinates.map(c => [+c[0].toFixed(6), +c[1].toFixed(6)]);
-        op = (r.routes || []).slice(0, 3).map((x, o) => ({o: o + 1, km: Math.round(x.distance) / 1000,
-          min: Math.round(_minTrecho(pt, _pernasUR(x)[0])), g: x.geometry.coordinates.map(c => [+c[0].toFixed(6), +c[1].toFixed(6)])}));
+        // os caminhos que passam por marca "sem passagem" ficam de fora; se todos passam, o calculado no aparelho
+        const todas = (r.routes || []).slice(0, 3), geo = x => x.geometry.coordinates.map(c => [+c[0].toFixed(6), +c[1].toFixed(6)]);
+        let livres = todas.filter(x => !trajetoBloqueado({g: geo(x)}));
+        if (!livres.length && todas.length && bloqueios().length){
+          try { const off = rotaOffline(a, b); km = off.km; min = Math.round(off.min); g = off.g;
+                avisos.push('trecho ' + (j + 1) + ': caminhos do OSRM passam por marca sem passagem — calculado no aparelho'); }
+          catch (e2){ livres = todas; avisos.push('trecho ' + (j + 1) + ' passa por marca sem passagem (' + e2.message + ')'); }
+        }
+        if (livres.length){
+          const ro = livres[0];
+          km = ro.distance / 1000; ur = _pernasUR(ro)[0]; min = _minTrecho(pt, ur);
+          g = geo(ro);
+          op = livres.map((x, o) => ({o: o + 1, km: Math.round(x.distance) / 1000,
+            min: Math.round(_minTrecho(pt, _pernasUR(x)[0])), g: geo(x)}));
+          if (livres.length < todas.length) avisos.push('trecho ' + (j + 1) + ': ' + (todas.length - livres.length) + ' caminho(s) descartado(s) por marca sem passagem');
+        }
         await _espera(1100);
       } catch (e){ avisos.push('trecho ' + (j + 1) + ' sem rota (' + (e.name === 'AbortError' ? 'servidor não respondeu' : e.message) + ')'); }
     }
@@ -7506,7 +7557,7 @@ function pintaPlano(){
     + '<div class="lin" style="margin-top:6px"><input type="text" id="rem_id" placeholder="ponto (ex.: 0037A)" style="width:9em">'
     + '<input type="text" id="rem_motivo" placeholder="motivo" style="flex:1;min-width:8em">'
     + '<button type="button" class="btn sec peq" id="b_rem">Incluir</button></div></div>'
-    + (bloqueios().length ? '<div class="remedir"><b>Sem passagem</b> — marcados em campo na navegação; as rotas calculadas no aparelho os evitam:<ul>'
+    + (bloqueios().length ? '<div class="remedir"><b>Sem passagem</b> — marcados em campo na navegação; as rotas novas (com internet ou calculadas no aparelho) e o plano do dia os evitam:<ul>'
       + bloqueios().map((b, i) => '<li>' + new Date(b.quando).toLocaleString('pt-BR').slice(0, 17) + ' · ' + b.lat.toFixed(5) + ', ' + b.lon.toFixed(5)
         + (b.nota ? ' — ' + esc(b.nota) : '') + ' <button type="button" class="btn sec peq" data-tirabloq="' + i + '">tirar</button></li>').join('') + '</ul></div>' : '')
     + '<p class="leg" style="margin:6px 0">Na hospedagem, com internet: escolha a partida, quantos pontos e a ordem, '
@@ -9069,7 +9120,11 @@ function montaImpressaoPlano(){
 
 function _ll(c){ return c[1].toFixed(6) + '%2C' + c[0].toFixed(6); }
 function abreNoMaps(a, modo){
-  const T = _trajetoAtual(a), g = T && T.g && T.g.length > 1 ? T.g : null;
+  /* direto: o Maps escolhe o caminho (pode conhecer a interdição, por relatos e pelo trânsito);
+     também quando a equipe já trocou o caminho do plano ou ele passa por marca sem passagem */
+  const T0 = _trajetoAtual(a), livre = modo !== 'direto' && NAV.opc < 9 && !(NAV.opc >= 81) && !(T0 && trajetoBloqueado(T0));
+  const T = livre ? T0 : null, g = T && T.g && T.g.length > 1 ? T.g : null;
+  if (!livre && modo !== 'direto' && modo !== 'saida') marca('Google Maps: direto ao ponto, sem o caminho do plano (' + (T0 && trajetoBloqueado(T0) ? 'ele passa por marca sem passagem' : 'a equipe trocou o caminho') + ')');
   let url = 'https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate';
   if (modo === 'saida' && g){
     url += '&destination=' + _ll(g[0]);
@@ -9232,9 +9287,11 @@ function montaTelaNav(){
     + '<button type="button" class="btn sec" data-n="bussola">Bússola</button>'
     + '<button type="button" class="btn sec" data-n="modo">Modo: direção</button>'
     + '<button type="button" class="btn sec" data-n="maps">Google Maps até o ponto</button>'
+    + '<button type="button" class="btn sec" data-n="mapsdir">Google Maps direto (sem o caminho do plano)</button>'
     + '<button type="button" class="btn sec" data-n="mapsbr">Google Maps até a saída da BR</button>'
     + '<button type="button" class="btn sec" data-n="traj">Trajeto</button>'
     + '<button type="button" class="btn sec" data-n="bloq">Sem passagem aqui</button>'
+    + '<button type="button" class="btn sec" data-n="rotanova">Nova rota daqui (internet)</button>'
     + '<button type="button" class="btn sec" data-n="rotaoff">Outra rota, sem internet</button>'
     + '<button type="button" class="btn sec" data-n="campo">Nenhuma opção serve — escolher em campo</button>'
     + '</div>';
@@ -9254,7 +9311,7 @@ function montaTelaNav(){
   });
   q('bussola').addEventListener('click', alternaBussola);
   q('traj').addEventListener('click', () => {
-    const L = trajetosDoPonto((F.campanha.alvos || [])[NAV.i]);
+    const L = trajetosNav((F.campanha.alvos || [])[NAV.i]);
     if (!L.length) return;
     const k = L.findIndex(t => t.o === NAV.opc);
     NAV.opc = L[(k + 1) % L.length].o; NAV.dz = 0; desenhaNav();
@@ -9262,6 +9319,8 @@ function montaTelaNav(){
   q('comeca').addEventListener('click', comecaPontoAqui);
   q('bloq').addEventListener('click', marcaSemPassagem);
   q('rotaoff').addEventListener('click', calculaRotaOffline);
+  q('rotanova').addEventListener('click', () => rotaNovaDaqui().catch(e => marca('nova rota: ' + e.message)));
+  q('mapsdir').addEventListener('click', () => { const a = (F.campanha.alvos || [])[NAV.i]; if (a) abreNoMaps(a, 'direto'); });
   q('campo').addEventListener('click', () => { const a = (F.campanha.alvos || [])[NAV.i];
     escolheEmCampo(a ? circuloDe(a.id) : null, NAV.pos).catch(e => marca('ponto de campo: ' + e.message)); });
   q('modo').addEventListener('click', () => {
@@ -9750,6 +9809,7 @@ function desenhaNav(){
     if (NAV.rotaOn && NAV.rotaOn.id === a.id) TL = [NAV.rotaOn];
   }
   if (temOff) TL = [NAV.rotaOff].concat(TL);
+  if (carro && NAV.rotaNova && NAV.rotaNova[0] && NAV.rotaNova[0].id === a.id) TL = NAV.rotaNova.concat(TL);
   const T = TL.find(t => t.o === NAV.opc) || TL[0] || null;
   const bloqT = T && T.fonte !== 'offline' ? trajetoBloqueado(T) : null;
   const st = (T && P) ? noTrajeto(T, P) : null;
@@ -9761,6 +9821,9 @@ function desenhaNav(){
     : t.fonte === 'offline'
     ? '<b>Rota calculada no aparelho</b>, sem internet (ruas © OpenStreetMap' + (t.evita ? ', evitando ' + t.evita + ' ponto(s) sem passagem' : '')
       + ') · ' + _numBR(t.km, 1) + ' km · ~' + Math.max(1, Math.round(t.min)) + ' min'
+    : t.fonte === 'daqui'
+    ? '<b>Rota nova daqui</b>, com internet (OSRM · dados © colaboradores do OpenStreetMap)' + (t.n > 1 ? ' · caminho <b>' + t.k + '</b> de ' + t.n : '')
+      + (t.evita ? ' · sem as marcas sem passagem' : '') + ' · ' + _numBR(t.km, 1) + ' km · ~' + Math.max(1, Math.round(t.min)) + ' min'
     : t.fonte === 'osrm'
     ? 'Rota de carro (OSRM · dados © colaboradores do OpenStreetMap) · ' + _numBR(t.km, 1) + ' km · ~' + Math.max(1, Math.round(t.min)) + ' min'
     : 'Trajeto <b>opção ' + t.o + '</b> de ' + TL.length + ' · ' + _numBR(t.km, 1) + ' km';
@@ -9781,7 +9844,7 @@ function desenhaNav(){
       + (oc[a.id] ? '<br><span class="feito">já ocupado (' + esc(oc[a.id].join(', ')) + ')</span>' : '')
       + (T ? '<br>' + nomeT(T)
           + (bloqT ? '<br><b style="color:var(--mau)">Este caminho passa por um ponto marcado sem passagem'
-             + (bloqT.nota ? ' (' + esc(bloqT.nota) + ')' : '') + ': toque em "Outra rota, sem internet" ou troque o trajeto.</b>' : '')
+             + (bloqT.nota ? ' (' + esc(bloqT.nota) + ')' : '') + ': toque em "Nova rota daqui" (com internet), "Outra rota, sem internet" ou troque o trajeto.</b>' : '')
           + (st ? (st.fora > 60 ? ' · <b style="color:var(--mau)">fora do trajeto (' + _metros(st.fora) + ')</b>'
                                : ' · faltam <b>' + _metros(st.resta) + '</b> pelo trajeto') : '') : '')
     : 'Destino: ' + gms(a.lat, 'lat') + '<br>' + gms(a.lon, 'lon')

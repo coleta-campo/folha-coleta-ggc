@@ -8237,6 +8237,70 @@ function htmlPlanejadoExecutado(todos){
     + (pous.length ? '<h3 style="margin:8px 0 4px">Pouso (só o município)</h3><table><tr><th>noite de</th><th>plano</th><th>usado</th><th>motivo</th></tr>'
         + pous.map(linhaPouso).join('') + '</table>' : '');
 }
+/* Plano pronto, feito por outro planejador (planilha, QGIS): uma linha por ponto, com a
+   equipe, o dia e a ordem de visita. O planejador não mexe nas regiões, nos dias nem na
+   ordem; calcula só os horários e as rotas de cada trecho. Aceita ";", "," ou tabulação,
+   com ou sem cabeçalho (equipe; dia; ordem; ponto ou círculo). Exemplo: 1;1;1;0048 */
+function lePlanoPronto(txt, nome){
+  const L = String(txt || '').replace(/^﻿/, '').split(/\r?\n/).map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+  if (!L.length) throw new Error('arquivo vazio');
+  const sep = L[0].includes(';') ? ';' : L[0].includes('\t') ? '\t' : ',';
+  let col = {eq: 0, dia: 1, ordem: 2, ref: 3}, ini = 0;
+  const cab = L[0].split(sep).map(s => s.trim().toLowerCase());
+  if (!/\d/.test(cab[0])){
+    ini = 1;
+    const ach = re => cab.findIndex(c => re.test(c));
+    col = {eq: ach(/equipe/), dia: ach(/^dia/), ordem: ach(/ordem/), ref: ach(/ponto|c[ií]rculo|^id$/)};
+    if (col.eq < 0 || col.dia < 0 || col.ref < 0) throw new Error('o cabeçalho precisa das colunas equipe, dia, ordem e ponto (ou círculo)');
+  }
+  const num = s => { const m = String(s == null ? '' : s).match(/\d+/); return m ? +m[0] : NaN; };
+  const linhas = L.slice(ini).map((s, j) => {
+    const c = s.split(sep).map(x => x.trim().replace(/^"|"$/g, ''));
+    const l = {eq: num(c[col.eq]), dia: num(c[col.dia]), ordem: col.ordem >= 0 ? num(c[col.ordem]) : j + 1, ref: c[col.ref] || ''};
+    if (!(l.eq >= 1 && l.eq <= 4) || !(l.dia >= 1) || !l.ref) throw new Error('linha ' + (j + ini + 1) + ' não entendida: ' + s);
+    if (isNaN(l.ordem)) l.ordem = j + 1;
+    return l;
+  });
+  return {nome: String(nome || 'plano pronto'), quando: new Date().toISOString(), linhas: linhas};
+}
+function resumoPlanoImportado(){
+  const P = F.campanha.planoImportado;
+  if (!P || !P.linhas) return 'colunas: equipe; dia; ordem; ponto (ex.: 1;1;1;0048) — um ponto por linha';
+  const eq = new Set(P.linhas.map(l => l.eq)), dias = new Set(P.linhas.map(l => l.eq + '|' + l.dia));
+  return P.nome + ': ' + P.linhas.length + ' ponto(s), ' + eq.size + ' equipe(s), ' + dias.size + ' dia(s)-equipe';
+}
+/* dias do plano importado, com as unidades pendentes: [equipe][dia] = [u, …] na ordem do arquivo */
+function _diasImportados(U, avisos){
+  const P = F.campanha.planoImportado;
+  if (!P || !P.linhas || !P.linhas.length) return null;
+  const A = F.campanha.alvos || [], porK = new Map(U.map(u => [u.k, u]));
+  const semZ = s => String(s || '').replace(/^0+/, '');
+  const chave = r => {
+    const s = String(r).trim().toUpperCase();
+    const a = A.find(x => x.id.toUpperCase() === s);
+    if (a) return _chaveUn(a);
+    const c = A.find(x => { const k = circuloDe(x.id); return k && semZ(k) === semZ(s); });
+    return c ? _chaveUn(c) : null;
+  };
+  const E = [], usados = new Set(), fora = [], feitos = [];
+  P.linhas.slice().sort((p, q) => p.eq - q.eq || p.dia - q.dia || p.ordem - q.ordem).forEach(l => {
+    const k = chave(l.ref);
+    if (!k){ fora.push(l.ref); return; }
+    const u = porK.get(k);
+    if (!u){ feitos.push(l.ref); return; }
+    if (usados.has(k)){ avisos.push('plano importado: ' + l.ref + ' repetido (equipe ' + l.eq + ', dia ' + l.dia + ') — vale a primeira vez'); return; }
+    usados.add(k);
+    const D = E[l.eq - 1] = E[l.eq - 1] || {};
+    (D[l.dia] = D[l.dia] || []).push(u);
+  });
+  if (fora.length) avisos.push('plano importado: ' + fora.join(', ') + ' não estão nos pontos planejados');
+  if (feitos.length) avisos.push('plano importado: ' + feitos.join(', ') + ' já atendido(s) — fora do plano');
+  const sobra = U.filter(u => !usados.has(u.k));
+  if (sobra.length) avisos.push('plano importado: ' + sobra.length + ' círculo(s) pendente(s) sem dia no arquivo — ' + sobra.map(u => u.k.slice(1)).join(', '));
+  const R = [];
+  for (let i = 0; i < E.length; i++){ const D = E[i] || {}; R.push(Object.keys(D).map(Number).sort((a, b) => a - b).map(d => D[d])); }
+  return R.some(d => d.length) ? R : null;
+}
 async function planejaCampanha(){
   const v = s => ($(s) || {}).value;
   const x = Math.max(1, Math.min(15, parseInt(v('#pc_n'), 10) || 5));
@@ -8285,7 +8349,11 @@ async function planejaCampanha(){
     }
   }
   const dH = dB[0];
-  const dv = v('#pc_div'), divisao = dv === 'vazios' || dv === 'manual' ? dv : 'dias';
+  const dv = v('#pc_div'), divisao = dv === 'vazios' || dv === 'manual' || dv === 'importado' ? dv : 'dias';
+  // plano pronto (de outro planejador): regiões, dias e ordem vêm do arquivo; aqui saem só horários e rotas
+  const IMP = divisao === 'importado' ? _diasImportados(U, avisos) : null;
+  if (divisao === 'importado' && !IMP) return marca('plano da campanha: importe antes o plano pronto (arquivo com equipe, dia, ordem e ponto)');
+  if (IMP && multi) avisos.push('plano importado: todos os dias saem e voltam à hospedagem (base 1)');
   const par = {ocup: ocup, vel: velUrb};
   const at = F.campanha.atribEquipes || {};
   // grupos[i] = [{b, G}] — os círculos da equipe i em cada base do itinerário dela
@@ -8301,7 +8369,7 @@ async function planejaCampanha(){
     });
     return gs;
   };
-  if (!multi){
+  if (IMP){ /* regiões e dias do plano importado */ } else if (!multi){
     let div;
     if (divisao === 'manual') div = {grupos: divManual(U, Array.from({length: N}, (_, i) => i)), cortes: []};
     else div = divideEquipes(U, H, N, x, divisao, par);
@@ -8350,7 +8418,9 @@ async function planejaCampanha(){
     grupos.forEach((L, i) => L.sort((p, q) => itin[i].indexOf(p.b) - itin[i].indexOf(q.b)));
   }
   // dias de cada equipe, base por base; entre duas bases, o dia de mudança
-  const equipes = grupos.map((L, i) => {
+  const equipes = IMP ? IMP.map((ds, i) => ({nome: 'EQUIPE ' + (i + 1), cor: CORES_EQ[i % CORES_EQ.length], bases: [0],
+      dias: ds.map(L => ({ids: L.map(u => u.id), ks: L.map(u => u.k), pernas: null, b0: 0, b1: 0, fixo: true}))}))
+    : grupos.map((L, i) => {
     const dias = []; let prev = null;
     for (const g of L){
       if (!g.G.length) continue;
@@ -8384,7 +8454,7 @@ async function planejaCampanha(){
       let pts = d.ids.map(id => F.campanha.alvos.find(a => a.id === id));
       const ks = {}; d.ids.forEach((id, j) => { ks[id] = d.ks[j]; });
       try {
-        if (pts.length > 2 || (aberto && pts.length > 1)){
+        if (!d.fixo && (pts.length > 2 || (aberto && pts.length > 1))){   // plano importado: a ordem é a do arquivo
           marca('plano da campanha: dia ' + n + ' de ' + tot + ' — ordem pelo menor tempo de carro…');
           const c = [H0].concat(pts).concat(aberto ? [H1] : []).map(p => p.lon.toFixed(6) + ',' + p.lat.toFixed(6)).join(';');
           const t = await _osrm('table/v1/driving/' + c + '?annotations=duration,distance');
@@ -8416,6 +8486,7 @@ async function planejaCampanha(){
   }
   F.campanha.planoCampanha = {criado: new Date().toISOString(), porDia: x, ordem: ordem, ocup: ocup, jornada: jornada,
     velUrb: velUrb, velRod: velRod, saida: saida, almoco: almoco, divisao: divisao, compara: compara,
+    importado: IMP ? {nome: F.campanha.planoImportado.nome, quando: F.campanha.planoImportado.quando} : undefined,
     hotel: Object.assign({lat: +H.lat.toFixed(6), lon: +H.lon.toFixed(6), txt: txt, semHotel: semHotel, eq: BX.eq1}, _hotelDaTela()),
     basesExtra: BX.extras.length ? BX.extras : undefined, cortesB: cortesB.length ? cortesB : undefined,
     baricentro: {lat: +bar.lat.toFixed(6), lon: +bar.lon.toFixed(6)}, mediana: {lat: +med.lat.toFixed(6), lon: +med.lon.toFixed(6)},
@@ -9004,7 +9075,10 @@ function pintaPlanoCampanha(){
     + '<div class="lin"><label for="pc_div">Divisão</label><select id="pc_div">'
     + '<option value="dias"' + (val('divisao', 'dias') === 'dias' ? ' selected' : '') + '>equilibrada pelo tempo (quem vai mais longe coleta menos)</option>'
     + '<option value="vazios"' + (val('divisao', '') === 'vazios' ? ' selected' : '') + '>nos maiores vazios entre os pontos</option>'
-    + '<option value="manual"' + (val('divisao', '') === 'manual' ? ' selected' : '') + '>manual (escolhida na tabela abaixo)</option></select></div>'
+    + '<option value="manual"' + (val('divisao', '') === 'manual' ? ' selected' : '') + '>manual (escolhida na tabela abaixo)</option>'
+    + '<option value="importado"' + (val('divisao', '') === 'importado' ? ' selected' : '') + '>plano pronto, importado (equipe, dia e ordem de um arquivo)</option></select></div>'
+    + '<div class="lin"><button type="button" class="btn sec peq" id="b_pc_imp">Importar plano pronto (CSV)</button>'
+    + '<input type="file" id="f_pc_imp" accept=".csv,.txt,text/csv,text/plain" hidden><small id="pc_imp_res">' + esc(resumoPlanoImportado()) + '</small></div>'
     + '<div class="lin" style="margin-top:6px"><button type="button" class="btn peq" id="b_pc">Planejar a campanha</button>'
     + (pc ? '<button type="button" class="btn sec peq" id="b_pc_pdf">Material de planejamento (PDF)</button>'
           + '<button type="button" class="btn sec peq" id="b_pc_tira">Esquecer</button>' : '') + '</div>';
@@ -9025,6 +9099,17 @@ function pintaPlanoCampanha(){
   }
   el.innerHTML = h;
   $('#b_pc').addEventListener('click', () => planejaCampanha().catch(e => marca('plano da campanha: ' + e.message)));
+  $('#b_pc_imp').addEventListener('click', () => $('#f_pc_imp').click());
+  $('#f_pc_imp').addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      F.campanha.planoImportado = lePlanoPronto(await f.text(), f.name); grava();
+      const d = $('#pc_div'); if (d) d.value = 'importado';
+      $('#pc_imp_res').textContent = resumoPlanoImportado();
+      marca('plano pronto importado: ' + resumoPlanoImportado() + ' — toque em Planejar a campanha');
+    } catch (er){ marca('plano pronto: ' + er.message); }
+    e.target.value = '';
+  });
   ligaCamposHotel(); ligaBasesConfig();
   // início e fim de semana mudam só as datas: não precisa planejar de novo
   // redesenha depois que o foco passou ao campo seguinte e devolve o foco a ele (o quadro é refeito)
@@ -9072,7 +9157,7 @@ function montaImpressaoPlano(){
     + [['círculos pendentes', pc.nUnid], ['equipes', pc.equipes.length + (multiBase(pc) ? ' (' + basesDe(pc).length + ' bases de pouso; regiões sem sobreposição)' : ' (mesma hospedagem, regiões sem sobreposição)')],
        ['pontos por dia', pc.porDia], ['ocupação por ponto', pc.ocup + ' min (montagem, rastreio, desmontagem e avaliações locais)'],
        ['jornada', _numBR(pc.jornada) + ' h + ' + pc.almoco + ' min de almoço, saída às ' + pc.saida],
-       ['velocidades médias', 'urbano/vicinal ' + pc.velUrb + ' km/h · rodovia ' + pc.velRod + ' km/h'], ['divisão entre as equipes', pc.divisao === 'vazios' ? 'nos maiores vazios entre os pontos' : pc.divisao === 'manual' ? 'manual (escolhida pelo planejador)' : 'equilibrada pelo tempo de trabalho'],
+       ['velocidades médias', 'urbano/vicinal ' + pc.velUrb + ' km/h · rodovia ' + pc.velRod + ' km/h'], ['divisão entre as equipes', pc.divisao === 'importado' ? 'plano pronto, importado' + (pc.importado ? ' (' + pc.importado.nome + ')' : '') + ': regiões, dias e ordem do arquivo' : pc.divisao === 'vazios' ? 'nos maiores vazios entre os pontos' : pc.divisao === 'manual' ? 'manual (escolhida pelo planejador)' : 'equilibrada pelo tempo de trabalho'],
        ['ordem dos dias e dos pontos', pc.ordem === 'perto' ? 'do mais próximo para o mais distante da hospedagem' : 'do mais distante para o mais próximo da hospedagem'],
        [multiBase(pc) ? 'bases de pouso' : 'hospedagem', {html: multiBase(pc) ? htmlBases(pc, null, false) + '<br>' + pc.equipes.map(e => esc(e.nome) + ': ' + esc(itinerarioTexto(pc, e))).join('<br>') : htmlHotel(pc.hotel)}],
        ['distâncias da hospedagem', pc.fonteDist], ['rotas dos dias', pc.rotas]]
@@ -9082,7 +9167,10 @@ function montaImpressaoPlano(){
     + '<p class="ocor">' + esc(notaHorario(pc)) + ' '
     + 'Se a opção A não puder ser ocupada, a equipe segue para B, C e D do mesmo círculo, nessa ordem.</p>'
     + '<h2>Hospedagem</h2>' + textoHospedagem(pc)
-    + '<h2>Método</h2><p class="ocor">' + (pc.divisao === 'manual'
+    + '<h2>Método</h2><p class="ocor">' + (pc.divisao === 'importado'
+      ? 'Regiões, dias e ordem de visita: importados de um plano pronto' + (pc.importado ? ' (arquivo ' + esc(pc.importado.nome) + ')' : '')
+        + ', sem alteração; o planejador calculou os horários e as rotas. '
+      : (pc.divisao === 'manual'
       ? 'Regiões: a distribuição dos círculos entre as equipes foi escolhida pelo planejador. '
       : 'Regiões: os círculos pendentes são ordenados pelo azimute visto da hospedagem e cortados em grupos contíguos — '
         + (pc.divisao === 'vazios' ? 'nos maiores vazios angulares, sem olhar o tamanho. '
@@ -9096,7 +9184,7 @@ function montaImpressaoPlano(){
     + 'de volta à hospedagem, calculada de forma exata por programação dinâmica (HELD; KARP, 1962) sobre os tempos entre os pontos; '
     + 'dos dois sentidos desse circuito, fica o que ' + (pc.ordem === 'perto' ? 'começa pela ponta mais próxima da hospedagem e termina na mais distante. '
       : 'começa pela ponta mais distante do hotel e termina na mais próxima, com o último trecho curto, de volta ao hotel. ')
-    + 'Cada trecho do dia (hospedagem → 1º ponto, ponto → ponto, '
+    ) + 'Cada trecho do dia (hospedagem → 1º ponto, ponto → ponto, '
     + 'último → hospedagem) tem até três caminhos de carro calculados pelo OSRM (LUXEN; VETTER, 2011), que seguem na folha da equipe para a navegação sem rede. '
     + 'Mediana geométrica pelo algoritmo de Weiszfeld (1937).</p>'
     + (multiBase(pc) ? '<p class="ocor">Várias bases de pouso: cada círculo vai para a base mais próxima entre as que têm equipe (pelas ruas, com internet), '

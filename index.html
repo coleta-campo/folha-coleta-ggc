@@ -7699,7 +7699,7 @@ function _minTrecho(p, perna){ return perna.urb / p.velUrb * 60 + perna.rod / p.
 function _hora(min){ min = Math.round(min); return String(Math.floor(min / 60) % 24).padStart(2, '0') + ':' + String(min % 60).padStart(2, '0'); }
 function _minDe(hhmm){ const m = String(hhmm || '07:00').match(/(\d{1,2})\D?(\d{2})?/); return m ? +m[1] * 60 + (+m[2] || 0) : 420; }
 /* Agenda de um dia: pernas = [hotel→p1, …, pn→hotel]. */
-function horarioDia(p, pernas, n){
+function horarioDia(p, pernas, n, lim, soCampo){
   if (!pernas || pernas.length < n + 1) return null;
   let t = _minDe(p.saida), car = 0, almoco = null;
   const cheg = [];
@@ -7709,11 +7709,13 @@ function horarioDia(p, pernas, n){
     if (almoco == null && t >= 690 && i < n - 1){ almoco = t; t += p.almoco; }
   }
   // terminou antes das 11:30: almoça depois de voltar ao hotel (fora da conta do campo)
-  if (almoco == null && t >= 690){ almoco = t; t += p.almoco; }
+  if (almoco == null && t >= 690 && !soCampo){ almoco = t; t += p.almoco; }
+  const fimCampo = t;
   const m = _minTrecho(p, pernas[n]); t += m; car += m;
   const km = pernas.reduce((s, x) => s + x.urb + x.rod, 0), rod = pernas.reduce((s, x) => s + x.rod, 0);
-  const limite = _minDe(p.saida) + p.jornada * 60 + p.almoco;
-  return {cheg: cheg, almoco: almoco, retorno: t, car: car, km: km, rod: rod, passa: t > limite};
+  const limite = Math.min(_minDe(p.saida) + p.jornada * 60 + p.almoco, lim || Infinity);
+  // véspera da volta: o limite é o fim da coleta (a viagem ao pouso vem depois, com as bagagens no carro)
+  return {cheg: cheg, almoco: almoco, retorno: t, fimCampo: fimCampo, car: car, km: km, rod: rod, passa: soCampo ? fimCampo > limite : t > limite};
 }
 function _chaveUn(a){ const c = circuloDe(a.id); return c ? 'c' + c : 'p' + a.id; }
 function unidadesPendentes(){
@@ -8030,8 +8032,9 @@ function ligaCampoCoord(sInp, sAv, sMaps, sAqui, oQue){
    motivo; a mudança fica em F.campanha.pernoites e vai ao relatório da campanha, no
    quadro Planejado × executado. Nos relatórios entra só o MUNICÍPIO de cada base. */
 function basesDe(pc){ return pc && pc.hotel ? [pc.hotel].concat(pc.basesExtra || []) : []; }
-function multiBase(pc){ return !!(pc && pc.basesExtra && pc.basesExtra.length); }
-function rotBase(pc, b){ const B = basesDe(pc)[b]; return 'B' + (b + 1) + (B && B.nome ? ' · ' + B.nome : ''); }
+function multiBase(pc){ return !!(pc && pc.basesExtra && pc.basesExtra.some(B => !B.retorno)); }
+function ehPousoVolta(pc, b){ const B = basesDe(pc)[b]; return !!(B && B.retorno); }
+function rotBase(pc, b){ const B = basesDe(pc)[b]; return (B && B.retorno ? 'pouso da volta' : 'B' + (b + 1)) + (B && B.nome ? ' · ' + B.nome : ''); }
 function munBase(B){ return B && B.mun ? B.mun.nome + '/' + B.mun.uf : ''; }
 function _rascBases(){ const r = (F.campanha.basesPlano = F.campanha.basesPlano || {}); r.extras = r.extras || []; return r; }
 /* bases e equipes como estão no quadro (o rascunho fica na campanha) */
@@ -8144,7 +8147,8 @@ function itinerarioTexto(pc, e){
 }
 /* as bases do plano para mostrar (nome, link, coordenadas: só ao plano e às equipes) */
 function htmlBases(pc, EQ, curto){
-  if (!multiBase(pc)) return htmlHotel(pc.hotel, curto);
+  const pv = (pc.basesExtra || []).find(B => B.retorno);
+  if (!multiBase(pc)) return htmlHotel(pc.hotel, curto) + (pv ? '<br><b>Pouso da volta</b> (véspera): ' + htmlHotel(pv, true) + (munBase(pv) ? ' · ' + esc(munBase(pv)) : '') : '');
   const usa = b => !EQ || EQ.dias.some(d => (d.b0 || 0) === b || (d.b1 || 0) === b);
   return basesDe(pc).map((B, b) => usa(b) ? '<b>B' + (b + 1) + '</b> ' + htmlHotel(B, true) + (munBase(B) ? ' · ' + esc(munBase(B)) : '') : '').filter(Boolean).join('<br>')
     + (EQ ? '<br><small>Itinerário: ' + esc(itinerarioTexto(pc, EQ)) + '</small>' : '');
@@ -8157,6 +8161,11 @@ function pernoites(){ return (F.campanha.pernoites = F.campanha.pernoites || {})
 function _isoHoje(){ return (F.dia && F.dia.data) || new Date().toISOString().slice(0, 10); }
 /* bases previstas para a data: b0 = partida (onde a equipe dormiu), b1 = onde dorme */
 function basePrevista(pc, EQ, iso){
+  const r = _basePrevista0(pc, EQ, iso), RV = pc && pc.retorno;
+  if (r && RV && RV.iPV >= 0 && iso === RV.vesp && basesDe(pc)[RV.iPV]) r.b1 = RV.iPV;
+  return r;
+}
+function _basePrevista0(pc, EQ, iso){
   if (!pc || !pc.hotel) return null;
   if (!EQ || !EQ.dias.length) return {b0: 0, b1: 0, dia: null};
   const hj = hojeNoPlano(pc, iso);
@@ -8301,9 +8310,227 @@ function _diasImportados(U, avisos){
   for (let i = 0; i < E.length; i++){ const D = E[i] || {}; R.push(Object.keys(D).map(Number).sort((a, b) => a - b).map(d => D[d])); }
   return R.some(d => d.length) ? R : null;
 }
+/* ---------- volta: entrega do carro e pouso na volta ----------
+   F.campanha.retornoPlano (rascunho da tela) = {devTxt, devNome, prazo, pousoTxt, pousoNome,
+   chegada, paradas}. No último dia da campanha (o fim do calendário) o carro é entregue até
+   a hora-limite. Quando a estrada não cabe na manhã, a equipe dorme no caminho: a véspera
+   (o último dia útil antes da volta) termina no pouso da volta, com hora-limite de chegada. */
+function _rascRetorno(){ return (F.campanha.retornoPlano = F.campanha.retornoPlano || {}); }
+function retornoDoRascunho(avisos){
+  const r = _rascRetorno(), dev = coordDeTexto(String(r.devTxt || '').trim());
+  if (!dev) return null;
+  const tp = String(r.pousoTxt || '').trim(), pouso = tp ? coordDeTexto(tp) : null;
+  if (tp && !pouso) avisos.push('volta: as coordenadas do pouso na volta não foram entendidas (use lat, lon)');
+  return {dev: {lat: +dev.lat.toFixed(6), lon: +dev.lon.toFixed(6), nome: r.devNome || 'local de entrega do carro'},
+    pouso: pouso ? {lat: +pouso.lat.toFixed(6), lon: +pouso.lon.toFixed(6), nome: r.pousoNome || '', link: _MAPS_RE.test(tp) ? tp : '', retorno: true} : null,
+    prazo: /^\d{1,2}:\d{2}$/.test(r.prazo || '') ? r.prazo : '14:00', fimCampo: /^\d{1,2}:\d{2}$/.test(r.fimCampo || '') ? r.fimCampo : '15:00',
+    paradas: r.paradas != null && r.paradas !== '' ? Math.max(0, Math.min(240, +r.paradas || 0)) : 30};
+}
+/* data (ISO) do dia de campo j (0 = o primeiro) pelo calendário; null sem início */
+function _dataDoDia(c, j){
+  if (!c || !c.inicio) return null;
+  const d = _diaDe(c.inicio); let n = -1, g = 0;
+  while (g++ < 400){ if (diaDeTrabalho(d, c) && ++n === j) return _isoDia(d); d.setUTCDate(d.getUTCDate() + 1); }
+  return null;
+}
+/* a véspera da volta: o último dia útil de campo antes do deslocamento de volta (pode ser de reserva) */
+function _vesperaVolta(c){ const PE = periodoCampanha(c); return PE && PE.uteis.length ? PE.uteis[PE.uteis.length - 1] : null; }
+/* estrada de A a B nas velocidades do plano: {km, min, fonte} */
+async function _viagem(A, B, pt, rede){
+  if (rede){
+    try {
+      const r = await _osrm('route/v1/driving/' + A.lon.toFixed(6) + ',' + A.lat.toFixed(6) + ';' + B.lon.toFixed(6) + ',' + B.lat.toFixed(6) + '?overview=false&steps=true');
+      await _espera(1100);
+      const ro = r.routes[0], pe = _pernasUR(ro)[0];
+      return {km: Math.round(ro.distance / 100) / 10, min: Math.round(_minTrecho(pt, pe)), fonte: 'OSRM'};
+    } catch (e){}
+  }
+  const km = geodInversa(A.lat, A.lon, B.lat, B.lon).s * 1.3 / 1000;
+  return {km: Math.round(km * 10) / 10, min: Math.round(km / pt.velRod * 60), fonte: 'linha reta × 1,3'};
+}
+async function _retornoDoPlano(RT, H, PV, iPV, vesp, volta, limV, pt, rede){
+  marca('plano da campanha: a estrada da volta…');
+  return {dev: RT.dev, prazo: RT.prazo, fimCampo: RT.fimCampo, paradas: RT.paradas, vesp: vesp, volta: volta || null, limV: limV,
+    iPV: PV ? iPV : -1,
+    hd: await _viagem(H, RT.dev, pt, rede), hp: PV ? await _viagem(H, PV, pt, rede) : null, pd: PV ? await _viagem(PV, RT.dev, pt, rede) : null};
+}
+/* o texto da volta, no plano, no PDF e na folha da equipe */
+function textoRetorno(pc, so){
+  const R = pc && pc.retorno; if (!R) return '';
+  const p = paramTempo(), B = basesDe(pc), PV = R.iPV >= 0 ? B[R.iPV] : null;
+  const dd = iso => iso ? _ddmm(_diaDe(iso)) : '(sem data)';
+  const via = x => x ? _numBR(x.km, 0) + ' km, cerca de ' + _hm(x.min) : '?';
+  let h = '<b>Volta</b> ' + (R.volta ? 'em ' + dd(R.volta) : '(informe o fim da campanha)') + ': entrega do carro em ' + esc(R.dev.nome) + ' até ' + esc(R.prazo) + '. ';
+  if (PV){
+    const sai = _minDe(R.prazo) - R.pd.min - R.paradas;
+    const L = pc.equipes.filter(e => !so || e === so).map(e => {
+      const j = e.dias.findIndex(d => d.vesp);
+      if (j >= 0){ const d = e.dias[j], x = horarioDia(p, d.pernas, d.ids.length, d.limite, true);
+        return e.nome + ': dia ' + (j + 1) + ' do plano, fim da coleta ' + (x ? 'às ' + _hora(x.fimCampo) + (x.passa ? ' ⚠' : '') + ' e chegada ao pouso por volta das ' + _hora(x.retorno) : 'até ' + _hora(R.limV)); }
+      return e.nome + ': sem coleta no plano nesse dia (reserva até ' + _hora(R.limV) + ') — da hospedagem ao pouso, chegada por volta das ' + _hora(R.limV + R.hp.min);
+    });
+    h += 'Pouso na volta' + (PV.nome ? ': ' + esc(PV.nome) : '') + (munBase(PV) ? ' (' + esc(munBase(PV)) + ')' : '') + '. '
+      + 'Na véspera, ' + dd(R.vesp) + ', coleta até ' + _hora(R.limV) + ' e saída para o pouso, com as bagagens no carro — ' + L.map(esc).join('; ') + '. '
+      + 'Da hospedagem ao pouso: ' + via(R.hp) + '. No dia da volta, saída do pouso até <b>' + _hora(sai) + '</b> (' + via(R.pd) + ' de estrada + '
+      + R.paradas + ' min de paradas).' + (sai < _minDe(p.saida) - 60 ? ' ⚠ saída muito cedo: escolha um pouso mais perto do destino.' : '');
+  } else {
+    const sai = _minDe(R.prazo) - R.hd.min - R.paradas;
+    h += 'Saída da hospedagem até <b>' + _hora(sai) + '</b> (' + via(R.hd) + ' de estrada + ' + R.paradas + ' min de paradas).'
+      + (sai < _minDe(p.saida) - 60 ? ' ⚠ saída de madrugada: informe um pouso na volta (botão Onde dormir na volta?) para a equipe dormir no caminho na véspera.' : '');
+  }
+  return h + ' <small>Tempos nas velocidades do plano (rodovia ' + p.velRod + ' km/h, resto ' + p.velUrb + ' km/h), ' + esc(R.hd.fonte) + '.</small>';
+}
+function htmlRetornoConfig(){
+  const r = _rascRetorno();
+  return '<details class="ajuda" id="rt_box"' + (r.devTxt ? ' open' : '') + '><summary>Volta: entrega do carro e pouso na volta</summary>'
+    + '<p class="leg">No último dia da campanha (o fim, acima), o carro é entregue até a hora-limite. Se a estrada não cabe na manhã, a equipe dorme '
+    + 'no caminho: a véspera vira um dia mais curto, que termina no pouso da volta. O pouso é uma hospedagem como as outras: nos relatórios entra só o município.</p>'
+    + '<div class="lin"><label for="rt_dev">Entrega do carro</label><input type="text" id="rt_dev" style="flex:1;min-width:12em" placeholder="lat, lon ou nome do lugar" value="' + esc(r.devTxt || '') + '">'
+    + '<label for="rt_prazo">até</label><input type="time" id="rt_prazo" value="' + esc(r.prazo || '14:00') + '"></div>'
+    + '<div class="lin"><label for="rt_dev_nome">Local</label><input type="text" id="rt_dev_nome" style="flex:1;min-width:12em" placeholder="ex.: IBGE — SES-CE, Fortaleza" value="' + esc(r.devNome || '') + '"></div>'
+    + '<div class="lin"><label for="rt_pouso">Pouso na volta</label><input type="text" id="rt_pouso" style="flex:1;min-width:12em" placeholder="cidade (ex.: Mossoró, Assú) ou lat, lon — vazio: volta direto" value="' + esc(r.pousoTxt || '') + '">'
+    + '<label for="rt_pouso_nome">nome</label><input type="text" id="rt_pouso_nome" style="min-width:8em" value="' + esc(r.pousoNome || '') + '"></div>'
+    + '<div class="lin"><label for="rt_cheg">Véspera: fim da coleta e saída para o pouso</label><input type="time" id="rt_cheg" value="' + esc(r.fimCampo || '15:00') + '">'
+    + '<label for="rt_par">Paradas na estrada (min)</label><input type="number" id="rt_par" min="0" max="240" value="' + (r.paradas != null && r.paradas !== '' ? r.paradas : 30) + '"></div>'
+    + '<div class="lin"><button type="button" class="btn sec peq" id="b_rt_sug">Onde dormir na volta? (internet)</button></div>'
+    + '<p class="leg" id="rt_res"></p></details>';
+}
+function ligaRetornoConfig(){
+  const r = _rascRetorno(), lv = s => String(($(s) || {}).value || '').trim();
+  const sal = () => { r.devTxt = lv('#rt_dev'); r.devNome = lv('#rt_dev_nome'); r.prazo = lv('#rt_prazo'); r.pousoTxt = lv('#rt_pouso');
+    r.pousoNome = lv('#rt_pouso_nome'); r.fimCampo = lv('#rt_cheg'); r.paradas = lv('#rt_par'); grava(); };
+  // o lugar pode ser escrito pelo nome (ex.: Mossoró, Assú): com internet, sai a coordenada (Nominatim, OpenStreetMap)
+  const porNome = async (sel, selNome) => {
+    const e = $(sel), t = String(e.value || '').trim(), o = $('#rt_res');
+    if (!t || coordDeTexto(t) || !navigator.onLine) return;
+    try {
+      if (o) o.textContent = 'procurando “' + t + '”…';
+      const j = await (await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&accept-language=pt-BR&q=' + encodeURIComponent(t))).json();
+      if (!j || !j[0]){ if (o) o.textContent = 'não achei “' + t + '”: use as coordenadas (lat, lon)'; return; }
+      e.value = (+j[0].lat).toFixed(6) + ', ' + (+j[0].lon).toFixed(6);
+      const n = $(selNome); if (n && !String(n.value || '').trim()) n.value = t;
+      if (o) o.textContent = '“' + t + '”: ' + j[0].display_name + ' — centro do lugar (© colaboradores do OpenStreetMap); ajuste se precisar.';
+      sal();
+    } catch (er){ if (o) o.textContent = 'não deu para procurar “' + t + '”: use as coordenadas (lat, lon)'; }
+  };
+  ['#rt_dev', '#rt_dev_nome', '#rt_prazo', '#rt_pouso', '#rt_pouso_nome', '#rt_cheg', '#rt_par'].forEach(s => { const e = $(s); if (e) e.addEventListener('change', sal); });
+  const ep = $('#rt_pouso'); if (ep) ep.addEventListener('change', () => porNome('#rt_pouso', '#rt_pouso_nome'));
+  const ed = $('#rt_dev'); if (ed) ed.addEventListener('change', () => porNome('#rt_dev', '#rt_dev_nome'));
+  const b = $('#b_rt_sug'); if (b) b.addEventListener('click', () => sugerePousoVolta().catch(e => { const o = $('#rt_res'); if (o) o.textContent = 'não deu: ' + e.message; }));
+}
+/* Onde dormir na volta: pela estrada da hospedagem à entrega, o ponto a partir do qual a
+   manhã do último dia basta (saída no horário de sempre, paradas, entrega até a hora-limite). */
+async function sugerePousoVolta(){
+  const o = $('#rt_res'), r = _rascRetorno(), lv = s => String(($(s) || {}).value || '').trim();
+  const dev = coordDeTexto(lv('#rt_dev')), H = coordDeTexto(lv('#pc_hotel'));
+  if (!dev || !H){ o.textContent = 'informe as coordenadas da hospedagem e da entrega do carro'; return; }
+  if (!navigator.onLine){ o.textContent = 'precisa de internet'; return; }
+  const pt = {velUrb: parseFloat(lv('#pc_vu')) || 20, velRod: parseFloat(lv('#pc_vr')) || 60};
+  const saida = /^\d{1,2}:\d{2}$/.test(lv('#pc_saida')) ? lv('#pc_saida') : '07:00';
+  const prazo = lv('#rt_prazo') || '14:00', par = lv('#rt_par') === '' ? 30 : +lv('#rt_par') || 0, fimC = lv('#rt_cheg') || '15:00';
+  o.textContent = 'calculando a estrada…';
+  const ro = (await _osrm('route/v1/driving/' + H.lon.toFixed(6) + ',' + H.lat.toFixed(6) + ';' + dev.lon.toFixed(6) + ',' + dev.lat.toFixed(6) + '?overview=false&steps=true')).routes[0];
+  const st = ro.legs[0].steps, tm = st.map(x => x.distance / 1000 / (_ehRodovia(x) ? pt.velRod : pt.velUrb) * 60);
+  const tot = tm.reduce((a, b) => a + b, 0), cabe = _minDe(prazo) - _minDe(saida) - par;
+  const km = m => _numBR(m / 1000, 0) + ' km';
+  let h = 'Estrada da hospedagem à entrega: ' + km(ro.distance) + ', cerca de ' + _hm(tot) + ' nas velocidades do plano. ';
+  if (tot <= cabe){ o.innerHTML = h + 'Saindo às ' + saida + ', com ' + par + ' min de paradas, chega às ' + _hora(_minDe(saida) + tot + par) + ': dá para voltar direto, sem pouso.'; return; }
+  let k = 0, resto = tot, dk = 0;
+  while (k < st.length && resto > cabe){ resto -= tm[k]; dk += st[k].distance; k++; }
+  const loc = (st[Math.min(k, st.length - 1)].maneuver || {}).location || [dev.lon, dev.lat];
+  let mun = null; try { mun = await municipioDe(loc[1], loc[0], 15); } catch (e){}
+  const ida = tot - resto;
+  o.innerHTML = h + 'Para sair do pouso às ' + saida + ' e entregar até ' + esc(prazo) + ' (com ' + par + ' min de paradas), o pouso precisa ficar a no máximo '
+    + km(ro.distance - dk) + ' da entrega — da altura de <b>' + esc(mun ? mun.nome + '/' + mun.uf : loc[1].toFixed(4) + ', ' + loc[0].toFixed(4)) + '</b> em diante '
+    + '(' + km(dk) + ' e cerca de ' + _hm(ida) + ' da hospedagem: saindo da área às ' + esc(fimC) + ' na véspera, chegada por volta das ' + _hora(_minDe(fimC) + ida) + '). '
+    + '<a href="https://www.google.com/maps/search/hot%C3%A9is/@' + loc[1].toFixed(5) + ',' + loc[0].toFixed(5) + ',12z" target="_blank" rel="noopener">hotéis e pousadas por ali</a>. '
+    + 'Escolhido o lugar, cole as coordenadas em <b>Pouso na volta</b> e planeje de novo.';
+}
+/* ---------- pontos por dia pela jornada ----------
+   Tempos de carro (min, nas velocidades do plano) entre todos os lugares: com internet, da
+   tabela do OSRM, separando em cada trecho a parte de rodovia e a de cidade pela velocidade
+   média do próprio trecho (supostas 75 e 30 km/h, perto do perfil de carro do OSRM); sem
+   internet, linha reta × 1,3 (BALLOU; RAHARDJA; SAKAI, 2002), os 5 primeiros km na
+   velocidade urbana e o resto na de rodovia. */
+function _minDoOsrm(seg, m, pt){
+  const t = seg / 3600, d = m / 1000; if (d < 0.05) return t * 60;
+  let u = (t - d / 75) / (1 / 30 - 1 / 75); u = Math.max(0, Math.min(d, u));
+  return ((d - u) / pt.velRod + u / pt.velUrb) * 60;
+}
+async function _matrizTempos(nos, pt, rede, avisos){
+  const n = nos.length, M = Array.from({length: n}, () => new Float64Array(n));
+  const reta = (a, b) => { const d = geodInversa(a.lat, a.lon, b.lat, b.lon).s * 1.3 / 1000;
+    return Math.min(d, 5) / pt.velUrb * 60 + Math.max(0, d - 5) / pt.velRod * 60; };
+  let fonte = 'reta';
+  if (rede && n <= 100){
+    try {
+      const t = await _osrm('table/v1/driving/' + nos.map(c => c.lon.toFixed(6) + ',' + c.lat.toFixed(6)).join(';') + '?annotations=duration,distance');
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++){
+        const s = t.durations[i][j], m = t.distances[i][j];
+        M[i][j] = i === j ? 0 : s == null || m == null ? reta(nos[i], nos[j]) : _minDoOsrm(s, m, pt);
+      }
+      fonte = 'osrm'; await _espera(1100);
+    } catch (e){ avisos.push('pontos por dia: tempos em linha reta (' + (e.name === 'AbortError' ? 'servidor não respondeu' : e.message) + ')'); }
+  } else if (rede) avisos.push('pontos por dia: mais de 100 lugares — tempos em linha reta');
+  if (fonte === 'reta') for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) M[i][j] = i === j ? 0 : reta(nos[i], nos[j]);
+  return {M: M, fonte: fonte, nos: nos};
+}
+/* minutos de carro de uma rota (lugares em ordem), nas velocidades do plano */
+async function _tempoRotaDia(P, pt){
+  const r = await _osrm('route/v1/driving/' + P.map(c => c.lon.toFixed(6) + ',' + c.lat.toFixed(6)).join(';') + '?overview=false&steps=true');
+  await _espera(1100);
+  return _pernasUR(r.routes[0]).reduce((s, p) => s + _minTrecho(pt, p), 0);
+}
+/* Dias pela jornada: cada dia abre com o círculo pendente mais distante da base (ou o mais
+   próximo, conforme a ordem) e recebe, por inserção mais barata (ROSENKRANTZ; STEARNS; LEWIS,
+   1977), o círculo que menos alonga o dia, enquanto carro + ocupações cabem em capDe(j) e o
+   dia tem menos de xMax pontos. fimDe(j): onde o dia termina (a base, ou o pouso da volta).
+   Com ptVerif (internet), cada dia é conferido pela rota e perde o ponto que mais o alonga
+   enquanto passar da jornada (até 3 vezes). Devolve os dias, cada um na ordem de visita. */
+async function montaDiasTempo(G, iH, ordem, dH, MT, capDe, fimDe, j0, xMax, ocup, ptVerif, soCampoDe){
+  const M = MT.M, ix = MT.ix;
+  let so = false, iFa = -1;                                   // so: o último trecho (até o pouso da volta) fica fora da conta
+  const t = (a, b) => so && b === iFa ? 0 : M[a][b];
+  const custo = (seq, iF) => { const nn = [iH].concat(seq.map(u => ix.get(u.k)), [iF]); let c = 0;
+    for (let q = 1; q < nn.length; q++) c += t(nn[q - 1], nn[q]); return c + ocup * seq.length; };
+  const ordena = (seq, iF) => {
+    if (seq.length < 2) return seq;
+    const nn = [iH].concat(seq.map(u => ix.get(u.k)));
+    if (iF === iH) return ordemDoDia(nn.map(a => nn.map(b => M[a][b])), ordem).map(q => seq[q - 1]);
+    const n2 = nn.concat([iF]); return ordemCaminho(n2.map(a => n2.map(b => M[a][b]))).map(q => seq[q - 1]);
+  };
+  let R = G.slice(), j = j0;
+  const dias = [];
+  while (R.length){
+    R.sort((a, b) => ordem === 'perto' ? dH[a.k] - dH[b.k] : dH[b.k] - dH[a.k]);
+    const cap = capDe(j), iF = fimDe(j);
+    so = !!(soCampoDe && soCampoDe(j)); iFa = iF;
+    let seq = [R.shift()], T = custo(seq, iF);
+    while (R.length && seq.length < xMax){
+      const nn = [iH].concat(seq.map(u => ix.get(u.k)), [iF]);
+      let best = null;
+      for (const u of R){ const iu = ix.get(u.k);
+        for (let q = 0; q + 1 < nn.length; q++){ const dl = t(nn[q], iu) + t(iu, nn[q + 1]) - t(nn[q], nn[q + 1]);
+          if (!best || dl < best.dl) best = {u: u, q: q, dl: dl}; } }
+      if (T + best.dl + ocup > cap) break;
+      seq.splice(best.q, 0, best.u); T += best.dl + ocup; R = R.filter(u => u !== best.u);
+    }
+    seq = ordena(seq, iF); T = custo(seq, iF);
+    if (ptVerif) for (let tent = 0; tent < 3 && seq.length > 1; tent++){
+      let Tr;
+      try { Tr = await _tempoRotaDia([MT.nos[iH]].concat(seq, so ? [] : [MT.nos[iF]]), ptVerif) + ocup * seq.length; } catch (e){ break; }
+      if (Tr <= cap) break;
+      let mel = 0, eco = -Infinity;
+      seq.forEach((u, q) => { const e2 = T - custo(seq.filter((_, z) => z !== q), iF); if (e2 > eco){ eco = e2; mel = q; } });
+      R.push(seq[mel]); seq = ordena(seq.filter((_, z) => z !== mel), iF); T = custo(seq, iF);
+    }
+    dias.push(seq); j++;
+  }
+  return dias;
+}
 async function planejaCampanha(){
   const v = s => ($(s) || {}).value;
-  const x = Math.max(1, Math.min(15, parseInt(v('#pc_n'), 10) || 5));
+  const x = Math.max(1, Math.min(12, parseInt(v('#pc_n'), 10) || 8));
   const N = Math.max(1, Math.min(4, parseInt(v('#pc_eq'), 10) || 2));
   const ordem = v('#pc_ordem') === 'perto' ? 'perto' : 'longe';
   const ocup = Math.max(5, Math.min(240, parseInt(v('#pc_ocup'), 10) || 40));
@@ -8418,10 +8645,28 @@ async function planejaCampanha(){
     grupos.forEach((L, i) => L.sort((p, q) => itin[i].indexOf(p.b) - itin[i].indexOf(q.b)));
   }
   // dias de cada equipe, base por base; entre duas bases, o dia de mudança
-  const equipes = IMP ? IMP.map((ds, i) => ({nome: 'EQUIPE ' + (i + 1), cor: CORES_EQ[i % CORES_EQ.length], bases: [0],
-      dias: ds.map(L => ({ids: L.map(u => u.id), ks: L.map(u => u.k), pernas: null, b0: 0, b1: 0, fixo: true}))}))
-    : grupos.map((L, i) => {
-    const dias = []; let prev = null;
+  // volta: entrega do carro no último dia; o pouso da volta entra como base, só para a véspera
+  const cal = _calDaTela(), RT = retornoDoRascunho(avisos), vesp = RT ? _vesperaVolta(cal) : null;
+  let iPV = -1;
+  if (RT && RT.pouso){ bases.push(RT.pouso); iPV = bases.length - 1; }
+  if (RT && !vesp) avisos.push('volta: informe o início e o fim da campanha para o plano saber qual é a véspera');
+  const limV = RT ? Math.min(_minDe(saida) + jornada * 60 + almoco, _minDe(RT.fimCampo)) : null;
+  const ehVesp = j => !!(vesp && _dataDoDia(cal, j) === vesp);
+  const capDe = j => ehVesp(j) ? Math.max(60, Math.min(jornada * 60, limV - _minDe(saida) - almoco)) : jornada * 60;
+  const soCampo = j => ehVesp(j) && iPV >= 0;        // na véspera conta só até o fim da coleta
+  // pontos por dia: número fixo, ou o que cabe na jornada (tempos de carro entre todos os lugares)
+  const porJornada = !IMP && v('#pc_nmodo') !== 'fixo';
+  let MT = null;
+  if (porJornada){
+    marca('plano da campanha: tempos de carro entre os pontos…');
+    MT = await _matrizTempos(bases.concat(U), {velUrb: velUrb, velRod: velRod}, rede, avisos);
+    MT.ix = new Map(U.map((u, i) => [u.k, bases.length + i]));
+  }
+  const equipes = [];
+  if (IMP) IMP.forEach((ds, i) => equipes.push({nome: 'EQUIPE ' + (i + 1), cor: CORES_EQ[i % CORES_EQ.length], bases: [0],
+      dias: ds.map(L => ({ids: L.map(u => u.id), ks: L.map(u => u.k), pernas: null, b0: 0, b1: 0, fixo: true}))}));
+  else for (let i = 0; i < grupos.length; i++){
+    const L = grupos[i], dias = []; let prev = null;
     for (const g of L){
       if (!g.G.length) continue;
       let R = g.G.slice();
@@ -8432,12 +8677,19 @@ async function planejaCampanha(){
         R = R.filter(u => !tr.includes(u));
         dias.push({u: tr, b0: prev, b1: g.b});
       }
-      montaDias(R, bases[g.b], x, ordem, dB[g.b]).forEach(d => dias.push({u: d, b0: g.b, b1: g.b}));
+      if (porJornada){
+        marca('plano da campanha: ' + 'EQUIPE ' + (i + 1) + ' — dias pela jornada…');
+        const fim = j => ehVesp(j) && iPV >= 0 ? iPV : g.b;
+        (await montaDiasTempo(R, g.b, ordem, dB[g.b], MT, capDe, fim, dias.length, x, ocup, rede && MT.fonte === 'osrm' ? {velUrb: velUrb, velRod: velRod} : null, soCampo))
+          .forEach(d => dias.push({u: d, b0: g.b, b1: g.b}));
+      } else montaDias(R, bases[g.b], x, ordem, dB[g.b]).forEach(d => dias.push({u: d, b0: g.b, b1: g.b}));
       prev = g.b;
     }
-    return {nome: 'EQUIPE ' + (i + 1), cor: CORES_EQ[i % CORES_EQ.length], bases: itin[i].slice(),
-      dias: dias.map(d => ({ids: d.u.map(u => u.id), ks: d.u.map(u => u.k), pernas: null, b0: d.b0, b1: d.b1}))};
-  });
+    equipes.push({nome: 'EQUIPE ' + (i + 1), cor: CORES_EQ[i % CORES_EQ.length], bases: itin[i].slice(),
+      dias: dias.map(d => ({ids: d.u.map(u => u.id), ks: d.u.map(u => u.k), pernas: null, b0: d.b0, b1: d.b1}))});
+  }
+  // véspera da volta: o dia termina no pouso da volta (se houver), com hora-limite de chegada
+  if (RT) equipes.forEach(e => e.dias.forEach((d, j) => { if (!ehVesp(j)) return; d.vesp = true; d.limite = limV; if (iPV >= 0) d.b1 = iPV; }));
   /* Rotas de carro de cada dia, feitas aqui no gabinete para todas as equipes:
      1) a ordem de visita é refeita pelos tempos de carro entre os pontos (tabela do OSRM),
         começando pelo mais distante da base (ou pelo mais próximo, conforme a opção); no dia
@@ -8473,7 +8725,7 @@ async function planejaCampanha(){
             + '?alternatives=3&overview=full&geometries=geojson&steps=true');
           const op = (r.routes || []).slice(0, 3).map((ro, o) => ({o: o + 1, km: Math.round(ro.distance) / 1000, min: Math.round(ro.duration / 60),
             g: ro.geometry.coordinates.map(q => [+q[0].toFixed(5), +q[1].toFixed(5)])}));
-          trechos.push({de: a.id, para: b.id, op: op});
+          trechos.push(H1.retorno && j + 2 === seqP.length ? {de: a.id, para: b.id, op: op, pv: true} : {de: a.id, para: b.id, op: op});
           pernas.push(_pernasUR({legs: [r.routes[0].legs[0]]})[0]);
           await _espera(1100);
         }
@@ -8488,7 +8740,8 @@ async function planejaCampanha(){
     velUrb: velUrb, velRod: velRod, saida: saida, almoco: almoco, divisao: divisao, compara: compara,
     importado: IMP ? {nome: F.campanha.planoImportado.nome, quando: F.campanha.planoImportado.quando} : undefined,
     hotel: Object.assign({lat: +H.lat.toFixed(6), lon: +H.lon.toFixed(6), txt: txt, semHotel: semHotel, eq: BX.eq1}, _hotelDaTela()),
-    basesExtra: BX.extras.length ? BX.extras : undefined, cortesB: cortesB.length ? cortesB : undefined,
+    basesExtra: BX.extras.concat(iPV >= 0 ? [bases[iPV]] : []).length ? BX.extras.concat(iPV >= 0 ? [bases[iPV]] : []) : undefined,
+    nModo: porJornada ? 'jornada' : IMP ? undefined : 'fixo', retorno: RT ? await _retornoDoPlano(RT, H, iPV >= 0 ? bases[iPV] : null, iPV, vesp, cal.volta, limV, {velUrb: velUrb, velRod: velRod}, rede) : undefined, cortesB: cortesB.length ? cortesB : undefined,
     baricentro: {lat: +bar.lat.toFixed(6), lon: +bar.lon.toFixed(6)}, mediana: {lat: +med.lat.toFixed(6), lon: +med.lon.toFixed(6)},
     cortes: cortes, fonteDist: fonteD, rotas: rotas ? 'OSRM, até 3 caminhos por trecho — dados © colaboradores do OpenStreetMap' : 'sem rotas (sem internet)',
     nUnid: U.length, equipes: equipes, avisos: avisos};
@@ -8555,9 +8808,10 @@ function svgPlanoCampanha(pc, W, Hh){
             L.push({lat: a.lat, lon: a.lon, cor: e.cor, dia: j + 1, ord: d.ids.indexOf(id) + 1, id: id, eq: i,
                     estado: (estadoDaUnidade(k, id, Ez) || {}).st || null}); }
   })));
-  const BS = basesDe(pc), mb = multiBase(pc);
+  const BS = basesDe(pc).filter(B => !B.retorno), mb = multiBase(pc);
   const ex = L.concat(BS, [pc.baricentro, pc.mediana]);
   pc.equipes.forEach(e => e.dias.forEach(d => (d.trechos || []).forEach(t => {     // o quadro abrange os caminhos
+    if (t.pv) return;
     const g = t.op && t.op[0] && t.op[0].g || [];
     for (let i = 0; i < g.length; i += Math.max(1, Math.floor(g.length / 20))) ex.push({lat: g[i][1], lon: g[i][0]});
   })));
@@ -8581,7 +8835,7 @@ function svgPlanoCampanha(pc, W, Hh){
   (pc.cortesB || []).forEach(cb => { const o = tela(BS[cb.b]); cb.cortes.forEach(t => raio(o, t, cb.r * esc_)); });
   // caminhos de carro do plano (opção 1 de cada trecho), por baixo dos pontos
   pc.equipes.forEach(e => e.dias.forEach(d => (d.trechos || []).forEach(t => {
-    const g = t.op && t.op[0] && t.op[0].g; if (!g || g.length < 2) return;
+    const g = t.op && t.op[0] && t.op[0].g; if (!g || g.length < 2 || t.pv) return;
     s += '<polyline fill="none" stroke="' + e.cor + '" stroke-opacity=".55" stroke-width="2" stroke-linejoin="round" points="'
       + g.map(q => tela({lat: q[1], lon: q[0]}).map(v => v.toFixed(1)).join(',')).join(' ') + '"/>';
   })));
@@ -8928,9 +9182,10 @@ function calendarioPlano(pc, so){
 function tabelaPlano(pc, so){
   const p = paramTempo(), Et = estadosColeta();
   let h = '';
-  h += '<p class="leg" style="margin:4px 0"><b>Calendário:</b> ' + esc(resumoCalendario(pc)) + '</p>' + calendarioPlano(pc, so);
+  h += '<p class="leg" style="margin:4px 0"><b>Calendário:</b> ' + esc(resumoCalendario(pc)) + '</p>'
+    + (pc.retorno ? '<p class="leg" style="margin:4px 0">' + textoRetorno(pc, so) + '</p>' : '') + calendarioPlano(pc, so);
   pc.equipes.filter(e => !so || e === so).forEach(e => {
-    const H = e.dias.map(d => horarioDia(p, d.pernas, d.ids.length)), DT = datasDoPlano(pc, e.dias.length);
+    const H = e.dias.map(d => horarioDia(p, d.pernas, d.ids.length, d.limite, d.vesp && ehPousoVolta(pc, d.b1 || 0))), DT = datasDoPlano(pc, e.dias.length);
     const kmT = H.reduce((s, x) => s + (x ? x.km : 0), 0), carT = H.reduce((s, x) => s + (x ? x.car : 0), 0);
     const n = e.dias.reduce((s, d) => s + d.ids.length, 0);
     const feitosE = e.dias.reduce((t, d) => t + _feitosDia(d, Et), 0);
@@ -8943,14 +9198,15 @@ function tabelaPlano(pc, so){
       + (multiBase(pc) ? '<p class="leg" style="margin:0 0 4px"><b>Itinerário:</b> ' + esc(itinerarioTexto(pc, e)) + '</p>' : '') + '<div class="dplano">'
       + e.dias.map((d, j) => {
           const x = H[j], f = _feitosDia(d);
-          const mud = (d.b0 || 0) !== (d.b1 || 0);
+          const mud = (d.b0 || 0) !== (d.b1 || 0), pv = ehPousoVolta(pc, d.b1 || 0);
           return '<div class="d' + (f === d.ids.length ? ' feito' : '') + '"><div class="cab"><b>Dia ' + (j + 1) + (DT ? ' · ' + _ddmm(DT[j]) : '') + '</b>'
-            + (multiBase(pc) ? (mud ? ' · <b style="color:#B45309">mudança B' + ((d.b0 || 0) + 1) + ' → B' + (d.b1 + 1) + '</b>' : ' · B' + ((d.b1 || 0) + 1)) : '')
+            + (pv ? ' · <b style="color:#B45309">véspera da volta → pouso da volta</b>' : d.vesp ? ' · <b style="color:#B45309">véspera da volta</b>' : '')
+            + (pv ? '' : multiBase(pc) ? (mud ? ' · <b style="color:#B45309">mudança B' + ((d.b0 || 0) + 1) + ' → B' + (d.b1 + 1) + '</b>' : ' · B' + ((d.b1 || 0) + 1)) : '')
             + (x ? ' · ' + _numBR(x.km, 0) + ' km (' + _numBR(x.rod, 0) + ' em rodovia) · carro ' + _hm(x.car)
                  + ' + ocupação ' + _hm(d.ids.length * p.ocup)
                  + ' · almoço ' + (x.almoco != null ? _hora(x.almoco) : 'na volta') + ' · <span' + (x.passa ? ' style="color:#B91C1C;font-weight:700"' : '') + '>'
-                 + (mud ? 'chegada à B' + (d.b1 + 1) + ' ' : 'volta à hospedagem ')
-                 + _hora(x.retorno) + (x.passa ? ' ⚠' : '') + '</span>' : ' · sem rota (horários não estimados)')
+                 + (pv ? 'fim da coleta ' + _hora(x.fimCampo) + (x.passa ? ' ⚠' : '') + '</span> · chegada ao pouso da volta ' + _hora(x.retorno)
+                    : (mud ? 'chegada à B' + (d.b1 + 1) + ' ' : 'volta à hospedagem ') + _hora(x.retorno) + (x.passa ? ' ⚠' : '') + '</span>') : ' · sem rota (horários não estimados)')
             + (f ? ' · <small>' + f + '/' + d.ids.length + ' coletados</small>' : '') + '</div><div class="pts">'
             + d.ids.map((id, k) => { const u = estadoDaUnidade(d.ks[k], id, Et), st = u && u.st;
                 return '<span' + (st === 'coletado' ? ' class="ok"' : st === 'emcoleta' ? ' class="and"' : '') + '>'
@@ -8977,7 +9233,7 @@ function tabelaDistribuicao(pc){
   pc.equipes.forEach((e, i) => e.dias.forEach((d, j) => d.ids.forEach((id, k) => {
     const a = A.find(z => z.id === id); if (!a) return;
     L.push({k: d.ks[k], id: id, i: i, dia: j + 1, ord: k + 1,
-            dist: Math.min(...basesDe(pc).map(B => geodInversa(B.lat, B.lon, a.lat, a.lon).s))});
+            dist: Math.min(...basesDe(pc).filter(B => !B.retorno).map(B => geodInversa(B.lat, B.lon, a.lat, a.lon).s))});
   })));
   if (pc.equipes.length < 2 || !L.length) return '';
   L.sort((a, b) => a.id < b.id ? -1 : 1);
@@ -9043,7 +9299,10 @@ function pintaPlanoCampanha(){
     + 'placeholder="ex.: Pousada Mar Azul · casa na Rua X" value="' + esc(pc && pc.hotel.nome || '') + '"></div>'
     + '<p class="leg" id="pc_hosp_mun" style="margin-top:2px">' + textoMunHosp(pc) + '</p>'
     + htmlBasesConfig()
-    + '<div class="lin"><label for="pc_n">Pontos por dia</label><input type="number" id="pc_n" min="1" max="15" value="' + val('porDia', 5) + '">'
+    + '<div class="lin"><label for="pc_nmodo">Pontos por dia</label><select id="pc_nmodo">'
+    + '<option value="jornada"' + (val('nModo', 'jornada') === 'jornada' ? ' selected' : '') + '>o que cabe na jornada (otimizado)</option>'
+    + '<option value="fixo"' + (val('nModo', '') === 'fixo' ? ' selected' : '') + '>número fixo</option></select>'
+    + '<label for="pc_n">máximo / fixo</label><input type="number" id="pc_n" min="1" max="12" value="' + val('porDia', 8) + '">'
     + '<label for="pc_eq">Equipes</label><input type="number" id="pc_eq" min="1" max="4" value="' + eqN + '"></div>'
     + '<div class="lin"><label for="pc_ocup">Ocupação (min/ponto)</label><input type="number" id="pc_ocup" min="5" max="240" value="' + val('ocup', 40) + '">'
     + '<label for="pc_jornada">Jornada (h)</label><input type="number" id="pc_jornada" min="1" max="14" step="0.5" value="' + val('jornada', 8) + '"></div>'
@@ -9069,6 +9328,7 @@ function pintaPlanoCampanha(){
     + '<small>nacionais e pontos facultativos federais entram sozinhos (Lei nº 662/1949, Lei nº 9.093/1995, Lei nº 14.759/2023; portaria anual do MGI); '
     + 'estaduais pela UF da campanha' + (F.campanha.uf ? ' (' + esc(F.campanha.uf) + (FER_UF[F.campanha.uf] ? ': ' + FER_UF[F.campanha.uf].map(x => x[0].slice(3) + '/' + x[0].slice(0, 2) + ' ' + x[1]).join(', ') : ': nenhum cadastrado — informe aqui') + ')' : ' — escolha a UF na campanha')
     + '; os municipais (Lei nº 9.093/1995, art. 2º) variam e devem ser conferidos na lei de cada município</small></div>'
+    + htmlRetornoConfig()
     + '<div class="lin"><label for="pc_ordem">Ordem dos dias e dos pontos</label><select id="pc_ordem">'
     + '<option value="longe"' + (val('ordem', 'longe') === 'longe' ? ' selected' : '') + '>do mais distante para o mais próximo da hospedagem</option>'
     + '<option value="perto"' + (val('ordem', '') === 'perto' ? ' selected' : '') + '>do mais próximo para o mais distante da hospedagem</option></select></div>'
@@ -9110,7 +9370,7 @@ function pintaPlanoCampanha(){
     } catch (er){ marca('plano pronto: ' + er.message); }
     e.target.value = '';
   });
-  ligaCamposHotel(); ligaBasesConfig();
+  ligaCamposHotel(); ligaBasesConfig(); ligaRetornoConfig();
   // início e fim de semana mudam só as datas: não precisa planejar de novo
   // redesenha depois que o foco passou ao campo seguinte e devolve o foco a ele (o quadro é refeito)
   ['#pc_ida', '#pc_volta', '#pc_nida', '#pc_nvolta', '#pc_res', '#pc_fds', '#pc_fer', '#pc_ferloc'].forEach(s => { const e = $(s); if (e) e.addEventListener('change', () => {
@@ -9155,7 +9415,7 @@ function montaImpressaoPlano(){
     + new Date().toLocaleString('pt-BR').slice(0, 17) + ' · planejado em ' + new Date(pc.criado).toLocaleString('pt-BR').slice(0, 17))
     + '<h2>Parâmetros</h2><table>'
     + [['círculos pendentes', pc.nUnid], ['equipes', pc.equipes.length + (multiBase(pc) ? ' (' + basesDe(pc).length + ' bases de pouso; regiões sem sobreposição)' : ' (mesma hospedagem, regiões sem sobreposição)')],
-       ['pontos por dia', pc.porDia], ['ocupação por ponto', pc.ocup + ' min (montagem, rastreio, desmontagem e avaliações locais)'],
+       ['pontos por dia', pc.nModo === 'jornada' ? 'o que cabe na jornada (até ' + pc.porDia + ')' : pc.porDia], ['ocupação por ponto', pc.ocup + ' min (montagem, rastreio, desmontagem e avaliações locais)'],
        ['jornada', _numBR(pc.jornada) + ' h + ' + pc.almoco + ' min de almoço, saída às ' + pc.saida],
        ['velocidades médias', 'urbano/vicinal ' + pc.velUrb + ' km/h · rodovia ' + pc.velRod + ' km/h'], ['divisão entre as equipes', pc.divisao === 'importado' ? 'plano pronto, importado' + (pc.importado ? ' (' + pc.importado.nome + ')' : '') + ': regiões, dias e ordem do arquivo' : pc.divisao === 'vazios' ? 'nos maiores vazios entre os pontos' : pc.divisao === 'manual' ? 'manual (escolhida pelo planejador)' : 'equilibrada pelo tempo de trabalho'],
        ['ordem dos dias e dos pontos', pc.ordem === 'perto' ? 'do mais próximo para o mais distante da hospedagem' : 'do mais distante para o mais próximo da hospedagem'],
@@ -9167,6 +9427,7 @@ function montaImpressaoPlano(){
     + '<p class="ocor">' + esc(notaHorario(pc)) + ' '
     + 'Se a opção A não puder ser ocupada, a equipe segue para B, C e D do mesmo círculo, nessa ordem.</p>'
     + '<h2>Hospedagem</h2>' + textoHospedagem(pc)
+    + (pc.retorno ? '<h2>Volta</h2><p class="ocor">' + textoRetorno(pc) + '</p>' : '')
     + '<h2>Método</h2><p class="ocor">' + (pc.divisao === 'importado'
       ? 'Regiões, dias e ordem de visita: importados de um plano pronto' + (pc.importado ? ' (arquivo ' + esc(pc.importado.nome) + ')' : '')
         + ', sem alteração; o planejador calculou os horários e as rotas. '
@@ -9184,7 +9445,12 @@ function montaImpressaoPlano(){
     + 'de volta à hospedagem, calculada de forma exata por programação dinâmica (HELD; KARP, 1962) sobre os tempos entre os pontos; '
     + 'dos dois sentidos desse circuito, fica o que ' + (pc.ordem === 'perto' ? 'começa pela ponta mais próxima da hospedagem e termina na mais distante. '
       : 'começa pela ponta mais distante do hotel e termina na mais próxima, com o último trecho curto, de volta ao hotel. ')
-    ) + 'Cada trecho do dia (hospedagem → 1º ponto, ponto → ponto, '
+    ) + (pc.nModo === 'jornada' ? 'Pontos por dia: o que cabe na jornada. Cada dia começa pelo círculo pendente que o abre (acima) e recebe, por inserção mais barata '
+      + '(ROSENKRANTZ; STEARNS; LEWIS, 1977), o círculo que menos alonga o dia, enquanto carro e ocupações cabem na jornada — na véspera da volta, até o fim '
+      + 'da coleta, quando a equipe segue para o pouso da volta com as bagagens no carro. Os tempos vêm da tabela do OSRM, separando em cada trecho a parte de rodovia e a de cidade pela velocidade média do próprio trecho '
+      + '(suposta de 75 km/h na rodovia e 30 km/h no resto) e recalculando nas velocidades do plano; com internet, cada dia é conferido pela sua rota, trecho a trecho, '
+      + 'e perde o ponto que mais o alonga se passar da jornada. ' : '')
+    + 'Cada trecho do dia (hospedagem → 1º ponto, ponto → ponto, '
     + 'último → hospedagem) tem até três caminhos de carro calculados pelo OSRM (LUXEN; VETTER, 2011), que seguem na folha da equipe para a navegação sem rede. '
     + 'Mediana geométrica pelo algoritmo de Weiszfeld (1937).</p>'
     + (multiBase(pc) ? '<p class="ocor">Várias bases de pouso: cada círculo vai para a base mais próxima entre as que têm equipe (pelas ruas, com internet), '
@@ -9193,6 +9459,8 @@ function montaImpressaoPlano(){
       + 'também exata (HELD; KARP, 1962). É um caso simples do problema de localização e roteamento (PRODHON; PRINS, 2014), com as bases escolhidas pelo planejador.</p>' : '')
     + '<p class="ocor">BALLOU, R. H.; RAHARDJA, H.; SAKAI, N. Selected country circuity factors for road travel distance estimation. '
     + '<i>Transportation Research Part A: Policy and Practice</i>, v. 36, n. 9, p. 843-848, 2002.<br>'
+    + (pc.nModo === 'jornada' ? 'ROSENKRANTZ, D. J.; STEARNS, R. E.; LEWIS, P. M. An analysis of several heuristics for the traveling salesman problem. '
+      + '<i>SIAM Journal on Computing</i>, v. 6, n. 3, p. 563-581, 1977.<br>' : '')
     + 'HELD, M.; KARP, R. M. A dynamic programming approach to sequencing problems. <i>Journal of the Society for Industrial and '
     + 'Applied Mathematics</i>, v. 10, n. 1, p. 196-210, 1962.<br>'
     + 'LUXEN, D.; VETTER, C. Real-time routing with OpenStreetMap data. <i>In</i>: ACM SIGSPATIAL INTERNATIONAL CONFERENCE '

@@ -351,8 +351,9 @@ body.equipe #b_alvos, body.equipe #b_traj, body.equipe #b_alvos_tira, body.equip
 #impressao td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
 #impressao .ocor{font-size:11px;color:var(--cz);padding-left:8px}
 #impressao .falta{font-size:11.5px;color:var(--mau)}
-#impressao .croqui{break-before:page;margin-top:20px}
-#impressao .croqui img{width:100%;border:1px solid #999}
+#impressao .croqui{break-before:page;break-inside:avoid;margin-top:0}
+#impressao .croqui h2{margin-top:0}
+#impressao .croqui img{display:block;width:auto;max-width:100%;max-height:250mm;margin:0 auto;border:1px solid #999}
 #impressao .figtr{break-inside:avoid} #impressao .figtr img{width:100%;border:1px solid #999;margin-bottom:6px}
 #impressao .assina{margin-top:26px;display:flex;gap:30px}
 #impressao .assina div{flex:1;border-top:1px solid #444;padding-top:5px;font-size:11px;
@@ -2497,13 +2498,28 @@ function gsd(lat, z){
 /* Nível mais profundo que o serviço responde neste lugar. Desce do 22 até achar
    um que venha; nunca supõe. O resultado fica guardado por serviço e lugar. */
 const _ZMAX = {};
+/* Bloco de aviso: onde o serviço não tem imagem no nível pedido, o Esri responde
+   normalmente (HTTP 200) com um bloco cinza liso e o texto "Map data not yet
+   available". Conferido em 05/11/2026 no RN: níveis 20–22 voltam assim (o
+   tilemap do serviço dá data:[0]), o 19 vem com imagem. Reconhece-se o bloco
+   pelo cinza neutro uniforme (R = G = B ≈ 200) em quase todo ele. */
+function _blocoDeAviso(im){
+  try {
+    const c = document.createElement('canvas'); c.width = c.height = 32;
+    const g = c.getContext('2d'); g.drawImage(im, 0, 0, 32, 32);
+    const d = g.getImageData(0, 0, 32, 32).data; let n = 0;
+    for (let i = 0; i < d.length; i += 4)
+      if (Math.abs(d[i] - d[i + 1]) < 5 && Math.abs(d[i + 1] - d[i + 2]) < 5 && d[i] > 180 && d[i] < 230) n++;
+    return n / 1024 > 0.85;
+  } catch (e){ return false; }
+}
 async function zoomMaisFundo(url, lat, lon){
   const chave = url + '|' + lat.toFixed(2) + ',' + lon.toFixed(2);
   if (chave in _ZMAX) return _ZMAX[chave];
   for (let z = DET.z_max; z >= DET.z_min; z--){
     const c = _n(lat, lon, z);
     const im = await _bloco(url, z, Math.floor(c.x), Math.floor(c.y));
-    if (im){ _ZMAX[chave] = z; return z; }
+    if (im && !_blocoDeAviso(im)){ _ZMAX[chave] = z; return z; }
   }
   _ZMAX[chave] = null;
   return null;
@@ -3923,7 +3939,8 @@ function pintaAvisos(raiz, o, minimo){
 
 /* um único seletor de arquivo serve a todos os blocos GNSS */
 let _aoLerRinex = null;
-function pedeRinex(cb){ _aoLerRinex = cb; $('#f_rinex').click(); }
+let _aoLerRinexP = null;
+function pedeRinex(cb, p){ _aoLerRinex = cb; _aoLerRinexP = p || null; $('#f_rinex').click(); }
 
 /* ---------- pontos de controle e checagem ---------- */
 const MIN_PONTO = {controle: 2*3600, checagem: 30*60};
@@ -4227,7 +4244,7 @@ function cartaoPonto(p, k){
     pedeRinex(r => { aplicaRinex(p, r); pintaPontos(); grava();
       rinexParaGuardar(r._file).then(g => guardaArqPonto(p, 'rinex', g)).then(grava).catch(() => {});
       marca('RINEX lido: ' + r.arquivo
-        + (r.aviso_marcador ? ' — ' + r.aviso_marcador : '') + (r.qc && r.qc.parecer ? ' · ' + qcTexto(r.qc) : '')); }));
+        + (r.aviso_marcador ? ' — ' + r.aviso_marcador : '') + (r.qc && r.qc.parecer ? ' · ' + qcTexto(r.qc) : '')); }, p));
   const bseq = d.querySelector('[data-fotoseq]');
   if (bseq) bseq.addEventListener('click', () => {
     let L = filaFotos(p);
@@ -4287,7 +4304,11 @@ function cartaoPonto(p, k){
   d.querySelector('[data-tira]').addEventListener('click', () => {
     if (!confirm('Remover o ponto ' + (p.id || k+1) + ' desta folha?')) return;
     if (F.dia.foco === k) delete F.dia.foco; else if (F.dia.foco > k) F.dia.foco--;
-    F.dia.pontos.splice(k, 1); pintaPontos(); pintaAlvos(); grava();
+    F.dia.pontos.splice(k, 1);
+    const irmao = (F.dias || []).flatMap(d => d.pontos || []).concat(F.dia.pontos || [])
+      .find(q => p.planejado && q.planejado && q.planejado.id === p.planejado.id);
+    _tiraSufixoSeUnico(irmao);
+    pintaPontos(); pintaAlvos(); grava();
   });
   d.querySelector('[data-focar]').addEventListener('click', () => focoPonto(k));
   const bnm = d.querySelector('[data-naomede]');
@@ -5202,7 +5223,7 @@ function montaImpressao(mapas, fotos, fig, tempos){
     ['pontos ocupados', r.nPontos ? r.nPontos + ' (' + r.nCtrl + ' controle, '
        + r.nChk + ' checagem)' : 'nenhum'],
     ['dos planejados, atendidos hoje', pl.total ? pl.hoje + ' de ' + pl.total : '—'],
-    ['trilha do dia', F.dia.trilha_resumo ? _numBR(F.dia.trilha_resumo.km, 1) + ' km' : '—'],
+    ['trilha do dia (posições ligadas em sequência, inclusive os saltos sem registro)', F.dia.trilha_resumo ? _numBR(F.dia.trilha_resumo.km, 1) + ' km' : '—'],
     ['relatórios de ponto montados', r.nPontos ? r.relatorios + ' de ' + r.nPontos : '—'],
     ['ocupações abaixo do tempo mínimo', r.curtos || 'nenhuma'],
     ['ocupações sem altura de antena', r.semAltura || 'nenhuma'],
@@ -5627,9 +5648,20 @@ $('#f_rinex').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = '';
   if (!f || !_aoLerRinex) return;
   marca('lendo ' + f.name + '…');
-  try { const r = await leRinex(f); _aoLerRinex(r); }
+  try {
+    let g = f;
+    const partes = await divideRinexOcupacoes(f).catch(() => [f]);
+    if (partes.length > 1){
+      // arquivo com várias ocupações: fica a do ponto deste cartão
+      let esc = null, como = '';
+      if (_aoLerRinexP) for (const x of partes){ const r = await leRinex(x); const c = casaRinex(r, x.name, [_aoLerRinexP]); if (c[0]){ esc = r; como = c[1]; break; } }
+      if (!esc) throw new Error(f.name + ' tem ' + partes.length + ' ocupações e nenhuma é deste ponto — use "Ler os RINEX do dia", que divide o arquivo e entrega cada parte ao seu ponto');
+      _aoLerRinex(esc);
+      setTimeout(() => marca(f.name + ': ' + partes.length + ' ocupações no arquivo; ficou a deste ponto (' + esc.arquivo + ', ' + como + ')'), 300);
+    } else { const r = await leRinex(g); _aoLerRinex(r); }
+  }
   catch (err){ marca(err.message); }
-  _aoLerRinex = null;
+  _aoLerRinex = null; _aoLerRinexP = null;
 });
 
 $('#b_csv').addEventListener('click', async () => {
@@ -5765,12 +5797,17 @@ $('#b_camp_pdf').addEventListener('click', async () => {
    TÍTULO da página — era por isso que vinha "Folha de campo — coleta
    aerofotogramétrica". O título passa a ser o nome do arquivo durante a
    impressão e volta ao normal em seguida. */
+async function imagensProntas(){
+  await Promise.all([...document.querySelectorAll('#impressao img')].map(i => (i.complete && i.naturalWidth) ? null : i.decode().catch(() => null)));
+}
 $('#b_pdf').addEventListener('click', async () => {
   marca('montando o registro…');
+  const fig = await figuraTrechosDia(F.dia).catch(e => { console.error(e); return null; });   // antes dos relatórios: menos memória ocupada
   await relatoriosNaHora(F.dia.pontos);
-  montaImpressao(await carregaMapas(), await fotosParaImpressao(F.dia.pontos), await figuraTrechosDia(F.dia).catch(() => null),
+  montaImpressao(await carregaMapas(), await fotosParaImpressao(F.dia.pontos), fig,
     await temposDoDia(F.dia).catch(() => null));
   REL_TMP.clear();
+  await imagensProntas();
   marca('pronta');
   const antes = document.title;
   document.title = nomeSaida('coleta_do_dia');
@@ -10785,6 +10822,18 @@ async function naoPudeMedir(id, k){
   const A = F.campanha.alvos || [], c = circuloDe(id);
   if (!c) return marca(id + ' não é opção de círculo (A–D)');
   const p = k != null ? F.dia.pontos[k] : null;
+  // o círculo já foi atendido por outro cartão (outra opção, segunda ocupação ou ponto de campo):
+  // o cartão sem medição só sai da caderneta; nada se abre
+  const todos = (F.dias || []).flatMap(d => d.pontos || []).concat(F.dia.pontos || []);
+  const outro = p && todos.find(q => q !== p && ((q.planejado && circuloDe(q.planejado.id) === c) || (q.campo && q.campo.circulo === c)));
+  if (outro){
+    if (!confirm('O círculo ' + c + ' já está atendido por ' + (outro.id || 'outro cartão') + '.\n\nTirar da caderneta o cartão ' + (p.id || id)
+        + ', que não foi medido? (os dados e as fotos dele saem junto)')) return;
+    if (F.dia.foco === k) delete F.dia.foco; else if (F.dia.foco > k) F.dia.foco--;
+    F.dia.pontos.splice(k, 1); _tiraSufixoSeUnico(outro);
+    grava(); pintaPontos(); pintaAlvos();
+    return marca((p.id || id) + ' tirado da caderneta; o círculo ' + c + ' segue atendido por ' + (outro.id || 'outro cartão'));
+  }
   const outras = opcoesAbertas(c).filter(a => a.id !== id);
   const r = prompt('Não deu para medir ' + id + '. Motivo:\n' + MOTIVOS_CAMPO.map((t, i) => (i + 1) + ' – ' + t).join('\n') + '\nou escreva o motivo:', '1');
   if (r == null) return;
@@ -10812,6 +10861,15 @@ async function naoPudeMedir(id, k){
   abreNav(A.indexOf(viz));
   setTimeout(() => marca(id + ' não medido (' + motivo + '). Abertas: ' + outras.map(a => a.id).join(', ') + ' — navegando para ' + viz.id
     + (P && P.lat != null ? ', a mais perto' : '') + '; troque com ◀ ▶'), 600);
+}
+/* Sobrou um só cartão do ponto e ele tem o sufixo de segunda ocupação (_2): o nome
+   volta ao do ponto (LC566:0018), com confirmação. */
+function _tiraSufixoSeUnico(q){
+  if (!q || !/_\d+$/.test(q.id || '')) return;
+  const base = q.id.replace(/_\d+$/, '');
+  const todos = (F.dias || []).flatMap(d => d.pontos || []).concat(F.dia.pontos || []);
+  if (todos.some(o => o !== q && (o.id === base || String(o.id || '').startsWith(base + '_')))) return;
+  if (confirm('Sobrou só o cartão ' + q.id + ' para este ponto. Renomear para ' + base + '?')) q.id = base;
 }
 function desfazNaoMedido(id){
   const L = listaNaoMedidos(), j = L.findIndex(x => x.id === id); if (j < 0) return;
@@ -11007,12 +11065,13 @@ function pintaDias(){
   });
   $('#b_dia_pdf').addEventListener('click', async () => {
     marca('montando o PDF do dia ' + _dataBr(d.data) + '…');
+    const fig = await figuraTrechosDia(d).catch(e => { console.error(e); return null; });
     const fotos = await fotosParaImpressao(d.pontos || []);
-    const fig = await figuraTrechosDia(d).catch(() => null);
     await relatoriosNaHora(d.pontos || []);
     const tempos = await temposDoDia(d).catch(() => null);
     const keep = F.dia; F.dia = d;
     try { montaImpressao([], fotos, fig, tempos); } finally { F.dia = keep; REL_TMP.clear(); }
+    await imagensProntas();
     marca('pronta');
     const antes = document.title;
     document.title = nomeSaida('coleta_do_dia_' + String(d.data || '').replace(/-/g, ''));
@@ -12348,7 +12407,18 @@ function casaRinex(r, nomeArq, livres){
     if (g) l.push(g.num);
     if (p.planejado && p.planejado.id) l.push(_normId(p.planejado.id));
     return l.filter(Boolean); };
-  if (mk){ const p = livres.find(p => ids(p).includes(mk)); if (p) return [p, 'marcador ' + r.marcador]; }
+  if (mk){
+    const C = livres.filter(p => ids(p).includes(mk));
+    if (C.length === 1) return [C[0], 'marcador ' + r.marcador];
+    if (C.length > 1){                       // dois cartões do mesmo ponto: o do horário, ou o mais perto
+      const sob = p => { if (!p.ocup_ini || !r.ini || !r.fim) return 0; const a = Date.parse(p.ocup_ini), b = p.ocup_fim ? Date.parse(p.ocup_fim) : a + 7200e3;
+        return Math.max(0, Math.min(b, r.fim.getTime()) - Math.max(a, r.ini.getTime())); };
+      const g = r.xyz ? ecefGeo(r.xyz[0], r.xyz[1], r.xyz[2]) : null;
+      const dist = p => { const q = p.chegada && p.chegada.lat != null ? p.chegada : null; return g && q ? geodInversa(g.lat, g.lon, q.lat, q.lon).s : 1e9; };
+      const M = C.slice().sort((a, b) => (sob(b) - sob(a)) || (dist(a) - dist(b)));
+      return [M[0], 'marcador ' + r.marcador + (sob(M[0]) > 60e3 ? ' e horário' : ' e posição')];
+    }
+  }
   { const p = livres.find(p => ids(p).some(i => i.length >= 3 && na.includes(i)));
     if (p) return [p, 'nome do arquivo']; }
   if (r.ini && r.fim){
@@ -12374,6 +12444,70 @@ function casaRinex(r, nomeArq, livres){
   }
   return [null, ''];
 }
+
+/* ---------- RINEX com várias ocupações ----------
+   Receptor que não é desligado entre os pontos grava um arquivo só. A cada ponto
+   novo, o receptor escreve um registro de evento "novo sítio" (flag 3 da época;
+   RINEX 2.11 e 3.0x, seção de eventos) com o MARKER NAME, a posição aproximada e
+   a altura da antena do ponto seguinte, e não grava durante o deslocamento.
+   O arquivo se divide nesses registros: um RINEX por ponto, com o cabeçalho do
+   ponto (marcador, posição, altura, primeira e última época). Conferido em
+   05/11/2026 com o Leica GS08plus/CS10 (LC566): 5 ocupações, todas com QC ok. */
+function _rotRx(l){ return l.slice(60).trim(); }
+function _linhaRx(txt, rot){ return (txt + ' '.repeat(60)).slice(0, 60) + rot.padEnd(20); }
+async function divideRinexOcupacoes(file){
+  let f = file;
+  const ini = new TextDecoder('latin1').decode(await file.slice(0, 400).arrayBuffer());
+  if (!/RINEX VERSION \/ TYPE/.test(ini)) return [file];
+  if (eCompacto(ini)) f = await descompactaRinex(file);
+  const l0 = (await f.slice(0, 120).text()).split(/\r?\n/)[0] || '';
+  if (l0.slice(20, 21).toUpperCase() !== 'O') return [file];
+  const txt = new TextDecoder('latin1').decode(await f.arrayBuffer());
+  if (!/(^|\n)( \d\d [ \d]\d [ \d]\d [ \d]\d [ \d]\d [ \d]\d\.\d{7}  3|> \d{4} [ \d]\d [ \d]\d [ \d]\d [ \d]\d [ \d]\d\.\d{7}  3)/.test(txt)) return [file];
+  const L = txt.split(/\r?\n/), h = L.findIndex(l => _rotRx(l) === 'END OF HEADER');
+  if (h < 0) return [file];
+  const v3 = parseFloat(L[0].slice(0, 9)) >= 3, cab = L.slice(0, h + 1);
+  const ep2 = /^ (\d\d) ([ \d]\d) ([ \d]\d) ([ \d]\d) ([ \d]\d) ([ \d]\d\.\d{7})  (\d)([ \d]{3})/;
+  const ep3 = /^> (\d{4}) ([ \d]\d) ([ \d]\d) ([ \d]\d) ([ \d]\d) ([ \d]\d\.\d{7})  (\d)([ \d]{3})/;
+  const pega = (rec, rot) => rec.find(l => _rotRx(l) === rot);
+  const novo = rec => ({marcador: (pega(rec, 'MARKER NAME') || '').slice(0, 60).trim(), rec: rec, linhas: [], t: []});
+  const segs = []; let cur = novo(cab);
+  for (let k = h + 1; k < L.length; k++){
+    const l = L[k], m = (v3 ? ep3 : ep2).exec(l);
+    if (!m){ if (l !== '' || k < L.length - 1) cur.linhas.push(l); continue; }
+    const fl = +m[7], n = +m[8] || 0;
+    if (fl === 3){ if (cur.t.length) segs.push(cur); cur = novo(L.slice(k + 1, k + 1 + n)); k += n; continue; }
+    if (fl >= 2 && fl <= 5){ cur.linhas.push(...L.slice(k, k + 1 + n)); k += n; continue; }   // outros eventos: ficam
+    cur.t.push(m.slice(1, 7)); cur.linhas.push(l);
+  }
+  if (cur.t.length) segs.push(cur);
+  if (segs.length < 2) return [file];
+  const tl = (g, rot) => { const a = v3 ? +g[0] : 2000 + +g[0];
+    return String(a).padStart(6) + String(+g[1]).padStart(6) + String(+g[2]).padStart(6) + String(+g[3]).padStart(6)
+      + String(+g[4]).padStart(6) + (+g[5]).toFixed(7).padStart(13) + '     GPS         ' + ' '.repeat(3) + rot; };
+  const usados = {};
+  return segs.map(sg => {
+    const H = [];
+    for (const x of cab){
+      const r = _rotRx(x);
+      if (['MARKER NAME', 'MARKER NUMBER', 'APPROX POSITION XYZ', 'ANTENNA: DELTA H/E/N'].includes(r)) H.push(pega(sg.rec, r) || x);
+      else if (r === 'TIME OF FIRST OBS') H.push(_linhaRx(tl(sg.t[0], '').slice(0, 60), 'TIME OF FIRST OBS'));
+      else if (r === 'TIME OF LAST OBS') H.push(_linhaRx(tl(sg.t[sg.t.length - 1], '').slice(0, 60), 'TIME OF LAST OBS'));
+      else if (r === '# OF SATELLITES' || r === 'PRN / # OF OBS') continue;
+      else if (r === 'END OF HEADER'){ H.push(_linhaRx(('Dividido de ' + file.name + ' (novo sitio)').slice(0, 60), 'COMMENT')); H.push(x); }
+      else H.push(x);
+    }
+    const g = sg.t[0], ano = v3 ? +g[0] : 2000 + +g[0];
+    const ddd = String(_diaJuliano(new Date(Date.UTC(ano, +g[1] - 1, +g[2], 12)))).padStart(3, '0');
+    let est = (sg.marcador || 'PONT').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    est = /^\d+$/.test(est) ? est.slice(-4).padStart(4, '0') : (est + 'XXXX').slice(0, 4);
+    const base = est + ddd, k = usados[base] = (usados[base] || 0) + 1;
+    const nome = base + (k - 1) + '.' + String(ano).slice(2) + 'o';
+    const out = new File([_bytesLatin1(H.concat(sg.linhas).join('\n') + '\n')], nome, {type: 'text/plain', lastModified: file.lastModified});
+    Object.defineProperty(out, '_origem', {value: file.name, enumerable: false});
+    return out;
+  });
+}
 async function leRinexLote(files){
   const livres = F.dia.pontos.slice(), linhas = [], casou = {}, outros = [];
   /* canais GLONASS dos arquivos de navegação do dia, antes das observações: com
@@ -12383,7 +12517,18 @@ async function leRinexLote(files){
     try { qcGuardaCanais(qcCanaisGlonass(new TextDecoder('latin1').decode(await f.arrayBuffer()))); } catch (e){}
   }
   const raiz = n => String(n).replace(/\.[^.]*$/, '').toUpperCase();
+  // arquivo com várias ocupações (receptor não desligado entre os pontos): um por ponto
+  const lista = [];
   for (const f of files){
+    let partes = [f];
+    if (!/\.\d\d[ngplh]$|_[A-Z]N\.rnx$/i.test(f.name)){
+      try { partes = await divideRinexOcupacoes(f); } catch (e){ partes = [f]; }
+    }
+    if (partes.length > 1) linhas.push(f.name + ': ' + partes.length + ' ocupações no mesmo arquivo (registros de novo sítio) — dividido em '
+      + partes.map(x => x.name).join(', '));
+    lista.push(...partes);
+  }
+  for (const f of lista){
     let r;
     try { r = await leRinex(f); }
     catch (e){ if (/navega|NAVIGATION|não de observação/i.test(e.message)) outros.push(f);
@@ -12392,20 +12537,21 @@ async function leRinexLote(files){
     if (!p){ linhas.push(f.name + ': sem ponto correspondente — leia pelo cartão do ponto'); continue; }
     aplicaRinex(p, r);
     await guardaArqPonto(p, 'rinex', await rinexParaGuardar(r._file || f)).catch(() => {});
-    casou[raiz(f.name)] = p;
+    (casou[raiz(f._origem || f.name)] = casou[raiz(f._origem || f.name)] || []).push(p);
     livres.splice(livres.indexOf(p), 1);
     linhas.push(f.name + (r.compacto ? ' (compacto, descompactado: ' + r.arquivo + ')' : '') + ' → ' + p.id + ' (' + como + ')'
       + (r.qc && r.qc.parecer ? ' · ' + qcTexto(r.qc) : ''));
   }
   // navegação (.AAn, .AAg…) do mesmo nome vai junto com a observação, para o pacote
   for (const f of outros){
-    const p = casou[raiz(f.name)];
-    if (p){ await guardaArqPonto(p, 'rinex', f).catch(() => {}); linhas.push(f.name + ' → ' + p.id + ' (navegação, junto da observação)'); }
+    const P = casou[raiz(f.name)] || [];
+    for (const p of P){ await guardaArqPonto(p, 'rinex', f).catch(() => {}); }
+    if (P.length) linhas.push(f.name + ' → ' + P.map(p => p.id).join(', ') + ' (navegação, junto da observação)');
   }
   grava(); monta();
   $('#hotel_res').innerHTML = linhas.map(esc).join('<br>');
   marca('RINEX do dia: ' + linhas.filter(l => l.includes('→')).length + ' de '
-        + files.length + ' arquivo(s) casados');
+        + lista.length + ' arquivo(s) casados');
 }
 $('#b_rinex_lote').addEventListener('click', () => $('#f_rinex_lote').click());
 $('#f_rinex_lote').addEventListener('change', async e => {
@@ -13444,8 +13590,22 @@ function temposDoPonto(p, paradas){
   if (r.chegada != null && r.saida != null) r.noPonto = (r.saida - r.chegada) / 1000;
   return r;
 }
+/* A trilha do registro do dia pode começar na véspera (folha aberta para o dia à
+   noite): os relatórios do dia usam só as posições da data do dia. */
+function trilhaDaData(T, d){
+  if (!d || !d.data || !T || !T.length || !T.some(q => q[0])) return T || [];
+  const iso = q => { const t = new Date(q[0] * 1000); return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); };
+  const L = T.filter(q => !q[0] || iso(q) === d.data);
+  return L.length >= 2 ? L : T;
+}
+/* Salto da trilha: o celular ficou sem gravar posição (tela apagada, economia de
+   bateria) e a próxima posição está longe. O mesmo critério de segmentaTrilha. */
+function _saltoTrilha(a, b){
+  const d = _dPlano(a[1], a[2], b[1], b[2]), dt = a[0] && b[0] ? b[0] - a[0] : 0;
+  return d > 500 && (!dt || dt > 600 || d / dt > 42);
+}
 async function temposDoDia(d){
-  const T = await trilhaDoDia(d), Th = T.filter(q => q[0]), P = paradasDaTrilha(T);
+  const T = trilhaDaData(await trilhaDoDia(d), d), Th = T.filter(q => q[0]), P = paradasDaTrilha(T);
   const ini = x => x.t.oi != null ? x.t.oi : _msDe(x.p.rx_ini);
   const pts = (d.pontos || []).map(p => ({p: p, t: temposDoPonto(p, P)}))
     .filter(x => ini(x) != null).sort((x, y) => ini(x) - ini(y));
@@ -13483,8 +13643,11 @@ async function temposDoDia(d){
       if (dt > PARADA.buraco && _dPlano(Th[k - 1][1], Th[k - 1][2], Th[k][1], Th[k][2]) > PARADA.raio) r.semReg += dt;
     }
     r.mov = Math.max(0, r.jornada - soma(P.map(q => q.fim - q.ini)) / 1000 - r.semReg);
-    r.km = kmTrilha(Th);
-    if (r.mov > 300) r.vel = r.km / (r.mov / 3600);
+    // km com registro (posições seguidas) e km dos saltos (em linha reta, sem tempo medido)
+    r.km = 0; r.kmSalto = 0;
+    for (let k = 1; k < Th.length; k++){ const dd = _dPlano(Th[k - 1][1], Th[k - 1][2], Th[k][1], Th[k][2]) / 1000;
+      if (_saltoTrilha(Th[k - 1], Th[k])) r.kmSalto += dd; else r.km += dd; }
+    if (r.mov > 300 && r.km > 0.5) r.vel = r.km / (r.mov / 3600);
   }
   return r;
 }
@@ -13525,8 +13688,9 @@ function htmlTemposDia(t){
     t.nEntre ? ['do fim de uma ocupação ao início da seguinte, sem as paradas fora dos pontos', 'média ' + _dmin(t.entreMed) + ' (' + t.nEntre + ' intervalo(s))'] : null,
     t.comHora ? ['paradas fora dos pontos', t.fora.length ? t.fora.length + ' parada(s) · ' + _dmin(t.foraTot) + ' ('
       + t.fora.map(q => _hhmm(q.ini) + '–' + _hhmm(q.fim)).join(', ') + ')' : 'nenhuma'] : null,
-    t.comHora ? ['em deslocamento', _dmin(t.mov) + ' · ' + _numBR(t.km, 1) + ' km'
+    t.comHora ? ['em deslocamento, com registro', _dmin(t.mov) + ' · ' + _numBR(t.km, 1) + ' km'
       + (t.vel != null ? ' · média ' + Math.round(t.vel) + ' km/h' : '')] : null,
+    t.kmSalto > 0.05 ? ['trechos sem registro do celular (distância em linha reta)', _numBR(t.kmSalto, 1) + ' km'] : null,
     t.semReg ? ['trilha sem registro', _dmin(t.semReg)] : null,
     ['no planejamento', 'por ponto ' + pl.ocup + ' min (montagem, rastreio, desmontagem); carro ' + pl.velUrb + ' km/h urbano, '
       + pl.velRod + ' km/h rodovia'],
@@ -13587,12 +13751,33 @@ function resumoTrechosDia(T, d){
     ini: comHora.length ? new Date(comHora[0][0] * 1000) : null,
     fim: comHora.length ? new Date(comHora[comHora.length - 1][0] * 1000) : null};
 }
+/* Hospedagem e pouso não aparecem nos relatórios (só o município): a trilha a
+   menos de RAIO_OCULTO m deles sai do desenho, e a figura não liga as pontas. */
+const RAIO_OCULTO = 1000;
+function _lugaresOcultos(d){
+  const L = basesDe(F.campanha.planoCampanha).map(b => ({lat: +b.lat, lon: +b.lon}));
+  const pl = d && d.plano; if (pl && pl.origem) L.push(pl.origem); if (pl && pl.destino) L.push(pl.destino);
+  return L.filter(b => isFinite(b.lat) && isFinite(b.lon));
+}
+function _pedacosVisiveis(T, ocultos){
+  const P = []; let cur = [];
+  for (const q of T){
+    if (ocultos.some(b => _dPlano(b.lat, b.lon, q[1], q[2]) < RAIO_OCULTO)){ if (cur.length) P.push(cur); cur = []; continue; }
+    cur.push(q);
+  }
+  if (cur.length) P.push(cur);
+  return P.filter(c => c.length >= 2);
+}
 async function figuraTrechosDia(d){
-  const T = await trilhaDoDia(d);
-  const pts = (d.pontos || []).map(p => ({p: p, c: coordPonto(p)})).filter(x => x.c && x.c.fonte !== 'gabinete');
+  const T = trilhaDaData(await trilhaDoDia(d), d);
+  const pts = (d.pontos || []).map(p => ({p: p, c: coordPonto(p)})).filter(x => x.c && x.c.fonte !== 'gabinete')
+    .sort((a, b) => String(a.p.ocup_ini || a.p.rx_ini || '9').localeCompare(String(b.p.ocup_ini || b.p.rx_ini || '9')));
   if (T.length < 2 && !pts.length) return null;
   const R = resumoTrechosDia(T, d);
-  const lats = T.map(q => q[1]).concat(pts.map(x => x.c.lat)), lons = T.map(q => q[2]).concat(pts.map(x => x.c.lon));
+  const ocultos = _lugaresOcultos(d), PED = _pedacosVisiveis(T, ocultos);
+  const Tv = [].concat(...PED);
+  const lats = Tv.map(q => q[1]).concat(pts.map(x => x.c.lat)), lons = Tv.map(q => q[2]).concat(pts.map(x => x.c.lon));
+  if (!lats.length) return null;
   const W = 1240, Hm = 860, pad = 70;
   // escala contínua: o nível inteiro z dos blocos, ampliado por f (1 a 2) para encher o quadro
   const a0 = _n(Math.max(...lats), Math.min(...lons), 0), b0 = _n(Math.min(...lats), Math.max(...lons), 0);
@@ -13604,8 +13789,9 @@ async function figuraTrechosDia(d){
   // legenda: classes presentes
   const classes = DOM_TRECHO.revestimen.filter(o => R.porRev[o[0]]).map(o => ({cor: COR_REV[o[0]], rot: o[0] + ' — ' + o[1], km: R.porRev[o[0]]}));
   if (R.porRev['']) classes.push({cor: null, rot: 'sem trecho marcado', km: R.porRev['']});
-  const linhasLeg = classes.length + (pts.length ? 1 : 0);
-  const Hl = 70 + Math.ceil(linhasLeg / 2) * 44 + 40;
+  const temSalto = PED.some(c => c.some((q, k) => k && _saltoTrilha(c[k - 1], q)));
+  const linhasLeg = classes.length + (pts.length ? 1 : 0) + (temSalto ? 1 : 0);
+  const Hl = 70 + Math.ceil(linhasLeg / 2) * 44 + 62;
   const c = document.createElement('canvas'); c.width = W; c.height = Hm + Hl;
   const x = c.getContext('2d');
   x.fillStyle = '#fff'; x.fillRect(0, 0, W, c.height);
@@ -13634,7 +13820,15 @@ async function figuraTrechosDia(d){
   } else credito = 'Sem fundo: aparelho sem internet e sem as vias do OpenStreetMap guardadas';
   // trechos: halo branco, depois a cor da classe (tracejado cinza = sem trecho)
   x.save(); x.lineJoin = 'round'; x.lineCap = 'round';
-  for (const p of R.s.partes){
+  // saltos (o celular sem gravar posição): ligação em linha reta, pontilhada e fina
+  let nSaltos = 0;
+  x.setLineDash([2, 8]); x.strokeStyle = '#111827'; x.lineWidth = 3;
+  for (const c of PED) for (let k = 1; k < c.length; k++) if (_saltoTrilha(c[k - 1], c[k])){
+    const a = tela(c[k - 1][1], c[k - 1][2]), b = tela(c[k][1], c[k][2]);
+    x.beginPath(); x.moveTo(a.x, a.y); x.lineTo(b.x, b.y); x.stroke(); nSaltos++; }
+  x.setLineDash([]);
+  const partes = [].concat(...PED.map(c => segmentaTrilha(c, d.trechos || []).partes));
+  for (const p of partes){
     const cor = p.a && COR_REV[p.a.revestimen];
     const caminho = () => { x.beginPath(); p.g.forEach((q, k) => { const t = tela(q[1], q[0]); if (k) x.lineTo(t.x, t.y); else x.moveTo(t.x, t.y); }); };
     x.setLineDash([]); x.strokeStyle = 'rgba(255,255,255,.9)'; x.lineWidth = 11; caminho(); x.stroke();
@@ -13643,8 +13837,8 @@ async function figuraTrechosDia(d){
   x.restore();
   // pontos ocupados
   x.save(); x.font = 'bold 22px Arial, sans-serif'; x.textBaseline = 'middle';
-  for (const {p, c: q} of pts){
-    const t = tela(q.lat, q.lon), rot = (ptconPonto(p.id) || {}).num || p.id;
+  for (const [j, {p, c: q}] of pts.entries()){
+    const t = tela(q.lat, q.lon), rot = (j + 1) + ' · ' + ((ptconPonto(p.id) || {}).num || p.id);
     x.fillStyle = '#C2410C'; x.strokeStyle = '#fff'; x.lineWidth = 4;
     x.beginPath(); x.arc(t.x, t.y, 11, 0, 2 * Math.PI); x.fill(); x.stroke();
     x.lineWidth = 6; x.strokeStyle = 'rgba(255,255,255,.95)'; x.strokeText(rot, t.x + 16, t.y);
@@ -13673,23 +13867,29 @@ async function figuraTrechosDia(d){
       x.lineWidth = 8; x.setLineDash(k.cor ? [] : [10, 8]); x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + 54, cy); x.stroke(); x.restore(); },
     txt: k.rot + ' · ' + _numBR(k.km, 1) + ' km'}));
   if (pts.length) itens.push({desenha: (cx, cy) => { x.save(); x.fillStyle = '#C2410C'; x.strokeStyle = '#fff'; x.lineWidth = 3;
-      x.beginPath(); x.arc(cx + 27, cy, 10, 0, 2 * Math.PI); x.fill(); x.stroke(); x.restore(); }, txt: 'ponto ocupado (número do ponto)'});
+      x.beginPath(); x.arc(cx + 27, cy, 10, 0, 2 * Math.PI); x.fill(); x.stroke(); x.restore(); }, txt: 'ponto ocupado (ordem de ocupação · número)'});
+  if (temSalto) itens.push({desenha: (cx, cy) => { x.save(); x.strokeStyle = '#111827'; x.lineWidth = 3; x.setLineDash([2, 8]);
+      x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + 54, cy); x.stroke(); x.restore(); }, txt: 'sem registro do celular (linha reta)'});
   itens.forEach((it, k) => {
     const cx = 24 + (k % 2) * 610, cy = y + 34 + Math.floor(k / 2) * 44;
     it.desenha(cx, cy); x.fillStyle = '#0A2E52'; x.textBaseline = 'middle'; x.fillText(it.txt, cx + 70, cy);
   });
   x.textBaseline = 'alphabetic'; x.font = '16px Arial, sans-serif'; x.fillStyle = '#5B6770';
   const Dd = declinacaoEm(cen.lat, cen.lon, d.data ? d.data + 'T12:00:00' : null);
-  x.fillText(credito + '. Trilha: GNSS do celular' + (T.length ? '' : ' (sem trilha neste dia)') + '. Norte verdadeiro (NV) para cima'
-    + (Dd != null ? '; declinação magnética ' + _gm(Dd) + ' (WMM2025)' : '') + '.', 20, c.height - 14);
-  return {src: c.toDataURL('image/jpeg', 0.88), R: R, nPts: pts.length};
+  const rod1 = credito + '.', rod2 = 'Trilha: GNSS do celular' + (T.length ? '' : ' (sem trilha neste dia)')
+    + (ocultos.length && Tv.length < T.length ? ', omitida a menos de ' + _numBR(RAIO_OCULTO / 1000) + ' km da hospedagem' : '') + '. Norte verdadeiro (NV) para cima'
+    + (Dd != null ? '; declinação magnética ' + _gm(Dd) + ' (WMM2025)' : '') + '.';
+  x.fillText(rod1, 20, c.height - 36); x.fillText(rod2, 20, c.height - 14);
+  const src = c.toDataURL('image/jpeg', 0.88); c.width = c.height = 1;
+  if (!src || src.length < 2000) throw new Error('o aparelho não conseguiu gerar a imagem do cartograma (memória)');
+  return {src: src, R: R, nPts: pts.length};
 }
 function htmlFiguraTrechos(fig, d){
   if (!fig) return '';
   const R = fig.R, hh = t => t ? String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0') : '—';
   const dur = R.ini && R.fim ? Math.round((R.fim - R.ini) / 60000) : null;
   const linhas = [
-    ['percorrido (trilha do dia)', _numBR(R.total, 1) + ' km'],
+    ['percorrido com registro contínuo do celular', _numBR(R.total, 1) + ' km'],
     ['trilha', !R.ini ? 'sem horário registrado' : hh(R.ini) + ' a ' + hh(R.fim) + (dur != null ? ' (' + Math.floor(dur / 60) + ' h ' + String(dur % 60).padStart(2, '0') + ' min)' : '')],
     ['mudanças de trecho marcadas', String(R.nTrechos)],
     ['mapeado em trechos', _numBR(R.total - (R.porRev[''] || 0), 1) + ' km'
@@ -13697,7 +13897,7 @@ function htmlFiguraTrechos(fig, d){
   ].concat(DOM_TRECHO.revestimen.filter(o => R.porRev[o[0]]).map(o => ['  ' + o[1].toLowerCase(), _numBR(R.porRev[o[0]], 1) + ' km']))
    .concat(R.porRev[''] ? [['sem trecho marcado', _numBR(R.porRev[''], 1) + ' km']] : [])
    .concat([['pontos ocupados no dia', String((d.pontos || []).length)]]);
-  return '<div class="figtr"><h2>Trechos percorridos e mapeados</h2>'
+  return '<div class="figtr"><h2>Cartograma do deslocamento executado</h2>'
     + '<img alt="trechos percorridos no dia" src="' + fig.src + '">'
     + '<table>' + linhas.map(l => '<tr><td>' + esc(l[0]) + '</td><td class="n">' + esc(l[1]) + '</td></tr>').join('') + '</table></div>';
 }

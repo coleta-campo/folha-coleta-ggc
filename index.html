@@ -83,6 +83,11 @@ table.res th,table.res td{padding:7px 8px;border-bottom:1px solid var(--lin);tex
 table.res th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--cz)}
 table.res td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
 .leg{font-size:13px;color:var(--cz);margin:6px 0 0}
+#espera_ocup{position:fixed;left:8px;right:8px;top:8px;z-index:60;background:#FFF4D6;color:#1b2a33;
+  border:2px solid #B45309;border-radius:10px;padding:10px 12px;box-shadow:0 4px 16px rgba(0,0,0,.3);font-size:15px;line-height:1.35}
+#espera_ocup .acoes{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+#espera_ocup hr{border:0;border-top:1px solid #E5C483;margin:8px 0}
+@media print{#espera_ocup{display:none}}
 .aviso{background:#FDF6E7;border-left:5px solid var(--am);padding:11px 13px;
  border-radius:0 8px 8px 0;margin:10px 0;font-size:14.5px}
 .razao{background:#FBEDE7;border-left:5px solid var(--mau);padding:11px 13px;
@@ -394,6 +399,11 @@ você cabe o que nenhum arquivo registra.</p>
   <p><b>Tela acesa.</b> Com a folha aberta, a tela do celular não apaga — também durante a medição; só apaga
   se você travar o aparelho. Ponto que não deu para medir, mesmo já iniciado: <b>Não dá para medir</b>, na
   navegação ou no cartão, registra o motivo e abre as outras opções do círculo (B, C, D).</p>
+  <p><b>Ocupação esquecida aberta.</b> Se o celular sai do lugar da ocupação (mais de 100 m por 3 min) sem
+  <b>Encerrar</b>, a ocupação fica <b>em espera</b> e a folha pergunta se ainda está medindo; <b>Não</b> encerra no
+  início da espera. Com o RINEX do ponto, vale a janela de rastreio do receptor, em hora local.</p>
+  <p><b>Um dia por vez.</b> Se a caderneta tiver pontos de mais de uma data, <b>Fechar o dia</b> pede o dia a fechar
+  e separa os outros, que voltam à caderneta depois.</p>
   <p><b>Fechar o dia</b>, na hospedagem, em 4 passos: ler os RINEX do dia, completar com a internet,
   enviar ao servidor, arquivar o dia.</p>
   <p><b>Campanha</b> se preenche no escritório; a folha da equipe já vem pronta do planejador.</p>
@@ -459,6 +469,15 @@ você cabe o que nenhum arquivo registra.</p>
     <p class="leg">O modelo de antena e a altura medida em campo são exigidos pelo
     PPP do IBGE, ponto a ponto. O que entra aqui é só o padrão da campanha: cada
     ocupação registra os seus.</p>
+    <div class="lin2">
+      <div><label class="c" for="c_minchk">Ocupação mínima — checagem (min)</label>
+        <input type="number" id="c_minchk" data-campo="campanha.min_ocup.checagem" min="5" max="600" step="1" inputmode="numeric" placeholder="30"></div>
+      <div><label class="c" for="c_minctl">Ocupação mínima — controle (min)</label>
+        <input type="number" id="c_minctl" data-campo="campanha.min_ocup.controle" min="5" max="1440" step="1" inputmode="numeric" placeholder="120"></div>
+    </div>
+    <p class="leg">Tempo de rastreio que a campanha exige em cada ponto: vale para o cronômetro da ocupação,
+    o aviso de tempo atingido e a contagem de ocupações abaixo do mínimo. Em branco, vale o padrão
+    (30 min na checagem, 2 h no controle).</p>
     <div id="c_veic_box">
     <h4 style="margin:12px 0 2px">Veículo da equipe</h4>
     <p class="leg" style="margin-top:0">Uma equipe, um carro: preenchido uma vez (ou já vindo na folha da equipe, gerada
@@ -510,7 +529,7 @@ você cabe o que nenhum arquivo registra.</p>
   <div id="voos" class="oculto"></div>
 
   <h2>Caderneta de hoje</h2>
-  <p class="leg">Um cartão por ponto ocupado. Controle: 2 h de ocupação; checagem: 30 min.</p>
+  <p class="leg">Um cartão por ponto ocupado. A ocupação mínima de controle e de checagem é a da campanha (aba Campanha).</p>
   <div class="acoes naoimprime">
     <button type="button" class="btn sec peq" id="b_novo_ponto">Ponto em branco</button>
     <button type="button" class="btn sec peq" id="b_ponto_rinex">Novo ponto pelo RINEX</button>
@@ -659,6 +678,7 @@ você cabe o que nenhum arquivo registra.</p>
 
 <!-- ================= FECHAR ================= -->
 <section class="aba oculto" id="aba_fechar">
+  <div class="cart naoimprime" id="cart_qual_dia" style="display:none"></div>
   <div class="cart naoimprime" id="cart_hotel">
     <h3>Na hospedagem — fechar o dia em 4 passos</h3>
     <p class="leg">Em campo a folha registra a chegada, a ocupação, as fotos e a
@@ -1418,9 +1438,12 @@ function leCabecalhoRinex(txt){
       if (s && r.sistemas.indexOf(s) < 0) r.sistemas.push(s);
     }
     // '# / TYPES OF OBSERV' e' a marca do RINEX 2; o sistema vem da linha de versão
-    else if (rot === 'TIME OF FIRST OBS')
+    else if (rot === 'TIME OF FIRST OBS'){
       r.ini = _epoca([0,14,28,42,56,70].map((p,i) =>
         _num(l.slice(i*6, i*6+6))).slice(0,5).concat([_num(l.slice(30,43))]));
+      r.sis_tempo = l.slice(48, 51).trim() || 'GPS';
+    }
+    else if (rot === 'LEAP SECONDS'){ const v = _num(l.slice(0, 6)); if (v != null && v > 0 && v < 60) r.leap = v; }
     else if (rot === 'TIME OF LAST OBS')
       r.fim = _epoca([0,1,2,3,4].map(i => _num(l.slice(i*6, i*6+6)))
         .concat([_num(l.slice(30,43))]));
@@ -2927,7 +2950,8 @@ async function montaRelatorio(p){
           + (p.coord_cel.hacc != null ? ', ± ' + Math.round(p.coord_cel.hacc) + ' m' : '') + ')' : '—')],
     ['receptor', p.receptor || '—'], ['antena', p.antena || '—'],
     ['altura de antena', p.altura ? p.altura + ' m' : 'NÃO INFORMADA'],
-    p.ini || !p.ocup_ini ? ['rastreio' + (p.ini ? ' (RINEX)' : ''), (p.ini || '—') + ' a ' + (p.fim || '—')
+    p.ini || !p.ocup_ini ? ['rastreio' + (rastreioLocal(p) ? ' (RINEX, hora local)' : p.ini ? ' (RINEX)' : ''),
+       (rastreioLocal(p) ? rastreioLocal(p).replace('–', ' a ') : (p.ini || '—') + ' a ' + (p.fim || '—'))
        + (p.duracao != null ? '  (' + dur(p.duracao) + ')' : '')] : null,
     p.ocup_ini ? ['ocupação (celular)', _hhmm(_msDe(p.ocup_ini), 1) + ' a ' + (p.ocup_fim ? _hhmm(_msDe(p.ocup_fim), 1)
        + '  (' + _dmin((_msDe(p.ocup_fim) - _msDe(p.ocup_ini)) / 1000) + ')' : 'aberta')] : null,
@@ -3898,6 +3922,16 @@ function aplicaRinex(o, r){
      texto: com um Date ela devolvia a data inteira por extenso. */
   if (r.ini){ o.ini = r.ini.toISOString().slice(11, 19); o.rx_ini = r.ini.toISOString(); }
   if (r.fim){ o.fim = r.fim.toISOString().slice(11, 19); o.rx_fim = r.fim.toISOString(); }
+  if (r.ini || r.fim){ o.rx_tempo = r.sis_tempo || 'GPS'; if (r.leap != null) o.rx_leap = r.leap; else delete o.rx_leap; }
+  // ocupação esquecida aberta (ou em espera): o fim do rastreio a encerra
+  if ('ocup_ini' in o && o.ocup_ini && !o.ocup_fim && o.rx_fim){
+    const f = _rxMs(o, 'fim');
+    if (f != null && f > Date.parse(o.ocup_ini)){
+      o.ocup_fim = new Date(f).toISOString(); o.ocup_fim_de = 'RINEX';
+      delete o.ocup_espera; delete o.ocup_vigia;
+      setTimeout(() => { try { trilhaNaOcupacao(); vigiaOcupacao(); } catch (e){} }, 0);
+    }
+  }
   o.duracao = r.duracao;
   o.intervalo = r.intervalo != null ? String(r.intervalo) : '';
   o.intervalo_de = r.intervalo_de || '';
@@ -3950,7 +3984,13 @@ let _aoLerRinexP = null;
 function pedeRinex(cb, p){ _aoLerRinex = cb; _aoLerRinexP = p || null; $('#f_rinex').click(); }
 
 /* ---------- pontos de controle e checagem ---------- */
-const MIN_PONTO = {controle: 2*3600, checagem: 30*60};
+/* Tempo mínimo de ocupação por tipo de ponto: o da campanha (aba Campanha, em minutos)
+   ou o padrão. A Campanha de Risco 2026 RN rastreia 25 min por ponto de checagem. */
+const MIN_PONTO_PADRAO = {controle: 2*3600, checagem: 30*60};
+function minPonto(t){
+  const c = (F && F.campanha && F.campanha.min_ocup) || {}, v = Number(String(c[t] == null ? '' : c[t]).replace(',', '.'));
+  return v > 0 ? Math.round(v * 60) : (MIN_PONTO_PADRAO[t] || 0);
+}
 
 function padraoCampanha(o, qual){
   // o padrão da campanha só preenche o que está em branco: o registro do ponto manda
@@ -4185,7 +4225,7 @@ function cartaoPonto(p, k){
     if (c === 'tipo' || c === 'id'){ cabecalhoPonto(d, p, k); }
     if (c === 'id') pintaAlvos();
     if (c === 'forma') lembraMontagem(p);
-    pintaAvisos(d, p, MIN_PONTO[p.tipo] || 0); pintaFaltaDescricao(d, p); grava();
+    pintaAvisos(d, p, minPonto(p.tipo) || 0); pintaFaltaDescricao(d, p); grava();
     if (p.ocup_ini && c !== 'id') pintaOcupacao(d, p);
   };
   d.addEventListener('input', muda);
@@ -4215,10 +4255,13 @@ function cartaoPonto(p, k){
   const bpn = d.querySelector('[data-proxnav]');
   if (bpn) bpn.addEventListener('click', () => {
     if (p.ocup_ini && !p.ocup_fim){
-      if (!confirm('A ocupação de ' + (p.id || 'este ponto') + ' ainda está correndo. Encerrar agora e seguir?')) return;
-      p.ocup_fim = new Date().toISOString();
+      const f = fimSugerido(p);
+      if (!confirm('A ocupação de ' + (p.id || 'este ponto') + ' ainda está aberta. Encerrar '
+          + (f.como === 'agora' ? 'agora' : 'às ' + _hhmm(_msDe(f.iso), 1) + ' (' + f.como + ')') + ' e seguir?')) return;
+      p.ocup_fim = f.iso; if (f.como !== 'agora') p.ocup_fim_de = f.como;
+      delete p.ocup_espera; delete p.ocup_vigia;
     }
-    grava(); trilhaNaOcupacao(); pintaOcupacao(d, p); try { pintaPlanoCampanha(); } catch (e){} proximoNavegar(p);
+    grava(); trilhaNaOcupacao(); vigiaOcupacao(); pintaOcupacao(d, p); try { pintaPlanoCampanha(); } catch (e){} proximoNavegar(p);
   });
   d.querySelector('[data-ppparq]').addEventListener('click', () => pedePPPdoPonto(p));
   d.querySelector('[data-tempbtn]').addEventListener('click', async () => {
@@ -4320,7 +4363,7 @@ function cartaoPonto(p, k){
   d.querySelector('[data-focar]').addEventListener('click', () => focoPonto(k));
   const bnm = d.querySelector('[data-naomede]');
   if (bnm) bnm.addEventListener('click', () => naoPudeMedir(p.planejado.id, k).catch(e => marca('não medido: ' + e.message)));
-  pintaAvisos(d, p, MIN_PONTO[p.tipo] || 0);
+  pintaAvisos(d, p, minPonto(p.tipo) || 0);
   pintaFaltaDescricao(d, p);
   pintaMiniaturas(d, p);
   pintaOcupacao(d, p);
@@ -4352,7 +4395,7 @@ function _listaOcup(p){
 }
 function pintaOcupacao(d, p){
   const cx = d.querySelector('[data-ocup]'); if (!cx) return;
-  const min = MIN_PONTO[p.tipo] || 0;
+  const min = minPonto(p.tipo) || 0;
   if (!p.ocup_ini){
     cx.innerHTML = '<b>Ocupação</b><p class="leg">Receptor ligado e rastreando: inicie. Mínimo de ' + dur(min) + ' (' + p.tipo + ').</p>'
       + '<button type="button" class="btn peq" data-oc="ini">Iniciar a ocupação</button>';
@@ -4361,7 +4404,12 @@ function pintaOcupacao(d, p){
     const dec = ((fim || new Date()) - new Date(p.ocup_ini)) / 1000;
     const L = _listaOcup(p);
     cx.innerHTML = '<b>Ocupação</b> · início ' + new Date(p.ocup_ini).toLocaleTimeString('pt-BR')
-      + (fim ? ' · fim ' + fim.toLocaleTimeString('pt-BR') : '')
+      + (fim ? ' · fim ' + fim.toLocaleTimeString('pt-BR') + (p.ocup_fim_de ? ' (' + esc(p.ocup_fim_de) + ')' : '') : '')
+      + (!fim && p.ocup_espera ? '<div class="aviso" style="margin:8px 0"><b>Em espera desde '
+         + _hhmm(_msDe(p.ocup_espera.desde)) + '</b> — ' + esc(p.ocup_espera.motivo) + '. Ainda está medindo?'
+         + '<div class="acoes"><button type="button" class="btn peq" data-oc="espfim">Não — encerrar às '
+         + _hhmm(_msDe(p.ocup_espera.desde)) + '</button><button type="button" class="btn sec peq" data-oc="espsegue">'
+         + 'Sim, ainda medindo</button></div></div>' : '')
       + '<div class="crono" data-crono>' + _hms(dec) + '</div>'
       + '<div class="leg" data-cronoleg>' + (dec >= min ? 'tempo mínimo atingido'
           : 'faltam ' + _hms(min - dec) + ' para o mínimo de ' + dur(min)) + '</div>'
@@ -4379,18 +4427,23 @@ function pintaOcupacao(d, p){
   cx.onclick = e => {
     const b = e.target.closest('[data-oc]'); if (!b || b.tagName === 'INPUT') return;
     const o = b.dataset.oc;
-    if (o === 'ini'){ p.ocup_ini = new Date().toISOString(); p.ocup_fim = ''; p._avisou = false;
+    if (o === 'ini'){ fechaAbertasAntes(p);
+      p.ocup_ini = new Date().toISOString(); p.ocup_fim = ''; p._avisou = false;
+      delete p.ocup_espera; delete p.ocup_vigia; delete p.ocup_fim_de;
       if (!p.coord_cel) coordCelularAuto(p, d); }
     else if (o === 'fim'){
       const dec = (Date.now() - new Date(p.ocup_ini)) / 1000;
       if (dec < min && !confirm('Ainda faltam ' + _hms(min - dec) + ' para o mínimo do '
           + 'procedimento. Encerrar mesmo assim?')) return;
-      p.ocup_fim = new Date().toISOString();
+      p.ocup_fim = new Date().toISOString(); delete p.ocup_fim_de;
       setTimeout(() => marca('ocupação encerrada — vale fazer a Cópia completa (barra de baixo)'), 600);
     }
-    else if (o === 'reabre'){ p.ocup_fim = ''; }
+    else if (o === 'reabre'){ p.ocup_fim = ''; delete p.ocup_fim_de; delete p.ocup_vigia; }
     else if (o === 'navega'){ grava(); return proximoNavegar(p); }
-    grava(); trilhaNaOcupacao(); pintaOcupacao(d, p);
+    else if (o === 'espfim' && p.ocup_espera) return encerraOcupacaoEm(p, p.ocup_espera.desde, 'início da espera');
+    else if (o === 'espsegue' && p.ocup_espera) return segueMedindo(p);
+    if (p.ocup_fim){ delete p.ocup_espera; delete p.ocup_vigia; }
+    grava(); trilhaNaOcupacao(); vigiaOcupacao(); pintaOcupacao(d, p);
     try { pintaPlanoCampanha(); pintaHoje(); } catch (e){}
   };
   cx.onchange = e => {
@@ -4402,13 +4455,19 @@ setInterval(() => {
   (F.dia.pontos || []).forEach((p, k) => {
     if (!p.ocup_ini || p.ocup_fim) return;
     const card = $$('#pontos > .voo')[k]; if (!card) return;
-    const min = MIN_PONTO[p.tipo] || 0, dec = (Date.now() - new Date(p.ocup_ini)) / 1000;
+    const min = minPonto(p.tipo) || 0, dec = (Date.now() - new Date(p.ocup_ini)) / 1000;
     const c = card.querySelector('[data-crono]'); if (c) c.textContent = _hms(dec);
     const l = card.querySelector('[data-cronoleg]');
     if (l) l.textContent = dec >= min ? 'tempo mínimo atingido'
                                       : 'faltam ' + _hms(min - dec) + ' para o mínimo de ' + dur(min);
     const b = card.querySelector('[data-cronobar]');
     if (b){ b.style.width = Math.min(100, 100 * dec / (min || 1)) + '%'; b.classList.toggle('ok', dec >= min); }
+    if (!p.ocup_espera && dec > _limiteOcup(p)){
+      const v = p.ocup_vigia || {}, dentro = v.dentro ? Date.now() - Date.parse(v.dentro) < 600000 : false;
+      if (!dentro && !(v.adiada && Date.now() < Date.parse(v.adiada)))
+        entraEspera(p, new Date(Date.parse(p.ocup_ini) + _limiteOcup(p) * 1000).toISOString(),
+          'ocupação aberta há mais de ' + dur(_limiteOcup(p)) + ', sem posição recente do celular no lugar');
+    }
     if (dec >= min && !p._avisou){ p._avisou = true;
       try { navigator.vibrate && navigator.vibrate([300, 150, 300, 150, 300]); } catch (e){}
       marca('ponto ' + (p.id || k + 1) + ': tempo mínimo de ocupação atingido'); }
@@ -4579,7 +4638,7 @@ function resumoDe(D){
   const ctrl = P.filter(p => p.tipo === 'controle');
   const chk = P.filter(p => p.tipo === 'checagem');
   const curtos = P.filter(p => p.duracao != null
-                               && p.duracao < (MIN_PONTO[p.tipo] || 0));
+                               && p.duracao < (minPonto(p.tipo) || 0));
   const semAltura = P.concat(v.map(x => x.base))
                      .filter(o => o && (o.receptor || o.ini || o.rinex)
                                   && (o.altura === '' || o.altura == null));
@@ -4604,6 +4663,104 @@ function resumoDe(D){
    Os dias arquivados mais o dia que ainda está aberto. As somas saem dos VOOS e
    dos PONTOS de todos eles, não da média das médias de cada dia: um dia de um
    voo pesaria igual a um dia de seis. */
+/* ---------- um dia por vez ----------
+   A caderneta é de um dia. Esquecido o "Arquivar o dia" à noite, os pontos do dia
+   seguinte entravam no mesmo dia, e fechar misturava os dois (06/11/2026). Cada
+   ponto tem a sua data, local: a do início da ocupação, a do RINEX ou a da chegada.
+   Com pontos de mais de uma data, a aba Fechar o dia pede o dia a fechar e separa
+   os outros (guardados, sem fechar); ao arquivar, o seguinte volta à caderneta. */
+function _isoLocal(ms){ const t = new Date(ms);
+  return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); }
+function _primeiroDef(){ for (let i = 0; i < arguments.length; i++) if (arguments[i] != null) return arguments[i]; return null; }
+function dataDoPonto(p){
+  const ms = _primeiroDef(_msDe(p.ocup_ini), _rxMs(p, 'ini'), _msDe(p.chegada && p.chegada.quando));
+  return ms != null ? _isoLocal(ms) : null;
+}
+function datasDoDia(d){
+  const m = {};
+  for (const p of (d.pontos || [])){ const k = dataDoPonto(p) || d.data || ''; if (k) m[k] = (m[k] || 0) + 1; }
+  return Object.keys(m).sort().map(k => ({data: k, n: m[k]}));
+}
+/* tira do dia d os pontos (e os marcos de trecho) das outras datas; devolve um dia novo por data */
+function separaDatas(d, fica){
+  const resto = {}, tre = {};
+  d.pontos = (d.pontos || []).filter(p => { const k = dataDoPonto(p) || fica;
+    if (k === fica) return true; (resto[k] = resto[k] || []).push(p); return false; });
+  d.trechos = (d.trechos || []).filter(q => { const k = q.t ? _isoLocal(q.t * 1000) : fica;
+    if (k === fica || !resto[k]) return true; (tre[k] = tre[k] || []).push(q); return false; });
+  d.data = fica; d.data_auto = false;
+  return Object.keys(resto).sort().map(k => Object.assign(diaNovo(), {data: k, data_auto: false,
+    pontos: resto[k], trechos: tre[k] || [], trilha_id: d.trilha_id || ''}));
+}
+function pintaQualDia(){
+  const cx = $('#cart_qual_dia'); if (!cx) return;
+  const L = datasDoDia(F.dia), pend = (F.dias || []).filter(d => d.separado);
+  if (L.length < 2 && !pend.length){ cx.style.display = 'none'; cx.innerHTML = ''; return; }
+  cx.style.display = '';
+  cx.innerHTML = '<h3>Dia a fechar</h3>' + (L.length > 1
+    ? '<div class="aviso">A caderneta tem pontos de ' + L.length + ' dias: '
+      + L.map(x => _dataBr(x.data) + ' (' + x.n + ' ponto' + (x.n > 1 ? 's' : '') + ')').join(', ')
+      + '. Feche um dia de cada vez.</div>'
+      + '<label class="c" for="qd_sel">Dia a fechar agora</label><select id="qd_sel">'
+      + L.map(x => '<option value="' + x.data + '">' + _dataBr(x.data) + ' — ' + x.n + ' ponto(s)</option>').join('')
+      + '</select><p class="leg">Os pontos dos outros dias saem da caderneta e ficam guardados, separados e sem fechar. '
+      + 'Ao arquivar o dia escolhido, o seguinte volta sozinho para a caderneta.</p>'
+      + '<div class="acoes"><button type="button" class="btn peq" id="b_qd_separa">Separar e fechar só este dia</button></div>'
+    : '')
+    + (pend.length ? '<p class="leg">Separado(s), à espera de fechar: '
+      + pend.map(d => _dataBr(d.data) + ' (' + (d.pontos || []).length + ' ponto(s))').join(', ')
+      + '. Volta(m) para a caderneta ao arquivar o dia aberto.</p>' : '');
+  const b = $('#b_qd_separa');
+  if (b) b.onclick = () => separaCaderneta($('#qd_sel').value);
+}
+function separaCaderneta(fica){
+  const novos = separaDatas(F.dia, fica);
+  if (!novos.length) return;
+  if (TRILHA.length) guardaTrilha(true);
+  const agora = new Date().toISOString();
+  for (const n of novos){ const a = paraArquivo(n); a.arquivado = agora; a.separado = true; F.dias.push(a); }
+  grava(); monta();
+  setTimeout(() => marca('caderneta só com ' + _dataBr(fica) + '; separado(s): '
+    + novos.map(n => _dataBr(n.data)).join(', ')), 700);
+}
+/* Registro que já chegou misturado (dia arquivado com pontos de outra data): separa
+   por data ao abrir a folha. O dia de hoje, se saiu de um dia arquivado e a caderneta
+   está sem pontos, volta para a caderneta com o que já foi escrito nela. */
+async function arrumaDiasMisturados(){
+  const novos = [];
+  for (const d of (F.dias || []).slice()){
+    const L = datasDoDia(d); if (L.length < 2) continue;
+    const fica = d.data && L.some(x => x.data === d.data) ? d.data : L[0].data;
+    for (const n of separaDatas(d, fica)){ const a = paraArquivo(n); a.arquivado = d.arquivado || a.arquivado;
+      a.separado = true; novos.push(a); }
+  }
+  if (!novos.length) return;
+  F.dias.push.apply(F.dias, novos);
+  const hoje = _isoLocal(Date.now()), volta = novos.find(n => n.data === hoje);
+  if (volta && !(F.dia.pontos || []).length && !(F.dia.voos || []).length
+      && (!F.dia.data || F.dia.data_auto || F.dia.data === hoje)){
+    F.dias.splice(F.dias.indexOf(volta), 1);
+    const r = Object.assign(diaNovo(), volta); delete r.arquivado; delete r.separado;
+    for (const k of ['ocorrencias', 'obs', 'local', 'vento', 'ceu'])
+      if (F.dia[k]) r[k] = r[k] && r[k] !== F.dia[k] ? r[k] + '\n' + F.dia[k] : F.dia[k];
+    r.itens = Object.assign({}, r.itens || {}, F.dia.itens || {});
+    r.trechos = (r.trechos || []).concat(F.dia.trechos || []);
+    if (F.dia.trilha_ligada) r.trilha_ligada = true;
+    if (F.dia.trilha_id && F.dia.trilha_id !== r.trilha_id){
+      try {
+        const A = (r.trilha_id && await cofreDe(await _txTraj('readonly', l => l.get(r.trilha_id)))) || [];
+        const B = (await cofreDe(await _txTraj('readonly', l => l.get(F.dia.trilha_id)))) || [];
+        const tid = r.trilha_id || F.dia.trilha_id, M = A.concat(B).sort((a, b) => a[0] - b[0]);
+        const v = await cofrePara(M); await _txTraj('readwrite', l => l.put(v, tid));
+        r.trilha_id = tid;
+      } catch (e){ r.trilha_id = F.dia.trilha_id; }
+    }
+    F.dia = r;
+  }
+  grava();
+  setTimeout(() => marca('dia com pontos de mais de uma data separado por data: '
+    + novos.map(n => _dataBr(n.data)).join(', ') + (volta && F.dia.data === hoje ? ' (o de hoje voltou à caderneta)' : '')), 1800);
+}
 function diasDaCampanha(){
   const L = (F.dias || []).map(d => ({dia: d, aberto: false}));
   const a = F.dia;
@@ -4677,7 +4834,7 @@ function pintaResumo(){
        + 'altura de antena. O PPP do IBGE não processa sem o modelo de antena e a '
        + 'altura medida em campo, e depois de sair do ponto não há como medir.</div>' : '')
     + (r.curtos ? '<div class="aviso">' + r.curtos + ' ocupação(ões) abaixo do tempo '
-       + 'mínimo do procedimento — 2 h no controle, 30 min na checagem.</div>' : '')
+       + 'mínimo da campanha — ' + dur(minPonto('controle')) + ' no controle, ' + dur(minPonto('checagem')) + ' na checagem.</div>' : '')
     + (!r.nPontos ? '<p class="leg">Nenhum ponto registrado neste dia.</p>' : '')
     + '</div>';
 }
@@ -5173,7 +5330,7 @@ function _tabelaPontos(pontos, comDia){
         + '</td><td>' + esc(p.antena || '—') + '</td><td class="n">'
         + (p.altura === '' ? '<span style="color:' + C.MAU + '">não informada</span>'
                            : p.altura + ' m')
-        + '</td><td>' + esc(p.ini || '—') + '–' + esc(p.fim || '—')
+        + '</td><td>' + esc(rastreioLocal(p) || (p.ini || '—') + '–' + (p.fim || '—'))
         + '</td><td class="n">' + dur(p.duracao) + '</td><td>' + esc(p.ppp || '—')
         + '</td></tr>'
         + (function(){ const c = coordPonto(p), prov = c && !['ppp', 'rinex'].includes(c.fonte);
@@ -5188,7 +5345,7 @@ function _tabelaPontos(pontos, comDia){
 
 const NOTA_COORD = '<p class="ident" style="margin-top:14px">Receptor, antena, '
   + 'altura e janela de rastreio vêm do RINEX de cada ponto ou foram preenchidos '
-  + 'em campo. A coordenada de cada ponto, na linha abaixo dele, é a melhor disponível, nesta ordem: '
+  + 'em campo; a janela de rastreio está em hora local (tempo GPS do RINEX menos os segundos intercalares). A coordenada de cada ponto, na linha abaixo dele, é a melhor disponível, nesta ordem: '
   + 'IBGE-PPP (processada); cabeçalho do RINEX (aproximada); celular medido no ponto (provisória); '
   + 'planejamento de gabinete (temporária). O afastamento do planejado é medido a partir dela. '
   + '<b style="color:#B91C1C">Provisórias e temporárias saem em vermelho e devem ser substituídas pela do IBGE-PPP.</b></p>';
@@ -5968,6 +6125,14 @@ $('#f_abrir').addEventListener('change', async e => {
    A confirmação diz o que se perde, contado, e avisa quando o registro completo
    ainda não saiu do aparelho depois da última alteração. */
 $('#b_limpa_dia').addEventListener('click', async () => {
+  const LD = datasDoDia(F.dia);
+  if (LD.length > 1){
+    alert('A caderneta tem pontos de ' + LD.length + ' dias (' + LD.map(x => _dataBr(x.data)).join(', ')
+      + '). Escolha antes, no alto desta aba, o dia a fechar.');
+    pintaQualDia(); const q = $('#cart_qual_dia'); if (q) q.scrollIntoView({behavior: 'smooth'});
+    return;
+  }
+  if (LD.length === 1 && (!F.dia.data || F.dia.data_auto)){ F.dia.data = LD[0].data; F.dia.data_auto = false; }
   const nv = F.dia.voos.length, np = F.dia.pontos.length;
   const nf = F.dia.pontos.reduce((t, p) => t + Object.keys(p.fotos || {}).length, 0);
   const nm = F.dia.voos.reduce((t, v) =>
@@ -6003,6 +6168,12 @@ $('#b_limpa_dia').addEventListener('click', async () => {
   if (TRILHA.length) guardaTrilha(true);
   if (!vazio) F.dias.push(paraArquivo(F.dia));
   F.dia = diaNovo(); TRILHA = []; pintaTrilha();
+  // um dia separado à espera de fechar volta para a caderneta
+  const pend = (F.dias || []).filter(x => x.separado).sort((a, b) => String(a.data).localeCompare(String(b.data)))[0];
+  if (pend){ F.dias.splice(F.dias.indexOf(pend), 1);
+    const r = Object.assign(diaNovo(), pend); delete r.arquivado; delete r.separado;
+    F.dia = r; DIA_VISTO = '';
+    setTimeout(() => marca('o dia ' + _dataBr(r.data) + ', separado antes, voltou para a caderneta'), 2600); }
   grava(); monta();                          // as fotos ficam: são da campanha
   // a gravação é adiada e escreve na mesma linha de estado: a confirmação vem
   // depois dela, senão o operador não chega a ler
@@ -10716,6 +10887,7 @@ function planejadoMaisProximo(P){
 function comecaPontoAqui(){
   const a = (F.campanha.alvos || [])[NAV.i];
   if (!a) return;
+  fechaAbertasAntes(null);
   const ja = F.dia.pontos.find(p => p.id === a.id
                                || (p.planejado && p.planejado.id === a.id));
   if (ja && !confirm('Já há na caderneta de hoje um ponto ' + a.id + '. Abrir outro '
@@ -11281,7 +11453,7 @@ function alternaTrilha(){
    tela livre para apagar, o que poupa bateria) e volta sozinha quando a última
    ocupação aberta é encerrada — só se foi a ocupação que a pausou. */
 function trilhaNaOcupacao(){
-  const aberta = (F.dia.pontos || []).some(q => q.ocup_ini && !q.ocup_fim);
+  const aberta = (F.dia.pontos || []).some(q => q.ocup_ini && !q.ocup_fim && !q.ocup_espera);
   if (aberta && TRILHA_VIGIA != null){
     pausaTrilha(); F.dia.trilha_pausa_ocup = true; grava();
     setTimeout(() => marca('trilha pausada durante a ocupação: a tela pode apagar; ela volta ao encerrar'), 700);
@@ -11290,6 +11462,125 @@ function trilhaNaOcupacao(){
     setTimeout(() => marca('ocupação encerrada: a trilha voltou a gravar'), 700);
   }
 }
+/* ---------- ocupação em espera ----------
+   Esquecido o botão Encerrar, o cronômetro seguia e a ocupação ficava com horas a
+   mais (05/11/2026: 9 h num ponto de 30 min). Enquanto houver ocupação aberta, a
+   folha acompanha a posição do celular: longe do lugar da ocupação (mais de
+   VIGIA_OC.raio m, ou o dobro da precisão) por VIGIA_OC.min s seguidos, a ocupação
+   passa a "em espera" desde o último instante no lugar, e a folha pergunta se ainda
+   está medindo ou se encerra naquele instante. Ocupação aberta além do mínimo mais
+   max(mínimo, 90 min), sem posição recente no lugar, entra em espera do mesmo modo.
+   O critério de permanência é o da parada da trilha (LI et al., 2008). Com o RINEX
+   do ponto, vale a janela de rastreio (aplicaRinex, temposDoPonto). */
+const VIGIA_OC = {raio: 100, min: 180, adia: 30 * 60};
+let VIGIA_OC_ID = null;
+function ocupacoesAbertas(){ return (F.dia.pontos || []).filter(q => q.ocup_ini && !q.ocup_fim); }
+function vigiaOcupacao(){
+  if (MODO_PLAN) return;
+  const ab = ocupacoesAbertas().filter(q => !q.ocup_espera);
+  if (ab.length && VIGIA_OC_ID == null && 'geolocation' in navigator && window.isSecureContext)
+    VIGIA_OC_ID = navigator.geolocation.watchPosition(_vigiaOcupPos, () => {},
+      {enableHighAccuracy: true, maximumAge: 20000, timeout: 120000});
+  else if (!ab.length && VIGIA_OC_ID != null){ navigator.geolocation.clearWatch(VIGIA_OC_ID); VIGIA_OC_ID = null; }
+  pintaEspera();
+}
+function _vigiaOcupPos(pos){
+  _anotaPos(pos);
+  const c = pos.coords, t = pos.timestamp || Date.now();
+  if (!(c.accuracy <= 50)) return;
+  for (const p of ocupacoesAbertas()){
+    if (p.ocup_espera) continue;
+    const v = p.ocup_vigia || (p.ocup_vigia = {});
+    if (v.adiada && t < Date.parse(v.adiada)) continue;
+    if (v.lat == null){
+      const r = p.coord_cel;
+      if (r && r.lat != null){ v.lat = r.lat; v.lon = r.lon; }
+      else { v.lat = c.latitude; v.lon = c.longitude; }        // a primeira posição boa da ocupação
+    }
+    const dd = _dPlano(v.lat, v.lon, c.latitude, c.longitude);
+    if (dd <= Math.max(VIGIA_OC.raio, 2 * c.accuracy)){ v.dentro = new Date(t).toISOString(); delete v.fora; continue; }
+    if (!v.fora) v.fora = new Date(t).toISOString();
+    if (t - Date.parse(v.fora) >= VIGIA_OC.min * 1000)
+      entraEspera(p, v.dentro || v.fora, 'o celular saiu do lugar da ocupação (está a ' + _metros(dd) + ')');
+  }
+}
+function _limiteOcup(p){ const m = minPonto(p.tipo) || 1800; return m + Math.max(m, 5400); }
+function entraEspera(p, desde, motivo){
+  if (Date.parse(desde) < Date.parse(p.ocup_ini)) desde = p.ocup_ini;
+  p.ocup_espera = {desde: desde, motivo: motivo, quando: new Date().toISOString()};
+  grava();
+  try { navigator.vibrate && navigator.vibrate([400, 200, 400, 200, 400]); } catch (e){}
+  marca('ocupação de ' + (p.id || 'ponto') + ' em espera: ' + motivo);
+  trilhaNaOcupacao(); vigiaOcupacao(); _repintaOcup(p);
+}
+function _repintaOcup(p){
+  const k = (F.dia.pontos || []).indexOf(p), card = k >= 0 ? $$('#pontos > .voo')[k] : null;
+  if (card) try { pintaOcupacao(card, p); } catch (e){}
+}
+function encerraOcupacaoEm(p, iso, de){
+  p.ocup_fim = iso; if (de) p.ocup_fim_de = de; else delete p.ocup_fim_de;
+  delete p.ocup_espera; delete p.ocup_vigia;
+  grava(); trilhaNaOcupacao(); vigiaOcupacao(); _repintaOcup(p);
+  try { pintaPlanoCampanha(); pintaHoje(); } catch (e){}
+  marca('ocupação de ' + (p.id || 'ponto') + ' encerrada às ' + _hhmm(_msDe(iso)));
+}
+function segueMedindo(p){
+  const v = p.ocup_vigia || (p.ocup_vigia = {});
+  delete p.ocup_espera; delete v.fora;
+  v.adiada = new Date(Date.now() + VIGIA_OC.adia * 1000).toISOString();
+  grava(); trilhaNaOcupacao(); vigiaOcupacao(); _repintaOcup(p);
+  marca('ocupação de ' + (p.id || 'ponto') + ' segue aberta; a folha volta a perguntar em ' + Math.round(VIGIA_OC.adia / 60) + ' min, se for o caso');
+}
+/* fim sugerido de uma ocupação aberta: o início da espera, a última posição no lugar, ou agora */
+function fimSugerido(p){
+  if (p.ocup_espera) return {iso: p.ocup_espera.desde, como: 'início da espera'};
+  const v = p.ocup_vigia, d = v && v.dentro;
+  if (d && Date.parse(d) > Date.parse(p.ocup_ini) && Date.now() - Date.parse(d) > 120000)
+    return {iso: d, como: 'último instante do celular no lugar'};
+  return {iso: new Date().toISOString(), como: 'agora'};
+}
+/* ao começar outro ponto com ocupação aberta: pergunta, uma a uma */
+function fechaAbertasAntes(exceto){
+  for (const q of ocupacoesAbertas()){
+    if (q === exceto) continue;
+    const f = fimSugerido(q);
+    if (confirm('A ocupação de ' + (q.id || 'outro ponto') + ' ainda está aberta.\n\nEncerrar às '
+        + _hhmm(_msDe(f.iso), 1) + ' (' + f.como + ')?\n\nCancelar deixa a ocupação aberta.'))
+      encerraOcupacaoEm(q, f.iso, f.como === 'agora' ? '' : f.como);
+  }
+}
+function pintaEspera(){
+  let b = document.getElementById('espera_ocup');
+  const L = ocupacoesAbertas().filter(q => q.ocup_espera);
+  if (!L.length){ if (b) b.remove(); return; }
+  if (!b){
+    b = document.createElement('div'); b.id = 'espera_ocup'; b.className = 'naoimprime';
+    document.body.appendChild(b);
+    b.addEventListener('click', e => {
+      const x = e.target.closest('[data-esp]'); if (!x) return;
+      const p = (F.dia.pontos || [])[+x.dataset.k]; if (!p || !p.ocup_espera) return;
+      if (x.dataset.esp === 'fim') encerraOcupacaoEm(p, p.ocup_espera.desde, 'início da espera');
+      else if (x.dataset.esp === 'segue') segueMedindo(p);
+      else if (x.dataset.esp === 'outra'){
+        const h = prompt('Hora em que a ocupação de ' + (p.id || 'ponto') + ' terminou (HH:MM):', _hhmm(_msDe(p.ocup_espera.desde)));
+        const m = String(h || '').trim().match(/^(\d{1,2})[:h.](\d{2})$/); if (!m) return;
+        const t = new Date(p.ocup_ini); t.setHours(+m[1], +m[2], 0, 0);
+        if (t <= new Date(p.ocup_ini)) t.setDate(t.getDate() + 1);
+        if (t > new Date() || t <= new Date(p.ocup_ini)) return marca('hora fora da ocupação: de ' + _hhmm(_msDe(p.ocup_ini)) + ' até agora');
+        encerraOcupacaoEm(p, t.toISOString(), 'hora informada');
+      }
+    });
+  }
+  b.innerHTML = L.map(p => {
+    const k = F.dia.pontos.indexOf(p), h = _hhmm(_msDe(p.ocup_espera.desde));
+    return '<div><b>Ocupação de ' + esc(p.id || 'ponto ' + (k + 1)) + ' em espera desde ' + h + '</b> — '
+      + esc(p.ocup_espera.motivo) + '. Ainda está medindo?</div><div class="acoes">'
+      + '<button type="button" class="btn peq" data-esp="fim" data-k="' + k + '">Não — encerrar às ' + h + '</button>'
+      + '<button type="button" class="btn sec peq" data-esp="segue" data-k="' + k + '">Sim, ainda medindo</button>'
+      + '<button type="button" class="btn sec peq" data-esp="outra" data-k="' + k + '">Outro horário</button></div>';
+  }).join('<hr>');
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') try { vigiaOcupacao(); } catch (e){} });
 /* A trilha liga sozinha ao abrir a navegação e volta sozinha se a página for
    recarregada (o Chrome às vezes descarta a aba em segundo plano): o estado
    "gravando" fica no registro do dia. */
@@ -12404,6 +12695,7 @@ function pendenciasPonto(p){
   };
 }
 function pintaHotel(){
+  try { pintaQualDia(); } catch (e){}
   const e = $('#hotel_tab'); if (!e) return;
   const P = F.dia.pontos;
   if (!P.length){ e.innerHTML = '<p class="leg">Nenhum ponto na caderneta do dia.</p>'; return; }
@@ -13609,10 +13901,36 @@ function paradasDaTrilha(T){
   }
   return out;
 }
+/* Janela de rastreio do RINEX em UTC. As épocas do RINEX vêm no sistema de tempo
+   do receptor, declarado em TIME OF FIRST OBS (na prática, GPS): o tempo GPS está
+   adiantado do UTC pelos segundos intercalares (18 s desde 01/01/2017; cabeçalho
+   LEAP SECONDS, quando há); o BDS está 14 s atrás do GPS; o GLONASS segue o UTC
+   (RINEX 3.05, seção 3.4; IERS, Bulletin C). Sem isso, a janela do RINEX aparecia
+   na hora UTC, três horas à frente do relógio do celular. */
+function _rxMs(p, k){
+  const ms = _msDe(k === 'ini' ? p.rx_ini : p.rx_fim); if (ms == null) return null;
+  const sis = String(p.rx_tempo || 'GPS').toUpperCase();
+  if (sis === 'GLO' || sis === 'UTC') return ms;
+  const leap = p.rx_leap != null ? p.rx_leap
+    : ms >= Date.UTC(2017, 0, 1) ? 18 : ms >= Date.UTC(2015, 6, 1) ? 17 : ms >= Date.UTC(2012, 6, 1) ? 16 : 15;
+  return ms - 1000 * (sis === 'BDT' ? leap - 14 : leap);
+}
+function rastreioLocal(p){
+  const a = _rxMs(p, 'ini'), b = _rxMs(p, 'fim');
+  return a != null && b != null ? _hhmm(a, 1) + '–' + _hhmm(b, 1) : null;
+}
+/* Ocupação: com o RINEX do ponto, vale a janela de rastreio (o receptor não
+   esquece de parar); sem ele, os botões do celular; com a ocupação em espera e
+   sem decisão, o início da espera. */
 function temposDoPonto(p, paradas){
-  const oi = _msDe(p.ocup_ini), of = _msDe(p.ocup_fim), ri = _msDe(p.rx_ini), rf = _msDe(p.rx_fim);
+  const ci = _msDe(p.ocup_ini), cf = _msDe(p.ocup_fim), ri = _rxMs(p, 'ini'), rf = _rxMs(p, 'fim');
+  const rx = ri != null && rf != null && rf > ri;
+  const esp = !rx && ci != null && cf == null && p.ocup_espera ? _msDe(p.ocup_espera.desde) : null;
+  const oi = rx ? ri : ci, of = rx ? rf : (cf != null ? cf : esp);
   const r = {oi: oi, of: of, ocup: oi != null && of != null ? (of - oi) / 1000 : null,
-    rastreio: ri != null && rf != null ? (rf - ri) / 1000 : null,
+    fonteOcup: rx ? 'RINEX' : esp != null ? 'espera' : ci != null ? 'celular' : '',
+    oiCel: ci, ofCel: cf,
+    rastreio: rx ? (rf - ri) / 1000 : null,
     chegada: null, saida: null, noPonto: null, doAnterior: null, fonte: ''};
   const a = oi != null ? oi : ri, b = of != null ? of : rf;
   if (a == null) return r;
@@ -13641,7 +13959,7 @@ function _saltoTrilha(a, b){
 }
 async function temposDoDia(d){
   const T = trilhaDaData(await trilhaDoDia(d), d), Th = T.filter(q => q[0]), P = paradasDaTrilha(T);
-  const ini = x => x.t.oi != null ? x.t.oi : _msDe(x.p.rx_ini);
+  const ini = x => x.t.oi != null ? x.t.oi : _rxMs(x.p, 'ini');
   const pts = (d.pontos || []).map(p => ({p: p, t: temposDoPonto(p, P)}))
     .filter(x => ini(x) != null).sort((x, y) => ini(x) - ini(y));
   // entre pontos: do fim de uma ocupação ao início da seguinte (desmontagem, deslocamento, montagem)
@@ -13698,8 +14016,9 @@ function _dmin(s){
   return s < 3600 ? Math.floor(s / 60) + ' min ' + String(s % 60).padStart(2, '0') + ' s' : dur(s);
 }
 function _hhmm(ms, seg){ return ms == null ? '—' : new Date(ms).toLocaleTimeString('pt-BR').slice(0, seg ? 8 : 5); }
-const NOTA_TEMPOS = '<p class="ident">Tempos pelo relógio do celular. <b>Ocupação</b>: entre os botões '
-  + '“Iniciar” e “Encerrar a ocupação” (a janela de rastreio do receptor sai do RINEX, na caderneta). '
+const NOTA_TEMPOS = '<p class="ident">Tempos em hora local. <b>Ocupação</b>: a janela de rastreio do RINEX do ponto, '
+  + 'convertida do tempo GPS para a hora local (descontados os segundos intercalares); sem o RINEX, entre os botões '
+  + '“Iniciar” e “Encerrar a ocupação” do celular. '
   + '<b>No ponto</b>: da chegada à saída, pela parada da trilha que contém a ocupação (posição a até 50 m '
   + 'por 3 min ou mais; detecção de permanência, LI <i>et al.</i>, 2008) ou pela hora em que o cartão foi aberto '
   + 'na chegada. <b>Do ponto anterior</b>: do fim de uma ocupação ao início da seguinte (desmontagem, '
@@ -13712,7 +14031,10 @@ function htmlTemposDia(t){
   if (!t || (!t.pts.length && !t.comHora)) return '';
   const pl = paramTempo();
   const L = t.pts.map(x => '<tr><td>' + esc(x.p.id || '—') + '</td><td>' + _hhmm(x.t.chegada) + '</td><td>'
-    + (x.t.oi != null ? _hhmm(x.t.oi, 1) + '–' + _hhmm(x.t.of, 1) : '—') + '</td><td class="n">' + _dmin(x.t.ocup)
+    + (x.t.oi != null ? _hhmm(x.t.oi, 1) + '–' + _hhmm(x.t.of, 1) : '—')
+    + (x.t.fonteOcup === 'RINEX' ? '<br><span class="ocor">pelo RINEX</span>'
+       : x.t.fonteOcup === 'espera' ? '<br><span class="ocor">fim no início da espera</span>' : '')
+    + '</td><td class="n">' + _dmin(x.t.ocup)
     + '</td><td>' + _hhmm(x.t.saida) + '</td><td class="n">' + _dmin(x.t.noPonto) + '</td><td class="n">'
     + (x.t.doAnterior == null ? '—' : _dmin(x.t.doAnterior - (x.t.paradaNoIntervalo || 0))
        + (x.t.paradaNoIntervalo ? '<br><span class="ocor">+ ' + _dmin(x.t.paradaNoIntervalo) + ' de parada</span>' : '')) + '</td></tr>').join('');
@@ -14954,6 +15276,7 @@ async function atualizaPlanoKit(kit, tem){
   ['ponto_receptor', 'ponto_antena', 'base', 'base_receptor', 'base_antena', 'celular', 'versoes', 'aeronave', 'anac']
     .forEach(c => { if (String(velho[c] || '').trim()) nova[c] = velho[c]; });
   ['remedir', 'itens', 'bloqueios', 'pernoites'].forEach(c => { if (velho[c] != null) nova[c] = velho[c]; });
+  if (velho.min_ocup && !nova.min_ocup) nova.min_ocup = velho.min_ocup;
   F.campanha = Object.assign(folhaNova().campanha, nova);
   if (F.dia) delete F.dia.plano;
   F.config.kit = {id: kit.id, equipe: kit.equipe.nome, gerado: kit.gerado, atualizada: new Date().toISOString()};
@@ -15032,10 +15355,12 @@ async function inicia(){
     await cofrePortao(); await memCarregaCofre();
   }
   await carrega();
+  try { await arrumaDiasMisturados(); } catch (e){}
   carregaArea();
   contaBlocos();
   carregaTrajetos();
   carregaTrilha().then(() => { if (F.dia.trilha_ligada) ligaTrilha(false); });
+  setTimeout(() => { try { vigiaOcupacao(); } catch (e){} }, 1500);
   if (!F.dia.data){
     F.dia.data = new Date().toISOString().slice(0, 10);
     F.dia.data_auto = true;                          // ainda é palpite: o voo corrige

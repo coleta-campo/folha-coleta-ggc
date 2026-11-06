@@ -391,6 +391,9 @@ você cabe o que nenhum arquivo registra.</p>
   <b>1</b> montar a antena e iniciar a ocupação; <b>2</b> enquanto o receptor rastreia, fotos e
   descrição; <b>3</b> ao terminar, PDOP e coordenada de término, e <b>Terminar e navegar ao
   próximo</b>. O que o sistema deduz fica em <b>Mais deste ponto</b>.</p>
+  <p><b>Tela acesa.</b> Com a folha aberta, a tela do celular não apaga — também durante a medição; só apaga
+  se você travar o aparelho. Ponto que não deu para medir, mesmo já iniciado: <b>Não dá para medir</b>, na
+  navegação ou no cartão, registra o motivo e abre as outras opções do círculo (B, C, D).</p>
   <p><b>Fechar o dia</b>, na hospedagem, em 4 passos: ler os RINEX do dia, completar com a internet,
   enviar ao servidor, arquivar o dia.</p>
   <p><b>Campanha</b> se preenche no escritório; a folha da equipe já vem pronta do planejador.</p>
@@ -554,7 +557,7 @@ você cabe o que nenhum arquivo registra.</p>
   <div class="cart naoimprime" id="cart_trilha">
     <h3>Trilha do dia</h3>
     <p class="leg">Registra o caminho de fato usado. Liga sozinha ao navegar e pausa durante a ocupação;
-    só grava com a folha aberta e a tela acesa.</p>
+    só grava com a folha aberta (a folha mantém a tela acesa; travar o aparelho pausa a gravação).</p>
     <p class="leg" id="trilha_estado"></p>
     <div class="acoes">
       <button type="button" class="btn sec peq" id="b_trilha">Gravar a trilha</button>
@@ -755,8 +758,8 @@ você cabe o que nenhum arquivo registra.</p>
     O que já foi enviado e não mudou não sai de novo; se a conexão cair, toque de
     novo e só o que faltou é mandado. A folha da equipe gerada pelo
     planejador já vem pronta para enviar: basta tocar em <b>Testar a ligação</b> e em
-    <b>Enviar ao servidor</b>, e <b>deixar esta tela aberta e acesa até o fim</b> (com a tela
-    apagada o Chrome pausa o envio; ao voltar, ele continua sozinho). O código abaixo só é preciso numa folha que não veio do
+    <b>Enviar ao servidor</b>, e <b>deixar esta tela aberta até o fim</b> (a folha mantém a tela
+    acesa; com o aparelho travado o Chrome pausa o envio; ao voltar, ele continua sozinho). O código abaixo só é preciso numa folha que não veio do
     planejador.</p>
     <p class="leg" id="srv_auto"></p>
     <label class="c" for="srv_codigo">Código de envio (só para folha que não veio do planejador: cole ou leia o QR)</label>
@@ -893,6 +896,10 @@ você cabe o que nenhum arquivo registra.</p>
   O arquivo de observação fica guardado compactado — <code>.AAd</code> / <code>.crx</code>, um quarto
   do tamanho — e é assim que vai ao pacote LC e ao Drive.
   Arquivos <code>.zip</code> e <code>.gz</code> precisam ser abertos antes.</p>
+  <p><b>Um RINEX com vários pontos.</b> Se o receptor não foi desligado entre os pontos, ele grava
+  um arquivo só, com um evento de <b>novo sítio</b> a cada ponto. A folha divide o arquivo nesses
+  eventos — um RINEX por ocupação, cada um com o cabeçalho do seu ponto — e casa cada parte com o
+  seu cartão; cada parte recebe a sua avaliação de qualidade.</p>
   <p>Vale para os <b>dois padrões de nome</b>. No do RINEX 2,
   <code>ssssdddf.AAt</code>: as quatro letras da estação, o dia do ano, a sequência
   do dia, o ano em dois dígitos e a letra do tipo — <code>PT022950.13o</code> é a
@@ -5901,7 +5908,7 @@ async function testaAparelho(){
         ok(livre > 300 ? 1 : 0, 'Espaço para a folha', Math.round(e.usage / 1e6) + ' MB usados, ' + Math.round(livre) + ' MB livres'
           + (livre > 300 ? '' : ' — libere espaço no celular') + (pe ? ' · protegido contra limpeza' : ' · sem proteção contra limpeza automática'));
   } catch (e){ ok(2, 'Espaço', 'não informado'); }
-  ok('wakeLock' in navigator ? 1 : 0, 'Tela acesa', 'wakeLock' in navigator ? 'a navegação mantém a tela ligada' : 'não — a tela apaga e a posição para');
+  ok('wakeLock' in navigator ? 1 : 0, 'Tela acesa', 'wakeLock' in navigator ? 'a folha mantém a tela ligada enquanto estiver aberta (travar o aparelho apaga)' : 'não — a tela apaga e a posição para; aumente o tempo de tela nas configurações do aparelho');
   const fz = new File(['x'], 'x.zip', {type: 'application/zip'});
   ok(navigator.canShare && navigator.canShare({files: [fz]}) ? 1 : 2, 'Compartilhar arquivos',
      navigator.canShare && navigator.canShare({files: [fz]}) ? 'sim (WhatsApp, Drive)' : 'não — a cópia vai para Downloads');
@@ -11312,6 +11319,22 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && TRILHA_VIGIA != null && navigator.wakeLock)
     navigator.wakeLock.request('screen').then(t => { TRILHA_TRAVA = t; }).catch(() => {});
 });
+/* Tela sempre acesa (Screen Wake Lock API, W3C): com a folha aberta e à vista, a tela não apaga
+   sozinha — com a tela apagada o navegador para o GNSS do celular, a trilha e a contagem da
+   ocupação. Travar o aparelho (botão de energia) ou trocar de app solta a trava, como o sistema
+   manda; ao voltar para a folha, ela é pedida de novo. O planejador (computador) não usa. */
+let TELA_ACESA = null;
+async function mantemTelaAcesa(){
+  if (MODO_PLAN || !navigator.wakeLock || document.visibilityState !== 'visible' || TELA_ACESA) return;
+  try {
+    const t = await navigator.wakeLock.request('screen'); TELA_ACESA = t;
+    t.addEventListener('release', () => { if (TELA_ACESA === t) TELA_ACESA = null;
+      if (document.visibilityState === 'visible') setTimeout(mantemTelaAcesa, 1500); });
+  } catch (e){ TELA_ACESA = null; }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') mantemTelaAcesa(); });
+['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, () => { if (!TELA_ACESA) mantemTelaAcesa(); }, {passive: true}));
+setTimeout(mantemTelaAcesa, 800);
 async function juntaGpxTrilha(file){
   const d = new DOMParser().parseFromString(await file.text(), 'application/xml');
   if (d.querySelector('parsererror')) throw new Error('GPX ilegível');

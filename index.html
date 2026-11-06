@@ -4281,7 +4281,7 @@ function cartaoPonto(p, k){
     try {
       const cv = await montaRelatorioPonto(p);
       if (p.lat != null) delete p.relatorio_coord;
-      try { p.relatorio = cv.toDataURL('image/jpeg', 0.85); }
+      try { p.relatorio = cv.toDataURL('image/jpeg', 0.85); p.relatorio_v = REL_V; }
       catch (e){ throw new Error('o navegador não deixou gravar o desenho: a '
         + 'rede deste aparelho não autoriza o uso das imagens por esta página. '
         + 'Use "Testar as fontes" em Fontes de imagem do relatório do ponto.'); }
@@ -5192,10 +5192,22 @@ const NOTA_COORD = '<p class="ident" style="margin-top:14px">Receptor, antena, '
    chegar o RINEX ou o PPP. */
 const REL_TMP = new Map();
 function relDe(p){ return p.relatorio || REL_TMP.get(p) || ''; }
+/* Versão do relatório do ponto. 2 (05/11/2026): os recortes de detalhe passam a sair do nível
+   com imagem (antes, níveis 20–22 do Esri vinham com o bloco cinza "Map data not yet available").
+   Relatório montado por versão anterior é refeito na hora do PDF, havendo internet. */
+const REL_V = 2;
 async function relatoriosNaHora(pontos){
   for (const p of pontos){
-    if (p.relatorio || REL_TMP.has(p)) continue;
+    const velho = !!p.relatorio && (p.relatorio_v || 1) < REL_V;
+    if ((p.relatorio && !velho) || REL_TMP.has(p)) continue;
     const c = coordPonto(p); if (!c || c.fonte === 'gabinete') continue;
+    if (velho){
+      if (!navigator.onLine) continue;
+      try { marca('refazendo o relatório do ponto ' + (p.id || '') + ' (recortes de detalhe)…');
+            const cv = await montaRelatorioPonto(p); p.relatorio = cv.toDataURL('image/jpeg', 0.85); p.relatorio_v = REL_V;
+            cv.width = cv.height = 1; grava(); } catch (e){}
+      continue;
+    }
     const rc = p.relatorio_coord;
     try { marca('montando o relatório do ponto ' + (p.id || '') + '…');
           REL_TMP.set(p, (await montaRelatorioPonto(p)).toDataURL('image/jpeg', 0.85)); } catch (e){}
@@ -12568,8 +12580,8 @@ async function completaComRede(){
     const p = P[i];
     marca('com a internet: ponto ' + (i + 1) + ' de ' + P.length + ' (' + (p.id || '') + ')');
     if (!p.municipio){ try { await buscaMunicipio(p); } catch (e){} }
-    if (!p.relatorio){
-      try { const cv = await montaRelatorioPonto(p); p.relatorio = cv.toDataURL('image/jpeg', 0.85);
+    if (!p.relatorio || (p.relatorio_v || 1) < REL_V){
+      try { const cv = await montaRelatorioPonto(p); p.relatorio = cv.toDataURL('image/jpeg', 0.85); p.relatorio_v = REL_V;
             cv.width = cv.height = 1; res.push(p.id + ': relatório montado'); }
       catch (e){ res.push(p.id + ': relatório não saiu — ' + e.message); }
     }

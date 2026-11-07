@@ -478,6 +478,13 @@ você cabe o que nenhum arquivo registra.</p>
     <p class="leg">Tempo de rastreio que a campanha exige em cada ponto: vale para o cronômetro da ocupação,
     o aviso de tempo atingido e a contagem de ocupações abaixo do mínimo. Em branco, vale o padrão
     (30 min na checagem, 2 h no controle).</p>
+    <label class="c" for="c_fotorig">Fotos originais enviadas ao Drive e no pacote da campanha</label>
+    <select id="c_fotorig" data-campo="campanha.fotos_orig">
+      <option value="">reduzidas: lado maior de 2048 px, com os metadados da câmera</option>
+      <option value="completas">completas: o arquivo da câmera, sem alteração</option>
+    </select>
+    <p class="leg">Reduzidas, as fotos ficam com cerca de um quinto do tamanho e conservam data, hora, posição e,
+    na vista de cima, a altura e a guinada da ARP. No aparelho fica o original até o Drive confirmar a cópia.</p>
     <div id="c_veic_box">
     <h4 style="margin:12px 0 2px">Veículo da equipe</h4>
     <p class="leg" style="margin-top:0">Uma equipe, um carro: preenchido uma vez (ou já vindo na folha da equipe, gerada
@@ -12656,6 +12663,7 @@ async function leMetaARP(file){
 function arpAPrumo(m){ return !!m && m.pitch != null && m.pitch <= -80; }
 /* metros por pixel numa imagem de W x H pixels */
 function arpEscala(m, W, H){
+  if (m && m._mpp) return m._mpp;                         // recorte girado: a escala da foto inteira
   if (!arpAPrumo(m) || !(m.alt > 0) || !(m.f35 > 0)) return null;
   const diag = 2 * m.alt * 43.27 / (2 * m.f35);
   return diag / Math.hypot(W, H);
@@ -12729,20 +12737,38 @@ async function croquiARP(p, semFaixa){
   if (!d) return null;
   const im = await _abreImagem(d);
   if (!im) return null;
-  const W = im.naturalWidth, H = im.naturalHeight, faixa = semFaixa ? 0 : Math.round(W / 13);
+  /* Com a câmera a prumo, a guinada e o ponto marcados, a vista de cima sai com o norte para
+     cima: a foto gira pela guinada do gimbal em torno do ponto, que fica no centro de um
+     quadrado. O lado é o maior quadrado que cabe no círculo até a borda mais próxima do ponto
+     (sem cantos vazios); com o ponto muito perto da borda, no mínimo 35% do lado menor, e o
+     que fica fora da foto sai em cinza claro. */
+  const m = p.arp_meta || {}, alvo0 = p.arp_alvo || sugereAlvoARP(p);
+  const W0 = im.naturalWidth, H0 = im.naturalHeight;
+  let fonte = im, W = W0, H = H0, alvo = alvo0, pm = p, girou = false;
+  if (arpAPrumo(m) && m.yaw != null && alvo0){
+    const px = alvo0.x * W0, py = alvo0.y * H0, r = Math.min(px, py, W0 - px, H0 - py);
+    const lado = Math.round(Math.max(Math.floor(r * Math.SQRT2), Math.min(W0, H0) * 0.35));
+    const g = document.createElement('canvas'); g.width = g.height = lado;
+    const gx = g.getContext('2d');
+    gx.fillStyle = '#E3E8EB'; gx.fillRect(0, 0, lado, lado);
+    gx.translate(lado / 2, lado / 2); gx.rotate(m.yaw * Math.PI / 180); gx.drawImage(im, -px, -py);
+    const mpp = arpEscala(m, W0, H0);
+    fonte = g; W = H = lado; alvo = {x: 0.5, y: 0.5}; girou = true;
+    pm = Object.assign({}, p, {arp_meta: Object.assign({}, m, {yaw: 0, _mpp: mpp || null})});
+  }
+  const faixa = semFaixa ? 0 : Math.round(W / 13);
   const c = document.createElement('canvas'); c.width = W; c.height = H + faixa;
   const x = c.getContext('2d');
-  x.drawImage(im, 0, 0);
-  const alvo = p.arp_alvo || sugereAlvoARP(p);
-  _desenhaMarcasARP(x, W, H, p, alvo, true);
+  x.drawImage(fonte, 0, 0);
+  _desenhaMarcasARP(x, W, H, pm, alvo, true);
   if (semFaixa) return c.toDataURL('image/jpeg', 0.9);
-  const m = p.arp_meta || {};
   x.fillStyle = '#fff'; x.fillRect(0, H, W, faixa);
   x.fillStyle = '#1D2B36'; x.font = Math.round(faixa * 0.42) + 'px system-ui, sans-serif';
   const l1 = ['Croqui do ponto ' + (p.id || ''),
     m.data ? 'ARP ' + m.data.replace(/^(\d{4}):(\d\d):(\d\d)/, '$3/$2/$1') : 'vista de cima',
     m.alt != null ? 'altura ' + _numBR(m.alt, 1) + ' m' : ''].filter(Boolean).join('  ·  ');
-  const l2 = [arpAPrumo(m) && m.yaw != null ? 'norte pela guinada do gimbal' : 'sem norte nem escala',
+  const l2 = [girou ? 'norte para cima (girada pela guinada do gimbal, em torno do ponto)'
+      : arpAPrumo(m) && m.yaw != null ? 'norte pela guinada do gimbal' : 'sem norte nem escala',
     p.arp_alvo ? (p.arp_alvo.origem === 'sugerido' ? 'ponto pela posição da ARP, conferido em campo' : 'ponto marcado em campo')
                : (alvo ? 'ponto pela posição da ARP, NÃO conferido' : 'ponto não marcado')].join('  ·  ');
   x.font = '600 ' + Math.round(faixa * 0.3) + 'px system-ui, sans-serif';
@@ -13610,6 +13636,60 @@ function nomeRinexLC(num, ddd, nomeOrig){
 }
 
 /* --- imagens --- */
+/* Foto original reduzida para o envio: lado maior de 2048 px, JPEG 85%, com os segmentos
+   APP1 do arquivo da câmera (EXIF: data, hora, GPS, modelo; XMP: na ARP, altura e guinada)
+   copiados para o arquivo novo, a orientação EXIF posta em 1 (o navegador já desenha a foto
+   na posição certa). Guardada no aparelho (r_...) para o envio repetido não refazer nem
+   mandar de novo um arquivo que não mudou. */
+const ORIG_LADO = 2048;
+function fotosReduzidas(){ return (F.campanha && F.campanha.fotos_orig) !== 'completas'; }
+function _segmentosApp1(u8){
+  const L = [];
+  if (!(u8[0] === 0xFF && u8[1] === 0xD8)) return L;
+  for (let i = 2; i + 4 < u8.length;){
+    if (u8[i] !== 0xFF) break;
+    const mk = u8[i + 1]; if (mk === 0xDA || mk === 0xD9) break;
+    const len = (u8[i + 2] << 8) | u8[i + 3];
+    if (mk === 0xE1) L.push(u8.slice(i, i + 2 + len));
+    i += 2 + len;
+  }
+  return L;
+}
+function _orientacaoUm(seg){
+  // seg: FF E1 len 'Exif\0\0' TIFF...
+  if (!(seg[4] === 0x45 && seg[5] === 0x78 && seg[6] === 0x69 && seg[7] === 0x66)) return seg;
+  const t0 = 10, le = seg[t0] === 0x49;
+  const u16 = o => le ? seg[o] | (seg[o + 1] << 8) : (seg[o] << 8) | seg[o + 1];
+  const u32 = o => (le ? (seg[o] | (seg[o + 1] << 8) | (seg[o + 2] << 16) | (seg[o + 3] << 24))
+                       : ((seg[o] << 24) | (seg[o + 1] << 16) | (seg[o + 2] << 8) | seg[o + 3])) >>> 0;
+  const ifd = t0 + u32(t0 + 4); if (ifd + 2 > seg.length) return seg;
+  const n = u16(ifd);
+  for (let k = 0; k < n; k++){ const e = ifd + 2 + 12 * k; if (e + 12 > seg.length) break;
+    if (u16(e) === 0x0112){ if (le){ seg[e + 8] = 1; seg[e + 9] = 0; } else { seg[e + 8] = 0; seg[e + 9] = 1; } } }
+  return seg;
+}
+async function originalParaEnvio(chave, b){
+  if (!fotosReduzidas()) return b;
+  try { const r = await idbPega('r_' + chave); if (r) return r; } catch (e){}
+  const u8 = new Uint8Array(await (b instanceof Blob ? b.arrayBuffer() : new Blob([b]).arrayBuffer()));
+  const im = await _blobImagem(new Blob([u8], {type: 'image/jpeg'}));
+  if (!im) return b;
+  const e = Math.min(1, ORIG_LADO / Math.max(im.naturalWidth, im.naturalHeight));
+  if (e >= 1) return b;                                  // já pequena: vai como está
+  const c = document.createElement('canvas');
+  c.width = Math.round(im.naturalWidth * e); c.height = Math.round(im.naturalHeight * e);
+  c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+  const nova = await _bytesCanvas(c, 'image/jpeg', 0.85); c.width = c.height = 1;
+  const segs = _segmentosApp1(u8).map(sg => _orientacaoUm(sg));
+  const tam = segs.reduce((t, sg) => t + sg.length, 0);
+  const out = new Uint8Array(nova.length + tam);
+  out.set(nova.subarray(0, 2)); let k = 2;                // SOI
+  for (const sg of segs){ out.set(sg, k); k += sg.length; }
+  out.set(nova.subarray(2), k);
+  const bl = new Blob([out], {type: 'image/jpeg'});
+  try { await idbPoe('r_' + chave, bl); } catch (e){}
+  return bl;
+}
 async function _blobImagem(b){
   const u = URL.createObjectURL(b);
   try { return await _abreImagem(u); } finally { setTimeout(() => URL.revokeObjectURL(u), 1000); }
@@ -14703,7 +14783,7 @@ async function exportaLC(op){
       // para os outros não mudarem de nome, e a editada não é refeita (a do Drive saiu do original)
       if (o){ const b = await idbPega(o.chave);
         if (b || o.no_drive){ let nm = o.nome, k2 = 2; while (usados.has(dd + nm)) nm = o.nome.replace(/\.jpg$/i, '') + '_' + (k2++) + '.jpg';
-                usados.add(dd + nm); if (b) itens.push({nome: dd + 'Fotos/Originais/' + nm, dados: b, src: o.chave}); } }
+                usados.add(dd + nm); if (b) itens.push({nome: dd + 'Fotos/Originais/' + nm, dados: await originalParaEnvio(o.chave, b).catch(() => b), src: o.chave}); } }
       else if (j < 4) faltas.push(num + ': F' + (j + 1) + ' sem o original da câmera (foto anterior a esta versão)');
       if (o && o.no_drive) continue;
       const ed = await fotoEditadaLC(p, k, 'PONTO ' + num + '_F' + (j + 1)).catch(() => null);

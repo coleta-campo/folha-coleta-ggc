@@ -605,6 +605,31 @@ você cabe o que nenhum arquivo registra.</p>
     <input type="file" id="f_trilha" accept=".gpx" class="oculto">
   </div>
 
+  <div class="cart naoimprime" id="cart_gpsext" style="display:none">
+    <h3>GPS externo (Bluetooth)</h3>
+    <p class="leg">No computador: usa a posição de um GPS que manda NMEA por Bluetooth ou cabo — um celular
+    com app de "GPS por Bluetooth" ou um receptor GNSS. Pareie o aparelho no Windows antes. Ligado, ele
+    substitui a localização do navegador em toda a folha: navegação, trilha, chegada, posição no ponto
+    e ocupação em espera.</p>
+    <div class="lin2">
+      <div><label class="c" for="gpsext_baud">Velocidade da porta (baud)</label>
+        <select id="gpsext_baud"><option>4800</option><option selected>9600</option><option>19200</option>
+        <option>38400</option><option>57600</option><option>115200</option></select></div>
+      <div><label class="c">&nbsp;</label>
+        <button type="button" class="btn sec peq" id="b_gpsext">Ligar o GPS externo</button></div>
+    </div>
+    <p class="leg" id="gpsext_estado"></p>
+    <details class="ajuda"><summary>Como funciona</summary>
+      <p class="leg">A folha abre a porta serial do aparelho pareado (Web Serial, Chrome e Edge 117+ no
+      computador) e lê as sentenças NMEA 0183 GGA (posição, satélites, HDOP, altitude), RMC (data, velocidade
+      e rumo) e GST (desvio-padrão da posição). A precisão mostrada é o raio de 95%: com GST, 2,45 × o desvio-padrão
+      horizontal; sem GST, 2 × HDOP × o erro de distância do tipo de solução (5 m autônomo, 1 m DGNSS, 0,5 m RTK
+      flutuante, 0,02 m RTK fixo). A altitude é a elipsoidal (altitude ortométrica da GGA mais a ondulação da
+      própria sentença). No celular, a folha usa o GNSS do aparelho; o Bluetooth serial não está disponível ali.
+      Na próxima abertura, a porta já autorizada liga sozinha.</p>
+    </details>
+  </div>
+
   <details class="bloco naoimprime" id="bloco_alvos">
     <summary>Todos os pontos, o mapa e o plano<span class="conta" id="alvos_conta">nenhum</span></summary>
     <div class="itens">
@@ -4008,6 +4033,11 @@ function lembraMontagem(p){ F.config = F.config || {};
   F.config.montagem = {forma: p.forma || '', diagrama: p.diagrama || ''}; }
 
 function cartaoPonto(p, k){
+  // cartão aberto antes do acesso pelo caminho do plano: preenche uma vez, se estiver vazio
+  if (!p.acesso && !p.acesso_auto && p.planejado && p.planejado.id){
+    const it = acessoDoPlano(p.planejado.id);
+    if (it){ p.acesso = it; p.acesso_gabinete = true; p.acesso_auto = true; setTimeout(() => { try { grava(); } catch (e){} }, 0); }
+  }
   const d = document.createElement('div');
   d.className = 'voo';
   d.style.borderLeftColor = p.tipo === 'controle' ? '#8e44ad' : '#16a085';
@@ -7314,7 +7344,7 @@ function rotaOffline(P, a){
   return {o: 9, id: a.id, fonte: 'offline', km: km / 1000, min: (dist[t.i] + s.d / 1.4) / 60, g: g, t: Date.now(), evita: B.length};
 }
 function calculaRotaOffline(){
-  const a = (F.campanha.alvos || [])[NAV.i], P = NAV.pos;
+  const a = alvoNav(), P = NAV.pos;
   if (!a) return;
   if (!P) return marca('rota sem internet: esperando a posição do celular');
   try {
@@ -7331,7 +7361,7 @@ function calculaRotaOffline(){
    nem de interdições: quem as conhece são as marcas da equipe). Se nenhum escapa, ou sem
    internet, a rota é calculada no aparelho, pelas ruas guardadas. */
 async function rotaNovaDaqui(){
-  const a = (F.campanha.alvos || [])[NAV.i], P = NAV.pos;
+  const a = alvoNav(), P = NAV.pos;
   if (!a) return;
   if (!P) return marca('nova rota: esperando a posição do celular');
   if (!navigator.onLine){ marca('nova rota: sem internet — calculando no aparelho'); return calculaRotaOffline(); }
@@ -7369,7 +7399,7 @@ function trajetosNav(a){
 /* o obstáculo fica à frente de quem chega a ele: a marca vai 40 m adiante pelo caminho que se
    seguia (ou pelo rumo do deslocamento), para a nova rota poder voltar por onde se veio */
 function _aFrente(P, dist){
-  const a = (F.campanha.alvos || [])[NAV.i];
+  const a = alvoNav();
   const TL = trajetosNav(a).concat(NAV.rotaOn && a && NAV.rotaOn.id === a.id ? [NAV.rotaOn] : []);
   const T = TL.find(t => t.o === NAV.opc) || TL[0];
   if (T && T.g && T.g.length > 1){
@@ -7422,7 +7452,46 @@ function trechoCampanha(a){
 }
 /* Caminhos de carro até o ponto, na ordem de preferência: o plano do dia refeito no
    celular; o plano da campanha (gabinete), com até 3 opções; o arquivo de trajetos. */
+/* Volta à hospedagem: o destino é a hospedagem do plano (só no aparelho; nome e endereço não
+   saem nos relatórios). Os caminhos são os trechos de volta do plano da campanha ("para" a
+   hospedagem): primeiro o que sai do último ponto ocupado hoje, depois o que começa mais perto. */
+function hospedagemDoPlano(){
+  const pc = F.campanha && F.campanha.planoCampanha, h = pc && pc.hotel;
+  let lat = h && !h.semHotel ? parseFloat(h.lat) : NaN, lon = h && !h.semHotel ? parseFloat(h.lon) : NaN;
+  if (!isFinite(lat) || !isFinite(lon)){
+    const m = String(F.campanha.partida || '').match(/(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\d+(?:\.\d+)?)/);
+    if (m){ lat = +m[1]; lon = +m[2]; }
+  }
+  return isFinite(lat) && isFinite(lon) ? {id: 'Hospedagem', especial: 'hospedagem', tipo: '', lat: lat, lon: lon} : null;
+}
+function alvoNav(){ return NAV.volta ? hospedagemDoPlano() : (F.campanha.alvos || [])[NAV.i]; }
+function trajetosDaVolta(){
+  const pc = F.campanha.planoCampanha; if (!pc) return [];
+  const eq = equipeDoPlano(), E = eq ? [eq] : (pc.equipes || []);
+  const V = [];
+  E.forEach(e => e.dias.forEach((d, i) => (d.trechos || []).forEach(t => {
+    if (t.para === 'hotel' && (t.op || []).length) V.push({t: t, dia: i + 1}); })));
+  if (!V.length) return [];
+  const ult = (F.dia.pontos || []).filter(p => p.ocup_ini && p.planejado).map(p => p.planejado.id).pop();
+  const P = NAV.pos || ULTIMA_POS;
+  const d0 = v => { const g = v.t.op[0].g; return P && g && g.length ? geodInversa(P.lat, P.lon, g[0][1], g[0][0]).s : 1e12; };
+  V.sort((x, y) => ((y.t.de === ult) - (x.t.de === ult)) || (d0(x) - d0(y)));
+  const v = V[0];
+  // longe do começo de qualquer volta do plano (mais de 3 km): sem caminho do plano — a navegação
+  // pede a rota daqui (internet) ou calcula no aparelho
+  if (v.t.de !== ult && d0(v) > 3000) return [];
+  return v.t.op.map(o => ({o: o.o, fonte: 'volta', km: o.km, min: o.min, g: o.g, de: v.t.de, dia: v.dia, nop: v.t.op.length}));
+}
+function abreNavHospedagem(){
+  const h = hospedagemDoPlano();
+  if (!h) return marca('a folha não tem a hospedagem do plano');
+  abreNav(NAV.i || 0);
+  NAV.volta = true; NAV.dz = 0; NAV.opc = 1; NAV.chegouAviso = false; NAV.panCen = null;
+  desenhaNav();
+  setTimeout(() => marca('navegando de volta à hospedagem'), 600);
+}
 function trajetosDoPonto(a){
+  if (a && a.especial === 'hospedagem') return trajetosDaVolta();
   // os caminhos desde a BR (arquivo de trajetos) entram sempre, depois dos do plano, como opções 4 a 6:
   // assim cada ponto (A, B, C ou D) tem até 3 caminhos do plano e até 3 desde a BR, todos sem rede
   const br = (TRAJ[a.id] || []).map(t => Object.assign({}, t, {o: 3 + t.o, ob: t.o, nbr: (TRAJ[a.id] || []).length, fonte: t.fonte || 'br'}));
@@ -10019,6 +10088,7 @@ function montaTelaNav(){
     + '<button type="button" class="btn sec" data-n="rotaoff">Outra rota, sem internet</button>'
     + '<button type="button" class="btn sec" data-n="naomede">Não dá para medir esta opção — abrir as outras</button>'
     + '<button type="button" class="btn sec" data-n="campo">Nenhuma opção serve — escolher em campo</button>'
+    + '<button type="button" class="btn sec" data-n="hosp">Voltar à hospedagem</button>'
     + '</div>';
   document.body.appendChild(d);
   const q = n => d.querySelector('[data-n="' + n + '"]');
@@ -10036,19 +10106,20 @@ function montaTelaNav(){
   });
   q('bussola').addEventListener('click', alternaBussola);
   q('traj').addEventListener('click', () => {
-    const L = trajetosNav((F.campanha.alvos || [])[NAV.i]);
+    const L = trajetosNav(alvoNav());
     if (!L.length) return;
     const k = L.findIndex(t => t.o === NAV.opc);
     NAV.opc = L[(k + 1) % L.length].o; NAV.dz = 0; desenhaNav();
   });
   q('comeca').addEventListener('click', comecaPontoAqui);
+  q('hosp').addEventListener('click', () => NAV.volta ? proximoNavegar(null) : abreNavHospedagem());
   q('bloq').addEventListener('click', marcaSemPassagem);
   q('rotaoff').addEventListener('click', calculaRotaOffline);
   q('rotanova').addEventListener('click', () => rotaNovaDaqui().catch(e => marca('nova rota: ' + e.message)));
-  q('mapsdir').addEventListener('click', () => { const a = (F.campanha.alvos || [])[NAV.i]; if (a) abreNoMaps(a, 'direto'); });
-  q('naomede').addEventListener('click', () => { const a = (F.campanha.alvos || [])[NAV.i];
+  q('mapsdir').addEventListener('click', () => { const a = alvoNav(); if (a) abreNoMaps(a, 'direto'); });
+  q('naomede').addEventListener('click', () => { if (NAV.volta) return; const a = (F.campanha.alvos || [])[NAV.i];
     if (a) naoPudeMedir(a.id, null).catch(e => marca('não medido: ' + e.message)); });
-  q('campo').addEventListener('click', () => { const a = (F.campanha.alvos || [])[NAV.i];
+  q('campo').addEventListener('click', () => { if (NAV.volta) return; const a = (F.campanha.alvos || [])[NAV.i];
     escolheEmCampo(a ? circuloDe(a.id) : null, NAV.pos).catch(e => marca('ponto de campo: ' + e.message)); });
   q('modo').addEventListener('click', () => {
     NAV.modo = NAV.modo === 'carro' ? 'direcao' : 'carro';
@@ -10062,10 +10133,10 @@ function montaTelaNav(){
     if (!p.classList.contains('oculto')) passosGps(p);
   });
   q('mapsbr').addEventListener('click', () => {
-    const a = (F.campanha.alvos || [])[NAV.i]; if (a) abreNoMaps(a, 'saida');
+    const a = alvoNav(); if (a) abreNoMaps(a, 'saida');
   });
   q('maps').addEventListener('click', () => {
-    const a = (F.campanha.alvos || [])[NAV.i]; if (a) abreNoMaps(a);
+    const a = alvoNav(); if (a) abreNoMaps(a);
   });
   q('app').value = (F.config && F.config.appNav) || 'gmaps';
   q('app').addEventListener('change', e => { if (!F.config) F.config = {}; F.config.appNav = e.target.value; grava(); desenhaNav(); });
@@ -10082,6 +10153,7 @@ function abreNav(i){
   const A = F.campanha.alvos || [];
   if (!A.length) return marca('carregue a lista de pontos planejados');
   montaTelaNav();
+  NAV.volta = false;
   NAV.i = Math.max(0, Math.min(i, A.length - 1));
   NAV.dz = 0; NAV.opc = 1; NAV.chegouAviso = false;
   NAV.modo = (F.config && F.config.navModo) || (Object.keys(TRAJ).length || (F.dia && F.dia.plano) ? 'carro' : 'direcao');
@@ -10178,6 +10250,7 @@ document.addEventListener('visibilitychange', () => {
 
 function trocaAlvo(passo){
   NAV.panCen = null;
+  if (NAV.volta){ NAV.volta = false; NAV.dz = 0; NAV.opc = 1; NAV.chegouAviso = false; desenhaNav(); return; }
   const A = F.campanha.alvos || [], n = A.length;
   if (!n) return;
   const p = F.dia && F.dia.plano, cur = A[NAV.i];
@@ -10520,10 +10593,16 @@ function corTipo(t){ return t === 'controle' ? '#8e44ad' : t === 'checagem' ? '#
 function desenhaNav(){
   if (!NAV.el || NAV.el.classList.contains('oculto')) return;
   const q = NAV.q, A = F.campanha.alvos || [];
-  const a = A[NAV.i];
+  const a = alvoNav();
   if (!a){ fechaNav(); return; }
   const oc = ocupacoes();
-  { const op = opcaoDe(a.id), c = circuloDe(a.id), at = c ? circulosAtendidos()[c] : null;
+  const volta = !!NAV.volta;
+  ['naomede', 'campo', 'mapsbr'].forEach(n => { const b = q(n); if (b) b.style.display = volta ? 'none' : ''; });
+  q('comeca').textContent = volta ? 'Cheguei à hospedagem — fechar o dia' : 'Cheguei — começar o ponto aqui';
+  q('hosp').textContent = volta ? 'Voltar aos pontos' : 'Voltar à hospedagem';
+  q('hosp').style.display = volta || hospedagemDoPlano() ? '' : 'none';
+  if (volta) q('titulo').textContent = 'Volta à hospedagem';
+  else { const op = opcaoDe(a.id), c = circuloDe(a.id), at = c ? circulosAtendidos()[c] : null;
     const papel = op === 'A' ? ' · principal' : op ? ' · reserva ' + (op.charCodeAt(0) - 65) : '';
     const pk = F.dia && F.dia.plano ? F.dia.plano.paradas.findIndex(x => x.id === a.id) : -1;
     q('titulo').textContent = (pk >= 0 ? 'plano ' + (pk + 1) + '/' + F.dia.plano.paradas.length : (NAV.i + 1) + '/' + A.length)
@@ -10531,7 +10610,7 @@ function desenhaNav(){
       + (at && !at.includes(a.id) ? ' · círculo já atendido (' + at.join(', ') + ')' : ''); }
   const P = NAV.pos;
   const g = P ? geodInversa(P.lat, P.lon, a.lat, a.lon) : null;
-  const perto = g && g.s <= Math.max(15, P.acc || 0);
+  const perto = g && g.s <= Math.max(volta ? 60 : 15, P.acc || 0);
   if (perto && !NAV.chegouAviso){ NAV.chegouAviso = true;
     try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch (e){} }
   if (!perto && g && g.s > Math.max(40, 2 * (P.acc || 0))) NAV.chegouAviso = false;
@@ -10550,6 +10629,8 @@ function desenhaNav(){
   const st = (T && P) ? noTrajeto(T, P) : null;
   const nomeT = t => t.fonte === 'plano'
     ? 'Plano do dia · trecho ' + t.k + ' de ' + t.n + (t.nop > 1 ? ' · caminho <b>' + t.o + '</b> de ' + t.nop : '') + ' · ' + _numBR(t.km, 1) + ' km' + (t.min != null ? ' · ~' + t.min + ' min' : '')
+    : t.fonte === 'volta'
+    ? 'Volta do plano da campanha · do ' + esc(t.de) + ' à hospedagem · caminho <b>' + t.o + '</b> de ' + t.nop + ' · ' + _numBR(t.km, 1) + ' km' + (t.min != null ? ' · ~' + t.min + ' min' : '')
     : t.fonte === 'campanha'
     ? 'Plano da campanha · dia ' + t.dia + (t.reserva ? ', reserva: da ' + esc(t.de) + ' até aqui' : ', ponto ' + t.k + ' de ' + t.n) + ' · caminho <b>' + t.o + '</b> de ' + t.nop
       + ' · ' + _numBR(t.km, 1) + ' km' + (t.min != null ? ' · ~' + t.min + ' min' : '')
@@ -10773,13 +10854,14 @@ function desenhaNav(){
   // todos os planejados; o destino maior. Rótulo que encostaria em outro já
   // escrito não sai — o do destino é escrito primeiro e sempre aparece
   const despr = desprezados();
-  const ordem = A.map((b, k) => k).filter(k => k === NAV.i || (!despr.has(A[k].id) && daMinhaEquipe(A[k])))
-                 .sort((u, v) => (v === NAV.i) - (u === NAV.i));
+  const iAlvo = NAV.volta ? -1 : NAV.i;
+  const ordem = A.map((b, k) => k).filter(k => k === iAlvo || (!despr.has(A[k].id) && daMinhaEquipe(A[k])))
+                 .sort((u, v) => (v === iAlvo) - (u === iAlvo));
   const caixas = [];
   ordem.forEach(k => {
     const b = A[k], p = tela(b.lat, b.lon);
     if (p.x < -40 || p.y < -40 || p.x > W + 40 || p.y > H + 40) return;
-    const alvo = k === NAV.i, r = alvo ? 11 : 7;
+    const alvo = k === iAlvo, r = alvo ? 11 : 7;
     x.beginPath(); x.arc(p.x, p.y, r, 0, 2 * Math.PI);
     x.fillStyle = oc[b.id] ? '#9AA6AB' : corTipo(b.tipo); x.fill();
     x.lineWidth = alvo ? 3 : 2; x.strokeStyle = '#fff'; x.stroke();
@@ -10792,6 +10874,9 @@ function desenhaNav(){
     x.strokeText(b.id, p.x + r + 4, p.y + 5);
     x.fillStyle = '#0A3D56'; x.fillText(b.id, p.x + r + 4, p.y + 5);
   });
+  // a hospedagem, na volta: um quadrado
+  if (NAV.volta){ const p = tela(a.lat, a.lon);
+    x.fillStyle = '#0A3D56'; x.fillRect(p.x - 9, p.y - 9, 18, 18); x.lineWidth = 3; x.strokeStyle = '#fff'; x.strokeRect(p.x - 9, p.y - 9, 18, 18); }
   // você: círculo da precisão e o ponto
   if (P){
     const p = tela(P.lat, P.lon);
@@ -10836,6 +10921,18 @@ function desenhaNav(){
 /* Liga um cartão novo ao ponto planejado: identificador, tipo, coordenada
    planejada e as condições da chegada (posição e precisão do CELULAR, que não
    são a coordenada do ponto — essa continua vindo do RINEX). */
+/* Acesso do ponto a partir do caminho de gabinete (trechos_acesso: da BR mais próxima ao
+   ponto, com as vias e a extensão de terra). Entra como rascunho, marcado "veio do gabinete",
+   para a equipe completar em campo. */
+function acessoDoPlano(id){
+  const L = (TRAJ[id] || []).slice().sort((x, y) => (x.o || 9) - (y.o || 9));
+  const t = L[0]; if (!t || !(t.km > 0)) return '';
+  const km = v => _numBR(v, v < 1 ? 2 : 1) + ' km';
+  const vias = String(t.vias || '').split(/\s*[;,|>]\s*/).filter(Boolean);
+  const vv = vias.length > 5 ? vias.slice(0, 5).join(', ') + ' e outras' : vias.join(', ');
+  return (t.br ? 'Da ' + t.br + ', ' : 'Da via principal, ') + km(t.km) + (vv ? ' por ' + vv : '')
+    + (t.terra >= 50 ? ', dos quais ' + km(t.terra / 1000) + ' em estrada de terra' : '') + '.';
+}
 function ligaAoPlanejado(p, a, P, repetido){
   const rem = listaRemedir().find(r => r.id === a.id);
   if (rem){ p.remedicao = {motivo: rem.motivo, marcado: rem.quando}; tiraRemedir(a.id, 'remedição começada'); }
@@ -10844,7 +10941,8 @@ function ligaAoPlanejado(p, a, P, repetido){
   // o que o gabinete já sabe: a que serve, o alvo pós-definido e o descritivo da escolha
   if (!p.serve && SERVE[p.tipo]) p.serve = SERVE[p.tipo][0];
   if (p.tipo === 'checagem' && !p.alvo) p.alvo = ALVO_POS;
-  if (!p.acesso && a.obs){ p.acesso = a.obs; p.acesso_gabinete = true; }
+  if (!p.acesso){ const it = acessoDoPlano(a.id), t = [it, a.obs].filter(Boolean).join(' ');
+    if (t){ p.acesso = t; p.acesso_gabinete = true; p.acesso_auto = true; } }
   p.planejado = {id: a.id, lat: a.lat, lon: a.lon};
   p.declinacao = declinacaoEm(a.lat, a.lon);
   if (P){
@@ -10861,6 +10959,159 @@ function ligaAoPlanejado(p, a, P, repetido){
    cartão já ligado a ele. Sem posição em 10 s, abre em branco. */
 /* Última posição recebida de qualquer vigia (navegação ou trilha): com uma vigia
    ligada, pedir outra posição avulsa pode demorar; a recente serve. */
+/* ---------- GPS externo por porta serial (NMEA 0183) ----------
+   No computador, a localização do navegador costuma ser a da rede (dezenas a milhares de
+   metros). Um celular com app de "GPS por Bluetooth", ou um receptor GNSS, manda NMEA por
+   uma porta serial Bluetooth (RFCOMM/SPP), que o Chrome e o Edge abrem pela Web Serial
+   (WICG; Bluetooth RFCOMM desde o Chrome 117). Ligado, o GPS externo responde no lugar de
+   navigator.geolocation: as vigias da navegação, da trilha e da ocupação recebem as posições
+   dele, sem mudança no resto da folha. Sentenças: GGA, RMC e GST (NMEA 0183, v. 4.11). */
+const GPS_EXT = {ativo: false, porta: null, leitor: null, ult: null, gga: null, rmc: null, gst: null,
+                 n: 0, erros: 0, desde: null, espera: []};
+const _GEO_NAT = (navigator.geolocation && 'serial' in navigator && !MODO_PLAN) ? {
+  watch: navigator.geolocation.watchPosition.bind(navigator.geolocation),
+  clear: navigator.geolocation.clearWatch.bind(navigator.geolocation),
+  get: navigator.geolocation.getCurrentPosition.bind(navigator.geolocation)} : null;
+const _GEO_VIG = new Map(); let _GEO_N = 0;
+if (_GEO_NAT){
+  const g = navigator.geolocation;
+  g.watchPosition = (ok, er, op) => {
+    const id = ++_GEO_N, w = {ok: ok, er: er, op: op, nat: null};
+    _GEO_VIG.set(id, w);
+    if (!GPS_EXT.ativo) w.nat = _GEO_NAT.watch(ok, er, op);
+    else if (GPS_EXT.ult) setTimeout(() => { try { ok(GPS_EXT.ult); } catch (e){} }, 0);
+    return id;
+  };
+  g.clearWatch = id => { const w = _GEO_VIG.get(id); if (!w) return; if (w.nat != null) _GEO_NAT.clear(w.nat); _GEO_VIG.delete(id); };
+  g.getCurrentPosition = (ok, er, op) => {
+    if (!GPS_EXT.ativo) return _GEO_NAT.get(ok, er, op);
+    const idade = (op && op.maximumAge) || 0;
+    if (GPS_EXT.ult && Date.now() - GPS_EXT.ult.timestamp <= Math.max(idade, 2000)) return setTimeout(() => ok(GPS_EXT.ult), 0);
+    const q = {ok: ok, er: er};
+    q.t = setTimeout(() => { GPS_EXT.espera = GPS_EXT.espera.filter(x => x !== q);
+      if (er) er({code: 3, message: 'GPS externo sem posição válida', TIMEOUT: 3}); }, (op && op.timeout) || 15000);
+    GPS_EXT.espera.push(q);
+  };
+}
+function _nmeaOk(l){
+  const m = l.match(/^\$([^*]+)\*([0-9A-Fa-f]{2})\s*$/);
+  if (!m) return /^\$[A-Z]{5},/.test(l) && l.indexOf('*') < 0 ? l.slice(1) : null;   // sem checksum: aceita
+  let x = 0; for (let i = 0; i < m[1].length; i++) x ^= m[1].charCodeAt(i);
+  return x === parseInt(m[2], 16) ? m[1] : null;
+}
+function _nmeaGrau(v, h){
+  if (!v) return null;
+  const n = parseFloat(v); if (!isFinite(n)) return null;
+  const g = Math.floor(n / 100), d = g + (n - g * 100) / 60;
+  return (h === 'S' || h === 'W') ? -d : d;
+}
+const _UERE = {1: 5, 2: 1, 3: 5, 4: 0.02, 5: 0.5, 6: 10, 8: 5, 9: 1};      // m, 1 sigma, por tipo de solução da GGA
+function nmeaLinha(l){
+  const c = _nmeaOk(l.trim()); if (!c){ if (l.trim().startsWith('$')) GPS_EXT.erros++; return; }
+  const f = c.split(','), tipo = f[0].slice(2);
+  if (tipo === 'RMC') GPS_EXT.rmc = {ok: f[2] === 'A', vel: f[7] !== '' ? parseFloat(f[7]) * 0.514444 : null,
+                                     rumo: f[8] !== '' ? parseFloat(f[8]) : null, data: f[9], t: Date.now()};
+  else if (tipo === 'GST'){
+    const sl = parseFloat(f[6]), so = parseFloat(f[7]), sh = parseFloat(f[8]);
+    GPS_EXT.gst = isFinite(sl) && isFinite(so) ? {s: Math.sqrt((sl * sl + so * so) / 2), sh: isFinite(sh) ? sh : null, t: Date.now()} : null;
+  }
+  else if (tipo === 'GGA'){
+    const q = parseInt(f[6], 10) || 0, lat = _nmeaGrau(f[2], f[3]), lon = _nmeaGrau(f[4], f[5]);
+    const sat = parseInt(f[7], 10) || 0, hdop = parseFloat(f[8]), alt = parseFloat(f[9]), sep = parseFloat(f[11]);
+    GPS_EXT.gga = {q: q, sat: sat, hdop: isFinite(hdop) ? hdop : null, t: Date.now()};
+    if (!q || lat == null || lon == null) return pintaGpsExt();
+    const gst = GPS_EXT.gst && Date.now() - GPS_EXT.gst.t < 5000 ? GPS_EXT.gst : null;
+    const acc = gst ? 2.45 * gst.s : 2 * (isFinite(hdop) ? hdop : 2) * (_UERE[q] || 5);
+    const rmc = GPS_EXT.rmc && Date.now() - GPS_EXT.rmc.t < 5000 ? GPS_EXT.rmc : null;
+    const pos = {timestamp: Date.now(), fonte: 'gps_externo', coords: {latitude: lat, longitude: lon,
+      accuracy: Math.max(0.01, Math.round(acc * 100) / 100),
+      altitude: isFinite(alt) ? alt + (isFinite(sep) ? sep : 0) : null,
+      altitudeAccuracy: gst && gst.sh != null ? 2 * gst.sh : (isFinite(hdop) ? 3 * hdop * (_UERE[q] || 5) : null),
+      heading: rmc && rmc.rumo != null && rmc.vel > 0.5 ? rmc.rumo : null, speed: rmc ? rmc.vel : null}};
+    GPS_EXT.ult = pos; GPS_EXT.n++;
+    for (const w of _GEO_VIG.values()) try { w.ok(pos); } catch (e){ console.error(e); }
+    const E = GPS_EXT.espera; GPS_EXT.espera = [];
+    for (const x of E){ clearTimeout(x.t); try { x.ok(pos); } catch (e){} }
+    pintaGpsExt();
+  }
+}
+async function ligaGpsExt(porta){
+  if (!_GEO_NAT) return marca('GPS externo: este navegador não abre porta serial (use o Chrome ou o Edge no computador)');
+  const baud = parseInt(($('#gpsext_baud') || {}).value, 10) || 9600;
+  if (!porta){
+    try { porta = await navigator.serial.requestPort({allowedBluetoothServiceClassIds: ['00001101-0000-1000-8000-00805f9b34fb']}); }
+    catch (e){ return marca('GPS externo: nenhuma porta escolhida'); }
+  }
+  try { await porta.open({baudRate: baud}); }
+  catch (e){ if (!/already open/i.test(e.message || '')) return marca('GPS externo: a porta não abriu — ' + (e.message || e)); }
+  GPS_EXT.porta = porta; GPS_EXT.ativo = true; GPS_EXT.desde = Date.now(); GPS_EXT.n = 0; GPS_EXT.erros = 0; GPS_EXT.ult = null;
+  for (const w of _GEO_VIG.values()) if (w.nat != null){ _GEO_NAT.clear(w.nat); w.nat = null; }
+  F.config.gps_ext = {ligado: true, baud: baud}; grava();
+  pintaGpsExt(); marca('GPS externo ligado: esperando as sentenças NMEA…');
+  _leGpsExt(porta);
+}
+async function _leGpsExt(porta){
+  let resto = '';
+  const dec = new TextDecoder();
+  while (GPS_EXT.ativo && GPS_EXT.porta === porta && porta.readable){
+    const leitor = porta.readable.getReader(); GPS_EXT.leitor = leitor;
+    try {
+      for (;;){
+        const {value, done} = await leitor.read(); if (done) break;
+        resto += dec.decode(value, {stream: true});
+        const L = resto.split(/\r?\n/); resto = L.pop();
+        if (resto.length > 4096) resto = '';
+        L.forEach(nmeaLinha);
+      }
+    } catch (e){ if (GPS_EXT.ativo) marca('GPS externo: leitura interrompida — ' + (e.message || e)); }
+    finally { try { leitor.releaseLock(); } catch (e){} }
+    if (!GPS_EXT.ativo) break;
+    await new Promise(r => setTimeout(r, 500));                    // fluxo encerrado sem erro: não gira em falso
+    if (!porta.readable){ desligaGpsExt(true); break; }
+  }
+}
+async function desligaGpsExt(caiu){
+  const porta = GPS_EXT.porta;
+  GPS_EXT.ativo = false; GPS_EXT.porta = null;
+  try { if (GPS_EXT.leitor) await GPS_EXT.leitor.cancel(); } catch (e){}
+  try { if (porta) await porta.close(); } catch (e){}
+  for (const w of _GEO_VIG.values()) if (w.nat == null) w.nat = _GEO_NAT.watch(w.ok, w.er, w.op);
+  for (const x of GPS_EXT.espera){ clearTimeout(x.t); try { x.er && x.er({code: 2, message: 'GPS externo desligado'}); } catch (e){} }
+  GPS_EXT.espera = [];
+  if (!caiu){ F.config.gps_ext = Object.assign({}, F.config.gps_ext, {ligado: false}); grava(); }
+  pintaGpsExt();
+  marca(caiu ? 'GPS externo: a conexão caiu — a folha voltou à localização do navegador' : 'GPS externo desligado');
+}
+const _SOL = {1: 'autônoma', 2: 'DGNSS', 3: 'PPS', 4: 'RTK fixo', 5: 'RTK flutuante', 6: 'estimada', 8: 'simulada', 9: 'SBAS'};
+function pintaGpsExt(){
+  const c = $('#cart_gpsext'); if (!c) return;
+  if (!_GEO_NAT){ c.style.display = 'none'; return; }
+  c.style.display = '';
+  const b = $('#b_gpsext'), e = $('#gpsext_estado');
+  b.textContent = GPS_EXT.ativo ? 'Desligar o GPS externo' : 'Ligar o GPS externo';
+  b.classList.toggle('on', GPS_EXT.ativo);
+  if (!GPS_EXT.ativo){ e.textContent = 'Desligado: a folha usa a localização do navegador.'; return; }
+  const g = GPS_EXT.gga, u = GPS_EXT.ult;
+  if (!g){ e.textContent = '● ligado — esperando as sentenças NMEA' + (GPS_EXT.erros ? ' (' + GPS_EXT.erros + ' linha(s) com erro de checksum: confira a velocidade da porta)' : '') + '…'; return; }
+  e.innerHTML = '<b style="color:var(--ok)">● GPS externo</b> · ' + (g.q ? 'solução ' + (_SOL[g.q] || g.q) : '<b style="color:var(--mau)">sem solução</b>')
+    + ' · ' + g.sat + ' satélites' + (g.hdop != null ? ' · HDOP ' + _numBR(g.hdop, 1) : '')
+    + (u ? ' · ± ' + _numBR(u.coords.accuracy, u.coords.accuracy < 1 ? 2 : 1) + ' m (95%)' + (GPS_EXT.gst && Date.now() - GPS_EXT.gst.t < 5000 ? ', pela GST' : ', pelo HDOP') : '')
+    + ' · ' + GPS_EXT.n + ' posições';
+}
+setInterval(() => { if (GPS_EXT.ativo){
+  if (GPS_EXT.gga && Date.now() - GPS_EXT.gga.t > 15000) $('#gpsext_estado').innerHTML = '<b style="color:var(--mau)">● GPS externo sem sentenças há '
+    + Math.round((Date.now() - GPS_EXT.gga.t) / 1000) + ' s</b> — o app do celular ou o Bluetooth parou?';
+} }, 5000);
+async function iniciaGpsExt(){
+  pintaGpsExt();
+  const b = $('#b_gpsext'); if (!b || !_GEO_NAT) return;
+  const cfg = F.config.gps_ext || {};
+  if (cfg.baud && $('#gpsext_baud')) $('#gpsext_baud').value = String(cfg.baud);
+  b.onclick = () => GPS_EXT.ativo ? desligaGpsExt(false) : ligaGpsExt(null);
+  // porta já autorizada e ligada da última vez: liga sozinha
+  if (cfg.ligado && !GPS_EXT.ativo) try { const P = await navigator.serial.getPorts(); if (P.length === 1) ligaGpsExt(P[0]); } catch (e){}
+  navigator.serial.addEventListener('disconnect', ev => { if (GPS_EXT.porta && ev.target === GPS_EXT.porta) desligaGpsExt(true); });
+}
 let ULTIMA_POS = null;
 function _anotaPos(p){ const c = p.coords;
   ULTIMA_POS = {lat: c.latitude, lon: c.longitude, acc: c.accuracy, t: p.timestamp || Date.now()}; }
@@ -10885,6 +11136,11 @@ function planejadoMaisProximo(P){
 }
 
 function comecaPontoAqui(){
+  if (NAV.volta){
+    NAV.volta = false; fechaNav();
+    try { const b = document.querySelector('[data-aba="fechar"]'); if (b) b.click(); } catch (e){}
+    return marca('na hospedagem: hora de fechar o dia (aba Fechar o dia)');
+  }
   const a = (F.campanha.alvos || [])[NAV.i];
   if (!a) return;
   fechaAbertasAntes(null);
@@ -10956,6 +11212,7 @@ async function coordCelularAuto(p, d){
         if (!r){ const q = await posicaoAgora(10);                    // nenhuma leitura nova: a última recente
                  if (q) r = {lat: q.lat, lon: q.lon, acc: q.acc, n: 1, quando: new Date().toISOString()}; } } catch (e){}
   if (!r || p.coord_cel) return;
+  if (GPS_EXT.ativo) r.fonte = 'GPS externo';
   const ref = p.chegada && p.chegada.lat != null ? p.chegada : p.planejado && p.planejado.lat != null ? p.planejado : null;
   if (ref && geodInversa(r.lat, r.lon, ref.lat, ref.lon).s > Math.max(30, 3 * (r.acc || 0)))
     return marca('posição do celular longe do ponto: não gravada (Mais deste ponto ▸ Coordenada pela posição do celular)');
@@ -10990,6 +11247,7 @@ async function coordenadaDoCelular(p, d){
   r.lat = Math.round(r.lat * 1e7) / 1e7; r.lon = Math.round(r.lon * 1e7) / 1e7; r.acc = Math.round(r.acc * 10) / 10;
   if (r.h != null) r.h = Math.round(r.h * 10) / 10; else delete r.h;
   if (r.hacc != null) r.hacc = Math.round(r.hacc * 10) / 10; else delete r.hacc;
+  if (GPS_EXT.ativo) r.fonte = 'GPS externo';
   p.coord_cel = r;
   if (p.declinacao == null) p.declinacao = declinacaoEm(r.lat, r.lon);
   // relatório montado com outra coordenada provisória: refaz com esta
@@ -11178,13 +11436,17 @@ function pintaHoje(){
   else if (D && D.pend) h += '<button type="button" class="btn sec" data-h="perto">Navegar ao pendente mais perto</button>';
   else h += '<p class="leg">' + (D && D.ids.length ? '<b>Pontos do dia concluídos.</b> ' : '') + 'Outro ponto: Todos os pontos e o mapa.</p>'
     + '<button type="button" class="btn sec" data-h="perto">Navegar ao pendente mais perto</button>';
-  h += '<div class="acoes"><button type="button" class="btn sec peq" data-h="lista">Todos os pontos e o mapa</button></div>';
+  const fim = !pEm && D && D.ids.length && !prox && !D.pend;
+  if (fim && hospedagemDoPlano()) h += '<button type="button" class="btn prox" data-h="hosp">Voltar à hospedagem</button>';
+  h += '<div class="acoes"><button type="button" class="btn sec peq" data-h="lista">Todos os pontos e o mapa</button>'
+    + (!fim && hospedagemDoPlano() ? '<button type="button" class="btn sec peq" data-h="hosp">Voltar à hospedagem</button>' : '') + '</div>';
   el.innerHTML = h;
   el.onclick = e => { const b = e.target.closest('[data-h]'); if (!b) return;
     const o = b.dataset.h;
     if (o === 'volta') return focoPonto(kEm);
     if (o === 'nav') return abreNav(A.indexOf(prox));
     if (o === 'perto') return proximoNavegar(null);
+    if (o === 'hosp') return abreNavHospedagem();
     if (o === 'lista'){ const bl = $('#bloco_alvos'); bl.open = true; bl.scrollIntoView({behavior: 'smooth'}); }
   };
 }
@@ -15361,6 +15623,7 @@ async function inicia(){
   carregaTrajetos();
   carregaTrilha().then(() => { if (F.dia.trilha_ligada) ligaTrilha(false); });
   setTimeout(() => { try { vigiaOcupacao(); } catch (e){} }, 1500);
+  try { iniciaGpsExt(); } catch (e){}
   if (!F.dia.data){
     F.dia.data = new Date().toISOString().slice(0, 10);
     F.dia.data_auto = true;                          // ainda é palpite: o voo corrige

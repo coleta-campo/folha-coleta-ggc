@@ -343,7 +343,7 @@ body.equipe #b_alvos, body.equipe #b_traj, body.equipe #b_alvos_tira, body.equip
 #impressao .cabibge{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;border-bottom:3px solid #004282;padding-bottom:6px;margin-bottom:12px}
 #impressao .cabibge img{height:34px;flex:none}
 #impressao .fotos{display:grid;grid-template-columns:1fr 1fr;gap:8px} #impressao .fotos figure{margin:0;break-inside:avoid}
-#impressao .fotos img{width:100%;height:64mm;object-fit:cover;border:1px solid #999} #impressao .fotos figcaption{font-size:10.5px;color:var(--cz)}
+#impressao .fotos img, #impressao .croqui .fotos img{width:100%;height:64mm;max-height:64mm;object-fit:cover;border:1px solid #999;margin:0} #impressao .fotos figcaption{font-size:10.5px;color:var(--cz)}
 #impressao .ident{font-size:13px;color:var(--cz);margin:0 0 12px}
 #impressao .ver{padding:12px 16px;border-radius:8px;color:#fff;font-weight:700;
  font-size:19px;text-align:center;margin:10px 0 14px}
@@ -4230,7 +4230,7 @@ function cartaoPonto(p, k){
     + (p.relatorio ? '' : ' disabled') + '>Exportar em PDF</button>'
     + '<button type="button" class="btn sec peq" data-exporta="jpg"'
     + (p.relatorio ? '' : ' disabled') + '>Exportar a imagem</button></div>'
-    + (p.relatorio ? '<img alt="relatório do ponto" src="' + p.relatorio + '" '
+    + (p.relatorio ? '<img alt="relatório do ponto" decoding="sync" loading="eager" src="' + p.relatorio + '" '
         + 'style="width:100%;border:1px solid var(--lin);border-radius:8px;'
         + 'margin-top:10px">' : '')
     + '</div></details>'
@@ -4797,7 +4797,9 @@ function diasDaCampanha(){
   const temAberto = (a.voos || []).length || (a.pontos || []).length
                     || a.data || a.local || a.obs || a.ocorrencias || a.km_saida || a.km_volta;
   if (temAberto) L.push({dia: a, aberto: true});
-  return L;
+  // em ordem de data (um dia separado volta ao arquivo fora da ordem); sem data, no fim
+  const dt = e => e.dia.data || (datasDoDia(e.dia)[0] || {}).data || '9999';
+  return L.sort((x, y) => String(dt(x)).localeCompare(String(dt(y))));
 }
 
 function resumoCampanha(){
@@ -4871,10 +4873,17 @@ function pintaResumo(){
 
 /* Planejados da campanha: quantos já foram ocupados (em qualquer dia) e quantos
    foram ocupados no dia aberto. O vínculo é o identificador. */
+/* Na folha da equipe, os relatórios contam só os planejados DESTA equipe (os da outra equipe
+   estão na folha dela); um da outra equipe que esta mediu também conta. */
+function daEquipeNoRelatorio(a){
+  const e = equipeDoPlano(); if (!e) return true;
+  const q = equipeDaChave(_chaveUn(a));
+  return !q || q.e === e;
+}
 function planejadosResumo(){
   // conta por círculo (qualquer opção ocupada atende); ponto sem círculo conta sozinho
-  const A = F.campanha.alvos || [];
   const oc = ocupacoes(), un = {};
+  const A = (F.campanha.alvos || []).filter(a => daEquipeNoRelatorio(a) || oc[a.id]);
   for (const a of A){
     const c = circuloDe(a.id), k = c ? 'c' + c : 'p' + a.id;
     const u = un[k] = un[k] || {feito: false, hoje: false};
@@ -5458,7 +5467,7 @@ function montaImpressao(mapas, fotos, fig, tempos){
     + '<div class="assina"><div>responsável pela equipe</div><div>data</div></div>'
     + F.dia.pontos.filter(p => relDe(p)).map(p =>
         '<div class="croqui"><h2>Relatório do ponto ' + esc(p.id || '—') + '</h2>'
-        + '<img alt="relatório do ponto" src="' + relDe(p) + '"></div>').join('')
+        + '<img alt="relatório do ponto" decoding="sync" loading="eager" src="' + relDe(p) + '"></div>').join('')
     // ponto sem relatório montado: as fotos saem assim mesmo
     + (F.dia.pontos.some(p => !(fotos && fotos.get(p))) ? '<p class="ocor" style="color:#B91C1C">Sem foto guardada neste aparelho: '
         + F.dia.pontos.filter(p => !(fotos && fotos.get(p))).map(p => esc(p.id || '—')).join(', ')
@@ -5544,7 +5553,7 @@ async function fotosParaImpressao(pontos){
 function htmlFotos(p, L, nota){
   return '<div class="croqui"><h2>Fotos do ponto ' + esc(p.id || '—') + '</h2>'
     + (nota ? '<p class="ocor" style="margin:0 0 6px">' + nota + '</p>' : '')
-    + '<div class="fotos">' + L.map(f => '<figure><img alt="" src="' + f.src + '"><figcaption>' + esc(f.rot)
+    + '<div class="fotos">' + L.map(f => '<figure><img alt="" decoding="sync" loading="eager" src="' + f.src + '"><figcaption>' + esc(f.rot)
       + '</figcaption></figure>').join('') + '</div></div>';
 }
 
@@ -5572,7 +5581,7 @@ function montaImpressaoCampanha(fotos, tempos){
   const dias = r.porDia.map(e => {
     const q = e.r;
     return '<tr><td>' + _dataBr(e.dia.data) + (e.aberto
-        ? '<br><span class="ocor">dia ainda aberto</span>' : '')
+        ? '<br><span class="ocor">dia ainda aberto</span>' : e.dia.separado ? '<br><span class="ocor">separado, a fechar</span>' : '')
       + '</td><td>' + esc(e.dia.local || '—') + '</td>'
       + '<td class="n">' + q.nPontos + '</td>'
       + '<td class="n">' + q.nCtrl + '</td>'
@@ -5586,7 +5595,7 @@ function montaImpressaoCampanha(fotos, tempos){
     for (const p of (e.dia.pontos || [])) todos.push({data: e.dia.data, p: p});
   const A = F.campanha.alvos || [];
   const oc = ocupacoes();
-  const faltam = pendentesA().map(a => a.id);
+  const faltam = pendentesA().filter(daEquipeNoRelatorio).map(a => a.id);
   const nums = [
     ['dias de coleta', r.nDias + (r.aberto ? ' (um deles ainda aberto)' : '')],
     ['pontos ocupados', r.nPontos ? r.nPontos + ' (' + r.nCtrl + ' controle, '
@@ -5630,11 +5639,11 @@ function montaImpressaoCampanha(fotos, tempos){
     + 'Relatório gerado em ' + new Date().toLocaleString('pt-BR') + '.</p>'
     + '<div class="assina"><div>responsável pela campanha</div><div>data</div></div>'
     + (fotos ? [...fotos.entries()].map(([p, L]) => (relDe(p) ? '<div class="croqui"><h2>Relatório do ponto ' + esc(p.id || '—')
-        + '</h2><img alt="relatório do ponto" src="' + relDe(p) + '"></div>' : '') + htmlFotos(p, L,
+        + '</h2><img alt="relatório do ponto" decoding="sync" loading="eager" src="' + relDe(p) + '"></div>' : '') + htmlFotos(p, L,
         [_dataBr(String(p.ocup_ini || p.rx_ini || '').slice(0, 10)), p.tipo, textoMunicipio(p)].filter(x => x && x !== '—').map(esc).join(' · '))).join('') : '');
 }
 function pontosDaCampanha(){
-  return (F.dias || []).flatMap(d => d.pontos || []).concat(F.dia.pontos || []);
+  return diasDaCampanha().flatMap(e => e.dia.pontos || []);
 }
 
 /* ---------- UF e município da campanha ----------
@@ -5989,7 +5998,9 @@ $('#b_camp_pdf').addEventListener('click', async () => {
   await relatoriosNaHora(pontosDaCampanha());
   montaImpressaoCampanha(await fotosParaImpressao(pontosDaCampanha()), await temposDaCampanha().catch(() => null));
   REL_TMP.clear();
-  marca('pronta');
+  marca('carregando as imagens do relatório…');
+  const falta = await imagensProntas();
+  marca(falta ? falta + ' imagem(ns) não carregaram — feche a impressão e tente de novo' : 'pronta');
   const antes = document.title;
   document.title = nomeSaida('relatorio_da_campanha', '');
   const volta = () => { document.title = antes;
@@ -6003,8 +6014,18 @@ $('#b_camp_pdf').addEventListener('click', async () => {
    TÍTULO da página — era por isso que vinha "Folha de campo — coleta
    aerofotogramétrica". O título passa a ser o nome do arquivo durante a
    impressão e volta ao normal em seguida. */
+/* Antes de imprimir, todas as imagens decodificadas: o Chrome do celular abre a impressão
+   na hora, e imagem ainda não carregada sai em branco (07/11/2026: relatório da campanha com
+   as fotos e os relatórios de ponto vazios). Devolve quantas não carregaram. */
 async function imagensProntas(){
-  await Promise.all([...document.querySelectorAll('#impressao img')].map(i => (i.complete && i.naturalWidth) ? null : i.decode().catch(() => null)));
+  const L = [...document.querySelectorAll('#impressao img')];
+  await Promise.all(L.map(i => (i.complete && i.naturalWidth) ? null : new Promise(ok => {
+    const t = setTimeout(ok, 20000), fim = () => { clearTimeout(t); ok(); };
+    i.addEventListener('load', fim, {once: true}); i.addEventListener('error', fim, {once: true});
+    if (i.decode) i.decode().then(fim, () => {});
+  })));
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  return L.filter(i => !(i.complete && i.naturalWidth)).length;
 }
 $('#b_pdf').addEventListener('click', async () => {
   marca('montando o registro…');

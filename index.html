@@ -726,6 +726,10 @@ você cabe o que nenhum arquivo registra.</p>
     </div>
     <p class="leg" id="hotel_res"></p>
     <input type="file" id="f_rinex_lote" multiple class="oculto">
+    <input type="file" id="f_fotos_outro" accept="image/*" multiple class="oculto">
+    <div class="acoes"><button type="button" class="btn sec peq" id="b_fotos_outro_dia">Fotos de outro aparelho — todas do dia</button></div>
+    <p class="leg">Fotos tiradas pela página leve no celular (nome <span class="marca">ponto_F1_az012.jpg</span>): escolha todas de uma vez;
+    cada uma vai para o seu ponto pelo nome. Pelo cabo USB, a pasta é Download do celular; pelo Bluetooth, Documentos do notebook.</p>
   </div>
   <div class="cart naoimprime" id="cart_arquiva">
     <h3>4. Ocorrências e arquivar o dia</h3>
@@ -4099,6 +4103,12 @@ function cartaoPonto(p, k){
     + '</div>'
     + '<p class="leg">Um toque e a câmera pede as quatro, uma depois da outra: de onde ficar e para onde apontar; '
     + 'o círculo fica verde no rumo certo. Cada foto se refaz no seu botão. A vista de cima é opcional: marcado o ponto nela, vira o croqui.</p>'
+    + '<details class="ajuda naoimprime"><summary>Fotos tiradas por outro celular (folha no notebook)</summary>'
+    + '<p class="leg">Quem fotografa abre a página leve <span class="marca">fotos.html</span> no celular (pelo QR abaixo, já com o ponto e a declinação), '
+    + 'tira as 4 fotos pelos rumos e manda os arquivos para cá (cabo USB, Bluetooth, Quick Share). O nome do arquivo traz o ponto, a foto e o azimute '
+    + '(<span class="marca">0026A_F1_az012.jpg</span>); fotos sem esse nome entram pela ordem do horário.</p>'
+    + '<div class="acoes"><button type="button" class="btn sec peq" data-qrfotos>QR para o celular das fotos</button>'
+    + '<button type="button" class="btn sec peq" data-fotosoutro>Fotos de outro aparelho</button></div></details>'
     + '<div class="acoes"><button type="button" class="btn sec peq" data-marcaarp>'
     + (p.arp_alvo ? 'Ajustar o ponto na vista de cima' : 'Marcar o ponto na vista de cima')
     + '</button></div><p class="leg" data-arpinfo>' + textoArp(p) + '</p>'
@@ -4340,6 +4350,8 @@ function cartaoPonto(p, k){
     abreFotoDirigida._seq = true;
     abreFotoDirigida(p, L[0], L).catch(e => marca('foto: ' + e.message));
   });
+  const bqr = d.querySelector('[data-qrfotos]'); if (bqr) bqr.addEventListener('click', () => mostraQrFotos(p));
+  const bfo = d.querySelector('[data-fotosoutro]'); if (bfo) bfo.addEventListener('click', () => pedeFotosOutro(p));
   d.querySelectorAll('[data-foto]').forEach(b => b.addEventListener('click', () => {
     if (FOTOS.some(f => f[0] === b.dataset.foto)){
       abreFotoDirigida._seq = false;
@@ -10138,11 +10150,11 @@ function montaTelaNav(){
     + '<button type="button" class="btn sec" data-n="gpscomo">Como liberar</button></div>'
     + '<div class="oculto" data-n="gpspassos"></div></div>'
     + '<div class="tela"><canvas data-n="cv"></canvas>'
-    + '<button type="button" class="btn recentra oculto" data-n="recentra">⌖ Centralizar</button></div>'
+    + '<button type="button" class="btn recentra oculto" data-n="recentra" title="Centralizar (tecla Home)">⌖ Centralizar</button></div>'
     + '<div class="pe">'
     + '<button type="button" class="btn" data-n="comeca" style="flex-basis:100%">Cheguei — começar o ponto aqui</button>'
-    + '<button type="button" class="btn sec" data-n="menos">−</button>'
-    + '<button type="button" class="btn sec" data-n="mais">+</button>'
+    + '<button type="button" class="btn sec" data-n="menos" title="Afastar (tecla Page Down)">−</button>'
+    + '<button type="button" class="btn sec" data-n="mais" title="Aproximar (tecla Page Up)">+</button>'
     + '<button type="button" class="btn sec" data-n="fundo">Fundo: auto</button>'
     + '<button type="button" class="btn sec" data-n="bussola">Bússola</button>'
     + '<button type="button" class="btn sec" data-n="modo">Modo: direção</button>'
@@ -10297,6 +10309,30 @@ function ligaGestosNav(cv){
   cv.addEventListener('wheel', e => { e.preventDefault(); NAV.dz += e.deltaY < 0 ? 1 : -1; _agendaNav(); }, {passive: false});
 }
 
+/* Teclado no notebook (pedido de 08/11/2026): Page Up aproxima e Page Down afasta (também + e −);
+   as setas movem o mapa (com Shift, o dobro); Home volta a centrar em você. Só com a navegação
+   aberta e sem um campo de texto em foco. */
+document.addEventListener('keydown', e => {
+  if (!NAV.el || NAV.el.classList.contains('oculto') || e.ctrlKey || e.altKey || e.metaKey || document.getElementById('cofre')) return;
+  // campo de texto em foco DENTRO da navegação: as teclas são dele; fora dela (atrás da tela cheia), não contam
+  const t = e.target; if (t && NAV.el.contains(t) && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  const k = e.key;
+  if (k === 'PageUp' || k === '+' || k === '='){ NAV.dz++; _agendaNav(); e.preventDefault(); return; }
+  if (k === 'PageDown' || k === '-' || k === '_'){ NAV.dz--; _agendaNav(); e.preventDefault(); return; }
+  if (k === 'Home'){ NAV.panCen = null; _agendaNav(); e.preventDefault(); return; }
+  const SETA = {ArrowRight: [-1, 0], ArrowLeft: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1]}[k];
+  if (!SETA) return;
+  const v = NAV.vista; if (!v) return;
+  e.preventDefault();
+  const passo = Math.round(Math.min(window.innerWidth, window.innerHeight) * (e.shiftKey ? 0.4 : 0.2));
+  const dx = SETA[0] * passo, dy = SETA[1] * passo;            // como arrastar o mapa no sentido oposto à seta
+  const c = Math.cos(-v.giro), sn = Math.sin(-v.giro);
+  const wx = dx * c - dy * sn, wy = dx * sn + dy * c;
+  const c0 = _n(v.cen.lat, v.cen.lon, v.z);
+  NAV.panCen = _desprojeta(c0.x - wx / TB, c0.y - wy / TB, v.z);
+  NAV.vista = {z: v.z, cen: NAV.panCen, giro: v.giro};
+  _agendaNav();
+});
 function fechaNav(){
   if (!NAV.el) return;
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -10922,9 +10958,16 @@ function desenhaNav(){
     x.beginPath(); x.moveTo(p.x - 8, p.y - 8); x.lineTo(p.x + 8, p.y + 8); x.moveTo(p.x + 8, p.y - 8); x.lineTo(p.x - 8, p.y + 8); x.stroke();
     x.restore();
   }
+  /* Perto do ponto (a menos de 150 m) ou com o mapa em escala de detalhe (até 2 m por pixel), os
+     símbolos ficam vazados: anel na cor do tipo, com contorno branco, e marcas de mira por fora,
+     para se ver o que há no chão no lugar do ponto (pedido de 08/11/2026). */
+  const vazado = (g && g.s <= 150) || 156543.03392 * Math.cos(cen.lat * RAD) / Math.pow(2, z) <= 2;
+  // as linhas que chegam ao destino param na borda do anel: o centro fica livre
+  const ateAnel = (p0, p1) => { if (!vazado) return p1; const d = Math.hypot(p1.x - p0.x, p1.y - p0.y), m = 19;
+    return d <= m ? p0 : {x: p1.x - (p1.x - p0.x) / d * m, y: p1.y - (p1.y - p0.y) / d * m}; };
   // fim da rota até o ponto: o trecho fora da rua, a pé
   if (T && T.g.length){
-    const u = T.g[T.g.length - 1], p0 = tela(u[1], u[0]), p1 = tela(a.lat, a.lon);
+    const u = T.g[T.g.length - 1], p0 = tela(u[1], u[0]), p1 = ateAnel(p0, tela(a.lat, a.lon));
     if (Math.hypot(p1.x - p0.x, p1.y - p0.y) > 4){
       x.save(); x.setLineDash([5, 5]); x.lineWidth = 2.5; x.strokeStyle = 'rgba(194,65,12,.85)';
       x.beginPath(); x.moveTo(p0.x, p0.y); x.lineTo(p1.x, p1.y); x.stroke(); x.restore();
@@ -10932,7 +10975,7 @@ function desenhaNav(){
   }
   // linha até o destino
   if (P && !T){
-    const p0 = tela(P.lat, P.lon), p1 = tela(a.lat, a.lon);
+    const pv = tela(P.lat, P.lon), p1 = ateAnel(pv, tela(a.lat, a.lon)), p0 = vazado ? ateAnel(p1, pv) : pv;   // vazado: sai da borda do você
     x.save(); x.setLineDash([8, 6]); x.lineWidth = 3;
     x.strokeStyle = 'rgba(11,111,164,.85)';
     x.beginPath(); x.moveTo(p0.x, p0.y); x.lineTo(p1.x, p1.y); x.stroke(); x.restore();
@@ -10947,18 +10990,34 @@ function desenhaNav(){
   ordem.forEach(k => {
     const b = A[k], p = tela(b.lat, b.lon);
     if (p.x < -40 || p.y < -40 || p.x > W + 40 || p.y > H + 40) return;
-    const alvo = k === iAlvo, r = alvo ? 11 : 7;
-    x.beginPath(); x.arc(p.x, p.y, r, 0, 2 * Math.PI);
-    x.fillStyle = oc[b.id] ? '#9AA6AB' : corTipo(b.tipo); x.fill();
-    x.lineWidth = alvo ? 3 : 2; x.strokeStyle = '#fff'; x.stroke();
+    const alvo = k === iAlvo, r = vazado ? (alvo ? 16 : 10) : alvo ? 11 : 7;
+    const cor = oc[b.id] ? '#9AA6AB' : corTipo(b.tipo);
+    if (vazado){
+      x.beginPath(); x.arc(p.x, p.y, r, 0, 2 * Math.PI);
+      x.lineWidth = alvo ? 7 : 5.5; x.strokeStyle = 'rgba(255,255,255,.95)'; x.stroke();
+      x.lineWidth = alvo ? 3.5 : 2.5; x.strokeStyle = cor; x.stroke();
+      if (alvo){                                         // mira: quatro traços por fora do anel, o centro livre
+        x.lineCap = 'round';
+        for (const [ux, uy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]){
+          x.beginPath(); x.moveTo(p.x + ux * (r + 4), p.y + uy * (r + 4)); x.lineTo(p.x + ux * (r + 13), p.y + uy * (r + 13));
+          x.lineWidth = 6; x.strokeStyle = 'rgba(255,255,255,.95)'; x.stroke();
+          x.lineWidth = 3; x.strokeStyle = cor; x.stroke();
+        }
+        x.lineCap = 'butt';
+      }
+    } else {
+      x.beginPath(); x.arc(p.x, p.y, r, 0, 2 * Math.PI);
+      x.fillStyle = cor; x.fill();
+      x.lineWidth = alvo ? 3 : 2; x.strokeStyle = '#fff'; x.stroke();
+    }
     x.font = (alvo ? '700 15px' : '600 12.5px') + ' "IBM Plex Sans", system-ui, sans-serif';
-    const tw = x.measureText(b.id).width, hh = alvo ? 16 : 13;
-    const cx = {x0: p.x + r + 2, y0: p.y - hh / 2 - 2, x1: p.x + r + 6 + tw, y1: p.y + hh / 2 + 3};
+    const tw = x.measureText(b.id).width, hh = alvo ? 16 : 13, rl = vazado && alvo ? r + 12 : r;   // rótulo depois da mira
+    const cx = {x0: p.x + rl + 2, y0: p.y - hh / 2 - 2, x1: p.x + rl + 6 + tw, y1: p.y + hh / 2 + 3};
     if (caixas.some(c => cx.x0 < c.x1 && cx.x1 > c.x0 && cx.y0 < c.y1 && cx.y1 > c.y0)) return;
     caixas.push(cx);
     x.lineWidth = 3.5; x.lineJoin = 'round'; x.strokeStyle = 'rgba(255,255,255,.9)';
-    x.strokeText(b.id, p.x + r + 4, p.y + 5);
-    x.fillStyle = '#0A3D56'; x.fillText(b.id, p.x + r + 4, p.y + 5);
+    x.strokeText(b.id, p.x + rl + 4, p.y + (vazado && alvo ? -10 : 5));
+    x.fillStyle = '#0A3D56'; x.fillText(b.id, p.x + rl + 4, p.y + (vazado && alvo ? -10 : 5));
   });
   // a hospedagem, na volta: um quadrado
   if (NAV.volta){ const p = tela(a.lat, a.lon);
@@ -10974,7 +11033,11 @@ function desenhaNav(){
       x.strokeStyle = 'rgba(11,111,164,.5)'; x.lineWidth = 1.5; x.stroke();
     }
     x.beginPath(); x.arc(p.x, p.y, 8, 0, 2 * Math.PI);
-    x.fillStyle = '#0B6FA4'; x.fill(); x.lineWidth = 3; x.strokeStyle = '#fff'; x.stroke();
+    if (vazado){                                         // você também vazado: anel azul e um pingo no centro
+      x.lineWidth = 6; x.strokeStyle = 'rgba(255,255,255,.95)'; x.stroke();
+      x.lineWidth = 3; x.strokeStyle = '#0B6FA4'; x.stroke();
+      x.beginPath(); x.arc(p.x, p.y, 2, 0, 2 * Math.PI); x.fillStyle = '#0B6FA4'; x.fill();
+    } else { x.fillStyle = '#0B6FA4'; x.fill(); x.lineWidth = 3; x.strokeStyle = '#fff'; x.stroke(); }
   }
   // norte e escala
   x.save(); x.translate(W - 30, 34); x.rotate(giro);
@@ -13274,6 +13337,189 @@ async function abreFotoDirigida(p, k, fila){
     segue();
   });
 }
+
+/* ---------- QR Code (ISO/IEC 18004), gerador compacto ----------
+   Modo byte, correção M, versões 1 a 10 (até 213 bytes): o bastante para o endereço da página
+   leve das fotos com o ponto e a declinação. Reed–Solomon em GF(256), máscara pela menor
+   penalidade. Devolve a matriz (true = módulo escuro) ou o SVG. */
+const QR = (() => {
+  const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+  for (let i = 0, x = 1; i < 255; i++){ EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 256) x ^= 0x11d; }
+  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  const mul = (a, b) => a && b ? EXP[LOG[a] + LOG[b]] : 0;
+  // versões 1–10, nível M: [codewords totais, EC por bloco, [[nBlocos, dadosPorBloco], …]]
+  const V = [null, [26, 10, [[1, 16]]], [44, 16, [[1, 28]]], [70, 26, [[1, 44]]], [100, 18, [[2, 32]]], [134, 24, [[2, 43]]],
+    [172, 16, [[4, 27]]], [196, 18, [[4, 31]]], [242, 22, [[2, 38], [2, 39]]], [292, 22, [[3, 36], [2, 37]]], [346, 26, [[4, 43], [1, 44]]]];
+  const ALIN = [null, [], [6, 18], [6, 22], [6, 26], [6, 30], [6, 34], [6, 22, 38], [6, 24, 42], [6, 26, 46], [6, 28, 50]];
+  function rs(dados, n){
+    let g = [1]; for (let i = 0; i < n; i++){ const h = new Array(g.length + 1).fill(0);
+      for (let j = 0; j < g.length; j++){ h[j] ^= g[j]; h[j + 1] ^= mul(g[j], EXP[i]); } g = h; }
+    const r = new Array(n).fill(0);
+    for (const d of dados){ const f = d ^ r[0]; r.shift(); r.push(0); if (f) for (let j = 0; j < n; j++) r[j] ^= mul(g[j + 1], f); }
+    return r;
+  }
+  function bch(v, poly, bits){ let r = v << bits; for (let i = 31 - Math.clz32(r); i >= bits; i = 31 - Math.clz32(r)) r ^= poly << (i - bits); return (v << bits) | r; }
+  function matriz(texto){
+    const bytes = Array.from(new TextEncoder().encode(texto));
+    let ver = 1; while (ver <= 10 && V[ver][2].reduce((s, b) => s + b[0] * b[1], 0) < bytes.length + 2 + (ver >= 10 ? 1 : 0)) ver++;
+    if (ver > 10) throw new Error('texto longo demais para o QR (' + bytes.length + ' bytes)');
+    const [tot, nec, blocos] = V[ver], ndados = blocos.reduce((s, b) => s + b[0] * b[1], 0);
+    // bits: modo 0100, contagem (8 ou 16 bits), dados, terminador, enchimento
+    const bits = []; const poe = (v, n) => { for (let i = n - 1; i >= 0; i--) bits.push((v >> i) & 1); };
+    poe(4, 4); poe(bytes.length, ver >= 10 ? 16 : 8); bytes.forEach(b => poe(b, 8));
+    poe(0, Math.min(4, ndados * 8 - bits.length)); while (bits.length % 8) bits.push(0);
+    const cw = []; for (let i = 0; i < bits.length; i += 8) cw.push(parseInt(bits.slice(i, i + 8).join(''), 2));
+    for (let k = 0; cw.length < ndados; k++) cw.push(k % 2 ? 0x11 : 0xEC);
+    // blocos, EC e intercalação
+    const D = [], E = []; let o = 0;
+    for (const [n, len] of blocos) for (let b = 0; b < n; b++){ const d = cw.slice(o, o + len); o += len; D.push(d); E.push(rs(d, nec)); }
+    const seq = []; const maxD = Math.max(...D.map(d => d.length));
+    for (let i = 0; i < maxD; i++) for (const d of D) if (i < d.length) seq.push(d[i]);
+    for (let i = 0; i < nec; i++) for (const e of E) seq.push(e[i]);
+    // a matriz: funções fixas
+    const N = 17 + 4 * ver, M = Array.from({length: N}, () => new Int8Array(N).fill(-1));   // -1 = livre
+    const fixa = (r, c, v) => { if (r >= 0 && r < N && c >= 0 && c < N) M[r][c] = v ? 2 : 3; };   // 2/3 = fixo escuro/claro
+    const busca = (r, c) => { for (let i = -1; i <= 7; i++) for (let j = -1; j <= 7; j++){
+      const d = i >= 0 && i <= 6 && j >= 0 && j <= 6 && (i === 0 || i === 6 || j === 0 || j === 6 || (i >= 2 && i <= 4 && j >= 2 && j <= 4)); fixa(r + i, c + j, d); } };
+    busca(0, 0); busca(0, N - 7); busca(N - 7, 0);
+    for (const a of ALIN[ver]) for (const b of ALIN[ver]){
+      if (M[a][b] !== -1) continue;
+      for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) fixa(a + i, b + j, Math.max(Math.abs(i), Math.abs(j)) !== 1);
+    }
+    for (let i = 8; i < N - 8; i++){ if (M[6][i] === -1) fixa(6, i, i % 2 === 0); if (M[i][6] === -1) fixa(i, 6, i % 2 === 0); }
+    fixa(N - 8, 8, true);
+    // reservas do formato (e da versão, a partir da 7)
+    for (let i = 0; i < 8; i++){ if (M[8][i] === -1) M[8][i] = 3; if (M[i][8] === -1) M[i][8] = 3; M[8][N - 1 - i] = 3; M[N - 1 - i][8] = 3; }
+    M[8][8] = 3;
+    if (ver >= 7) for (let i = 0; i < 6; i++) for (let j = 0; j < 3; j++){ M[i][N - 11 + j] = 3; M[N - 11 + j][i] = 3; }
+    // dados em zigue-zague
+    const dbits = []; seq.forEach(b => { for (let i = 7; i >= 0; i--) dbits.push((b >> i) & 1); });
+    let k = 0, sobe = true;
+    for (let c = N - 1; c > 0; c -= 2){
+      if (c === 6) c--;
+      for (let t = 0; t < N; t++){ const r = sobe ? N - 1 - t : t;
+        for (const cc of [c, c - 1]) if (M[r][cc] === -1) M[r][cc] = k < dbits.length ? dbits[k++] : 0; }
+      sobe = !sobe;
+    }
+    // máscaras: a de menor penalidade
+    const MASC = [(r, c) => (r + c) % 2 === 0, (r, c) => r % 2 === 0, (r, c) => c % 3 === 0, (r, c) => (r + c) % 3 === 0,
+      (r, c) => (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0, (r, c) => (r * c) % 2 + (r * c) % 3 === 0,
+      (r, c) => ((r * c) % 2 + (r * c) % 3) % 2 === 0, (r, c) => ((r + c) % 2 + (r * c) % 3) % 2 === 0];
+    const aplica = m => { const G = M.map(l => Array.from(l));
+      for (let r = 0; r < N; r++) for (let c = 0; c < N; c++){ if (G[r][c] >= 2) G[r][c] = G[r][c] === 2 ? 1 : 0; else if (MASC[m](r, c)) G[r][c] ^= 1; }
+      const f = bch((0 << 3) | m, 0x537, 10) ^ 0x5412;                  // nível M = 00
+      const fb = i => (f >> i) & 1;
+      for (let i = 0; i < 6; i++){ G[8][i] = fb(14 - i); G[i][8] = fb(i); }
+      G[8][7] = fb(8); G[8][8] = fb(7); G[7][8] = fb(6);
+      for (let i = 0; i < 7; i++) G[N - 1 - i][8] = fb(14 - i);
+      for (let i = 0; i < 8; i++) G[8][N - 1 - i] = fb(i);
+      if (ver >= 7){ const vb = bch(ver, 0x1f25, 12);
+        for (let i = 0; i < 18; i++){ const b = (vb >> i) & 1, a = Math.floor(i / 3), q = N - 11 + i % 3; G[a][q] = b; G[q][a] = b; } }
+      return G; };
+    const penal = G => { let p = 0;
+      for (let r = 0; r < N; r++){ let run = 1; for (let c = 1; c < N; c++){ if (G[r][c] === G[r][c - 1]){ if (++run === 5) p += 3; else if (run > 5) p++; } else run = 1; } }
+      for (let c = 0; c < N; c++){ let run = 1; for (let r = 1; r < N; r++){ if (G[r][c] === G[r - 1][c]){ if (++run === 5) p += 3; else if (run > 5) p++; } else run = 1; } }
+      for (let r = 0; r + 1 < N; r++) for (let c = 0; c + 1 < N; c++) if (G[r][c] === G[r][c + 1] && G[r][c] === G[r + 1][c] && G[r][c] === G[r + 1][c + 1]) p += 3;
+      const pad = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0], pad2 = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1];
+      const bate = (L, i, P) => { for (let k = 0; k < 11; k++) if (L[i + k] !== P[k]) return false; return true; };
+      for (let r = 0; r < N; r++){ const L = G[r], C = G.map(l => l[r]);
+        for (let i = 0; i + 11 <= N; i++){ if (bate(L, i, pad) || bate(L, i, pad2)) p += 40; if (bate(C, i, pad) || bate(C, i, pad2)) p += 40; } }
+      let esc = 0; G.forEach(l => l.forEach(v => { esc += v; })); const pct = esc * 100 / (N * N);
+      p += Math.min(Math.abs(Math.floor(pct / 5) * 5 - 50), Math.abs(Math.ceil(pct / 5) * 5 - 50)) / 5 * 10;
+      return p; };
+    let melhor = null, mp = Infinity;
+    for (let m = 0; m < 8; m++){ const G = aplica(m), pp = penal(G); if (pp < mp){ mp = pp; melhor = G; } }
+    return melhor;
+  }
+  function svg(texto, lado){
+    const G = matriz(texto), N = G.length, q = 4, S = N + 2 * q;
+    let d = '';
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (G[r][c]) d += 'M' + (c + q) + ' ' + (r + q) + 'h1v1h-1z';
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + S + ' ' + S + '" width="' + (lado || 260) + '" height="' + (lado || 260)
+      + '" shape-rendering="crispEdges"><rect width="' + S + '" height="' + S + '" fill="#fff"/><path d="' + d + '" fill="#000"/></svg>';
+  }
+  return {matriz, svg};
+})();
+
+/* ---------- fotos tiradas por outro celular (folha no notebook) ----------
+   Pedido de 08/11/2026: com a folha no notebook, as fotos vêm de um celular simples. A página leve
+   fotos.html (mesmo site, guardada para abrir sem rede) guia os 4 rumos com a bússola do celular e
+   grava ponto, foto e azimute no nome do arquivo; os arquivos chegam por cabo USB, Bluetooth ou
+   Quick Share. Aqui: o QR que abre a página já no ponto (com a declinação WMM2025) e a entrada
+   dos arquivos, pelo nome ou, sem nome, pela ordem do horário da câmera. */
+const URL_SITE = 'https://coleta-campo.github.io/folha-coleta-ggc/';
+function _idsDoPonto(p){ return [p.id, chaveOcup(p), p.planejado && p.planejado.id].filter(Boolean).map(x => String(x).toUpperCase()); }
+function urlFotosPonto(p){
+  const base = /^https:$/.test(location.protocol) && /github\.io$/.test(location.hostname) ? location.href.replace(/[^/]*$/, '') : URL_SITE;
+  const lugar = (p.lat != null && p.lon != null) ? p : (p.chegada || p.planejado || null), d = _decl(lugar);
+  const id = _idsDoPonto(p)[0] || '';
+  return base + 'fotos.html#p=' + encodeURIComponent(id) + (d != null ? '&d=' + d.toFixed(1) : '') + (F.campanha.ptcon_lc ? '&lc=' + encodeURIComponent(F.campanha.ptcon_lc) : '');
+}
+function mostraQrFotos(p){
+  const u = urlFotosPonto(p), id = _idsDoPonto(p)[0] || '';
+  if (!id) return marca('o ponto ainda não tem identificador: ligue-o ao planejado ou preencha o identificador');
+  let svg; try { svg = QR.svg(u, Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.6)); } catch (e){ return marca('QR: ' + e.message); }
+  const v = document.createElement('div');
+  v.style.cssText = 'position:fixed;inset:0;z-index:70;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;text-align:center';
+  v.innerHTML = '<b style="font-size:20px">Fotos do ' + esc(id) + ' — leia com a câmera do celular</b>' + svg
+    + '<p class="leg" style="max-width:640px;overflow-wrap:anywhere">' + esc(u) + '</p>'
+    + '<p class="leg" style="max-width:640px">Abre a página leve já com o ponto e a declinação. Na primeira vez precisa de internet; depois abre sem rede. '
+    + 'Sem leitor de QR, digite o endereço do site e, nele, o ponto e a declinação.</p>'
+    + '<button type="button" class="btn sec peq">Fechar</button>';
+  v.querySelector('button').addEventListener('click', () => v.remove());
+  document.body.appendChild(v);
+}
+function _nomeFotoOutro(nome){
+  const m = String(nome || '').match(/^([0-9A-Za-z_-]+?)_F([1-4])(?:_az(\d{1,3}))?(?:[_.]|$)/i);
+  return m ? {p: m[1].toUpperCase(), n: +m[2], az: m[3] != null ? +m[3] % 360 : null} : null;
+}
+async function _horaFoto(f){
+  try { const m = await leMetaARP(f); const t = m && m.data && m.data.match(/^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/);
+    if (t) return new Date(+t[1], +t[2] - 1, +t[3], +t[4], +t[5], +t[6]).getTime(); } catch (e){}
+  return f.lastModified || 0;
+}
+function pedeFotosOutro(p){
+  const inp = $('#f_fotos_outro'); inp.onchange = async e => { const L = Array.from(e.target.files || []); e.target.value = '';
+    if (L.length) try { await importaFotosOutro(p, L); } catch (er){ marca('fotos: ' + er.message); } };
+  inp.click();
+}
+/* No cartão: os arquivos deste ponto (pelo nome) ou, sem nome, todos, na ordem do horário, para as fotos que faltam. */
+async function importaFotosOutro(p, L){
+  const ids = _idsDoPonto(p), msgs = [];
+  const nom = L.map(f => ({f: f, m: _nomeFotoOutro(f.name)}));
+  const deste = nom.filter(x => x.m && ids.includes(x.m.p)), outro = nom.filter(x => x.m && !ids.includes(x.m.p)), sem = nom.filter(x => !x.m);
+  if (outro.length) msgs.push(outro.length + ' de outro ponto (' + [...new Set(outro.map(x => x.m.p))].join(', ') + '), ignorada(s) — use "todas do dia" na aba Fechar');
+  let n = 0;
+  for (const x of deste){ const k = FOTOS[x.m.n - 1][0]; p.fotos_az = p.fotos_az || {}; p.fotos_az[k] = x.m.az; await guardaFoto(p, k, x.f); n++; }
+  if (sem.length){
+    const T = await Promise.all(sem.map(x => _horaFoto(x.f)));
+    const ord = sem.map((x, i) => ({f: x.f, t: T[i]})).sort((a, b) => a.t - b.t);
+    let faltam = FOTOS.map(f => f[0]).filter(k => !(p.fotos && p.fotos[k]));
+    if (ord.length >= 4 && faltam.length < 4 && confirm('São ' + ord.length + ' fotos sem nome de ponto. Pôr as 4 primeiras, pela hora, como F1 a F4 (trocando as que já há)?')) faltam = FOTOS.map(f => f[0]);
+    for (const o of ord){ if (!faltam.length) break; const k = faltam.shift(); p.fotos_az = p.fotos_az || {}; p.fotos_az[k] = null; await guardaFoto(p, k, o.f); n++; }
+    if (ord.length > n - deste.length) msgs.push((ord.length - (n - deste.length)) + ' sem nome e sem rumo livre, ignorada(s)');
+  }
+  const lugar = (p.lat != null && p.lon != null) ? p : (p.chegada || p.planejado || null); if (n) p.declinacao = _decl(lugar);
+  grava(); pintaPontos();
+  setTimeout(() => marca(n + ' foto(s) de outro aparelho no ponto ' + (ids[0] || '') + (msgs.length ? ' — ' + msgs.join('; ') : '')), 700);
+}
+/* Na aba Fechar: todas de uma vez; cada arquivo vai ao ponto do dia que tem o seu identificador. */
+async function importaFotosOutroDia(L){
+  const P = F.dia.pontos || [], msgs = [], semNome = [], semPonto = new Set(); let n = 0;
+  for (const f of L){
+    const m = _nomeFotoOutro(f.name); if (!m){ semNome.push(f.name); continue; }
+    const p = P.find(q => _idsDoPonto(q).includes(m.p)); if (!p){ semPonto.add(m.p); continue; }
+    const k = FOTOS[m.n - 1][0]; p.fotos_az = p.fotos_az || {}; p.fotos_az[k] = m.az; await guardaFoto(p, k, f); n++;
+    const lugar = (p.lat != null && p.lon != null) ? p : (p.chegada || p.planejado || null); p.declinacao = _decl(lugar);
+  }
+  if (semPonto.size) msgs.push('sem ponto na caderneta de hoje: ' + [...semPonto].join(', '));
+  if (semNome.length) msgs.push(semNome.length + ' sem nome de ponto (entram pelo cartão do ponto)');
+  grava(); pintaPontos();
+  setTimeout(() => marca(n + ' foto(s) de outro aparelho distribuída(s)' + (msgs.length ? ' — ' + msgs.join('; ') : '')), 700);
+}
+$('#b_fotos_outro_dia').addEventListener('click', () => { const inp = $('#f_fotos_outro');
+  inp.onchange = async e => { const L = Array.from(e.target.files || []); e.target.value = ''; if (L.length) try { await importaFotosOutroDia(L); } catch (er){ marca('fotos: ' + er.message); } };
+  inp.click(); });
 
 /* ---------- no hotel ---------- */
 function pendenciasPonto(p){

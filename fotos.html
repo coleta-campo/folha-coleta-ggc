@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A2E52">
+<title>Fotos do ponto — coleta de pontos</title>
+<style>
+:root{--az:#0A2E52;--az2:#0B6FA4;--ok:#22C55E;--mau:#B91C1C;--cz:#46565F}
+*{box-sizing:border-box}
+html,body{margin:0;background:#F6F7F5;color:#1B2A33;font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{background:var(--az);color:#fff;padding:12px 14px}
+header h1{margin:0;font-size:18px}
+header small{opacity:.85}
+main{padding:12px 14px;max-width:560px;margin:0 auto}
+.cart{background:#fff;border:1px solid #D5DCE0;border-radius:12px;padding:12px 14px;margin:10px 0}
+label.c{display:block;font-size:13px;color:var(--cz);margin:6px 0 2px}
+input,select{width:100%;padding:12px;font:inherit;border:1.5px solid #B7C2C8;border-radius:10px;background:#fff}
+.lin{display:flex;gap:8px}.lin>*{flex:1}
+.btn{display:block;width:100%;padding:14px;border:0;border-radius:12px;background:var(--az);color:#fff;font:700 17px/1.2 inherit;margin:10px 0}
+.btn.sec{background:#fff;color:var(--az);border:2px solid var(--az);font-weight:600}
+.btn.peq{padding:9px 12px;width:auto;font-size:15px;font-weight:600;margin:4px 0}
+.btn:disabled{opacity:.45}
+.leg{font-size:13.5px;color:var(--cz);margin:6px 0}
+.prog{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.prog span{border:1.5px solid var(--az);color:var(--az);border-radius:14px;padding:3px 11px;font-size:14px;font-weight:600}
+.prog span.ja{background:var(--ok);border-color:var(--ok);color:#fff}
+.msg{font-size:14px;padding:8px 10px;border-radius:8px;background:#EEF4FA;margin:8px 0;min-height:1.4em}
+.msg.mau{background:#FEE2E2;color:var(--mau)}
+.lista{font-size:14px}.lista div{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid #E5E9EB}
+.lista b{font-weight:600}
+/* câmera dirigida: igual à da folha */
+.fotodir{position:fixed;inset:0;z-index:60;background:#000;display:flex;flex-direction:column;color:#fff;overscroll-behavior:contain}
+.fotodir .tela{position:relative;flex:1;min-height:0;overflow:hidden}
+.fotodir video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.fotodir .topo{position:absolute;left:0;right:0;top:0;padding:10px 12px;background:linear-gradient(rgba(0,0,0,.75),rgba(0,0,0,0));font-size:15px;line-height:1.35}
+.fotodir .topo b{font-size:19px}
+.fotodir .mira{position:absolute;left:50%;top:50%;width:150px;height:150px;margin:-75px 0 0 -75px;border-radius:50%;border:5px solid #F59E0B;display:flex;align-items:center;justify-content:center;flex-direction:column;background:rgba(0,0,0,.25);transition:border-color .2s}
+.fotodir .mira.ok{border-color:#22C55E}
+.fotodir .seta{font-size:46px;line-height:1;transition:transform .15s}
+.fotodir .grau{font-size:16px;font-weight:700}
+.fotodir .dica{position:absolute;left:0;right:0;bottom:0;padding:10px 12px;background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.8));font-size:15px;text-align:center}
+.fotodir .acoes{display:flex;gap:8px;padding:10px;background:#0B1216}
+.fotodir .acoes .btn{flex:1;margin:0}
+.fotodir .tirar{flex:2 !important;font-size:18px}
+.fotodir .prog span{border-color:rgba(255,255,255,.6);color:#fff}
+.fotodir .prog span.agora{background:#fff;color:#0A2E52;font-weight:700}
+.fotodir .feito{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);background:rgba(34,197,94,.92);color:#fff;font:700 22px/1.2 system-ui,sans-serif;padding:12px 18px;border-radius:12px}
+</style>
+</head>
+<body>
+<header><h1>Fotos do ponto</h1><small>as 4 fotos pelos rumos, com o azimute no nome do arquivo — para a folha que roda no notebook</small></header>
+<main>
+<div class="cart">
+  <div class="lin">
+    <div><label class="c" for="pid">Ponto</label><input id="pid" autocapitalize="characters" autocomplete="off" placeholder="0026A"></div>
+    <div><label class="c" for="decl">Declinação magnética (°)</label><input id="decl" inputmode="decimal" placeholder="−20,2 (O negativo)"></div>
+  </div>
+  <p class="leg" id="origem">Leia o QR que a folha mostra no notebook (abre esta página já com o ponto e a declinação), ou digite os dois.</p>
+  <div class="prog" id="prog"></div>
+  <button type="button" class="btn" id="b_tirar">Tirar as 4 fotos — F1 norte, F2 sul, F3 oeste, F4 leste</button>
+  <div class="msg" id="msg">Fotos reduzidas a 2048 px, com os dados da câmera (EXIF); nome: ponto_F1_az012.jpg.</div>
+</div>
+<div class="cart">
+  <b>Fotos guardadas neste celular</b>
+  <div class="lista" id="lista"><p class="leg">nenhuma ainda</p></div>
+  <div class="lin">
+    <button type="button" class="btn peq" id="b_envia">Enviar as fotos</button>
+    <button type="button" class="btn sec peq" id="b_baixa">Guardar em Downloads</button>
+  </div>
+  <p class="leg">Enviar abre o compartilhar do celular (Bluetooth, Quick Share, Drive, WhatsApp). Guardar deixa os arquivos em Downloads, para o cabo USB. No notebook, no cartão do ponto: "Fotos de outro aparelho".</p>
+  <button type="button" class="btn sec peq" id="b_limpa">Apagar as fotos já enviadas</button>
+</div>
+<p class="leg">GGC/SES-CE · página leve da folha de coleta de pontos · a bússola do celular dá o azimute magnético; a declinação informada o converte em verdadeiro (WMM2025 na folha).</p>
+</main>
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const FOTOS = [['norte', 0, 'NORTE', 'SUL'], ['sul', 180, 'SUL', 'NORTE'], ['oeste', 270, 'OESTE', 'LESTE'], ['leste', 90, 'LESTE', 'OESTE']];
+const LADO = 2048;
+/* ---------- parâmetros: pelo QR (#p=…&d=…) ou digitados; ficam guardados ---------- */
+function leHash(){
+  const h = location.hash.replace(/^#/, ''); if (!h) return;
+  const q = {}; h.split('&').forEach(x => { const [k, v] = x.split('='); q[k] = decodeURIComponent(v || ''); });
+  if (q.p) $('#pid').value = q.p.toUpperCase();
+  if (q.d != null && q.d !== '') $('#decl').value = String(q.d).replace('.', ',');
+  if (q.p) $('#origem').textContent = 'Ponto e declinação vieram do QR da folha' + (q.lc ? ' (' + q.lc + ')' : '') + '.';
+  try { localStorage.setItem('fotos_ult', JSON.stringify({p: $('#pid').value, d: $('#decl').value})); } catch (e){}
+}
+try { const u = JSON.parse(localStorage.getItem('fotos_ult') || 'null'); if (u){ $('#pid').value = u.p || ''; $('#decl').value = u.d || ''; } } catch (e){}
+leHash(); window.addEventListener('hashchange', leHash);
+['#pid', '#decl'].forEach(s => $(s).addEventListener('change', () => { try { localStorage.setItem('fotos_ult', JSON.stringify({p: $('#pid').value, d: $('#decl').value})); } catch (e){} pintaProg(); }));
+function ponto(){ return $('#pid').value.trim().toUpperCase().replace(/[^0-9A-Z_-]/g, ''); }
+function declinacao(){ const v = parseFloat($('#decl').value.replace(',', '.')); return isFinite(v) ? v : null; }
+function msg(t, mau){ const e = $('#msg'); e.textContent = t; e.className = 'msg' + (mau ? ' mau' : ''); }
+/* ---------- guarda das fotos (IndexedDB) ---------- */
+let _db = null;
+function db(){ if (_db) return Promise.resolve(_db); return new Promise((ok, erro) => { const r = indexedDB.open('fotos_ponto', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('f'); r.onsuccess = () => ok(_db = r.result); r.onerror = () => erro(r.error); }); }
+async function poe(k, v){ const d = await db(); return new Promise((ok, erro) => { const t = d.transaction('f', 'readwrite'); t.objectStore('f').put(v, k); t.oncomplete = ok; t.onerror = () => erro(t.error); }); }
+async function tira(k){ const d = await db(); return new Promise((ok, erro) => { const t = d.transaction('f', 'readwrite'); t.objectStore('f').delete(k); t.oncomplete = ok; t.onerror = () => erro(t.error); }); }
+async function todas(){ const d = await db(); return new Promise((ok, erro) => { const t = d.transaction('f', 'readonly'), L = [], c = t.objectStore('f').openCursor();
+  c.onsuccess = () => { const x = c.result; if (x){ L.push(Object.assign({k: x.key}, x.value)); x.continue(); } else ok(L); }; c.onerror = () => erro(c.error); }); }
+/* ---------- redução com os segmentos EXIF/XMP do original (como na folha) ---------- */
+function _segmentosApp1(u8){
+  const L = []; if (!(u8[0] === 0xFF && u8[1] === 0xD8)) return L;
+  for (let i = 2; i + 4 < u8.length;){ if (u8[i] !== 0xFF) break; const mk = u8[i + 1]; if (mk === 0xDA || mk === 0xD9) break;
+    const len = (u8[i + 2] << 8) | u8[i + 3]; if (mk === 0xE1) L.push(u8.slice(i, i + 2 + len)); i += 2 + len; }
+  return L;
+}
+function _orientacaoUm(seg){
+  if (!(seg[4] === 0x45 && seg[5] === 0x78 && seg[6] === 0x69 && seg[7] === 0x66)) return seg;
+  const t0 = 10, le = seg[t0] === 0x49;
+  const u16 = o => le ? seg[o] | (seg[o + 1] << 8) : (seg[o] << 8) | seg[o + 1];
+  const u32 = o => (le ? (seg[o] | (seg[o + 1] << 8) | (seg[o + 2] << 16) | (seg[o + 3] << 24)) : ((seg[o] << 24) | (seg[o + 1] << 16) | (seg[o + 2] << 8) | seg[o + 3])) >>> 0;
+  const ifd = t0 + u32(t0 + 4); if (ifd + 2 > seg.length) return seg;
+  const n = u16(ifd);
+  for (let k = 0; k < n; k++){ const e = ifd + 2 + 12 * k; if (e + 12 > seg.length) break;
+    if (u16(e) === 0x0112){ if (le){ seg[e + 8] = 1; seg[e + 9] = 0; } else { seg[e + 8] = 0; seg[e + 9] = 1; } } }
+  return seg;
+}
+function abreImagem(b){ return new Promise((ok, erro) => { const u = URL.createObjectURL(b), im = new Image();
+  im.onload = () => { URL.revokeObjectURL(u); ok(im); }; im.onerror = () => { URL.revokeObjectURL(u); erro(new Error('imagem ilegível')); }; im.src = u; }); }
+async function reduzida(b){
+  const u8 = new Uint8Array(await b.arrayBuffer());
+  const im = await abreImagem(b);
+  const e = Math.min(1, LADO / Math.max(im.naturalWidth, im.naturalHeight));
+  if (e >= 1) return b;
+  const c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * e); c.height = Math.round(im.naturalHeight * e);
+  c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+  const nova = new Uint8Array(await (await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.85))).arrayBuffer());
+  const segs = _segmentosApp1(u8).map(_orientacaoUm), tam = segs.reduce((t, s) => t + s.length, 0);
+  const out = new Uint8Array(nova.length + tam); out.set(nova.subarray(0, 2)); let k = 2;
+  for (const s of segs){ out.set(s, k); k += s.length; } out.set(nova.subarray(2), k);
+  return new Blob([out], {type: 'image/jpeg'});
+}
+/* ---------- bússola (igual à folha): azimute verdadeiro = magnético + declinação ---------- */
+const FD = {rumo: null, bruto: null, ultimo: 0, inclinado: false};
+function _rumo(e){
+  let h = null;
+  if (typeof e.webkitCompassHeading === 'number'){ h = e.webkitCompassHeading; FD.inclinado = e.beta != null && Math.abs(e.beta) < 35; }
+  else if (e.absolute && e.alpha != null && e.beta != null && e.gamma != null){
+    const r = Math.PI / 180, a = e.alpha * r, b = e.beta * r, g = e.gamma * r;
+    const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b), cg = Math.cos(g), sg = Math.sin(g);
+    const L = -ca * sg - sa * sb * cg, N = -sa * sg + ca * sb * cg, Z = -cb * cg;
+    FD.inclinado = Math.abs(Z) > 0.8; h = (Math.atan2(L, N) / r + 360) % 360;
+  }
+  if (h == null || !isFinite(h)) return;
+  if (FD.bruto == null) FD.bruto = h; else { const d = ((h - FD.bruto + 540) % 360) - 180; FD.bruto = (FD.bruto + 0.3 * d + 360) % 360; }
+  const dc = declinacao(); FD.rumo = (FD.bruto + (dc == null ? 0 : dc) + 360) % 360; FD.ultimo = Date.now();
+}
+function azAgora(){ return FD.rumo != null && Date.now() - FD.ultimo < 2500 ? Math.round(FD.rumo) % 360 : null; }
+function nomeArq(p, n, az){ const d = new Date(), q = x => String(x).padStart(2, '0');
+  return p + '_F' + n + (az != null ? '_az' + String(az).padStart(3, '0') : '') + '_' + d.getFullYear() + q(d.getMonth() + 1) + q(d.getDate()) + '_' + q(d.getHours()) + q(d.getMinutes()) + q(d.getSeconds()) + '.jpg'; }
+async function guarda(p, n, blob, az){
+  const r = await reduzida(blob), nome = nomeArq(p, n, az);
+  await poe(p + '|F' + n, {p: p, n: n, az: az, nome: nome, blob: r, quando: Date.now(), decl: declinacao()});
+  await pintaLista(); pintaProg();
+}
+/* ---------- câmera dirigida: F1 a F4 em sequência ---------- */
+async function tirarSequencia(){
+  const p = ponto(); if (!p) return msg('digite o ponto (ou leia o QR da folha)', true);
+  if (declinacao() == null && !confirm('Sem declinação: o azimute gravado será MAGNÉTICO. Continuar assim?')) return;
+  const feitas = (await todas()).filter(x => x.p === p).map(x => x.n);
+  let fila = [1, 2, 3, 4].filter(n => !feitas.includes(n));
+  if (!fila.length){ if (!confirm('As 4 fotos do ' + p + ' já estão guardadas. Refazer as quatro?')) return; fila = [1, 2, 3, 4]; }
+  try { if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') await DeviceOrientationEvent.requestPermission(); } catch (e){}
+  FD.rumo = FD.bruto = null; FD.ultimo = 0;
+  window.addEventListener('deviceorientationabsolute', _rumo); window.addEventListener('deviceorientation', _rumo);
+  const cx = document.createElement('div'); cx.className = 'fotodir';
+  cx.innerHTML = '<div class="tela"><video playsinline muted autoplay></video><div class="topo"></div>'
+    + '<div class="mira"><div class="seta">↑</div><div class="grau">—</div></div><div class="feito" hidden></div><div class="dica">procurando a bússola…</div></div>'
+    + '<div class="acoes"><button type="button" class="btn sec" data-sai>Parar</button><button type="button" class="btn sec" data-gal>Da galeria</button>'
+    + '<button type="button" class="btn tirar" data-tira>Tirar a foto</button></div>'
+    + '<input type="file" accept="image/*" capture="environment" hidden data-cam><input type="file" accept="image/*" hidden data-galin>';
+  document.body.appendChild(cx);
+  const vid = cx.querySelector('video'), mira = cx.querySelector('.mira'), seta = cx.querySelector('.seta'), grau = cx.querySelector('.grau'),
+        dica = cx.querySelector('.dica'), topo = cx.querySelector('.topo'), feito = cx.querySelector('.feito'), btira = cx.querySelector('[data-tira]');
+  let n = fila.shift(), fo = FOTOS[n - 1], alinhado = false, ocupado = false, fluxo = null;
+  const pintaTopo = () => { topo.innerHTML = '<div class="prog">' + [1, 2, 3, 4].map(i => '<span class="' + (i === n ? 'agora' : feitas.includes(i) ? 'ja' : '') + '">'
+      + (feitas.includes(i) && i !== n ? '✓ ' : '') + 'F' + i + '</span>').join('') + '</div><b>' + p + ' · F' + n + ' — câmera para o ' + fo[2] + '</b><br>'
+      + 'Fique ao <b>' + fo[3] + '</b> da antena, a uns 3 a 5 m, e enquadre a antena no centro, com o tripé inteiro e o entorno.'; };
+  pintaTopo();
+  try { fluxo = await navigator.mediaDevices.getUserMedia({audio: false, video: {facingMode: {ideal: 'environment'}, width: {ideal: 2560}, height: {ideal: 1920}}}); vid.srcObject = fluxo; }
+  catch (e){ fluxo = null; }
+  if (!fluxo){ btira.textContent = 'Abrir a câmera'; vid.remove(); }
+  const pinta = () => {
+    if (!cx.isConnected) return;
+    if (FD.rumo == null || Date.now() - FD.ultimo > 2500){
+      dica.textContent = 'sem bússola neste aparelho: alinhe pelo ' + fo[2].toLowerCase() + ' com uma referência (bússola do receptor, rua ou sombra)';
+      grau.textContent = '—'; mira.classList.remove('ok');
+    } else {
+      const dlt = ((fo[1] - FD.rumo + 540) % 360) - 180, ok = Math.abs(dlt) <= 10 && !FD.inclinado;
+      seta.style.transform = 'rotate(' + Math.round(dlt) + 'deg)'; grau.textContent = 'az ' + Math.round(FD.rumo) % 360 + '°';
+      dica.textContent = FD.inclinado ? 'levante o celular: a câmera precisa olhar para a frente'
+        : ok ? 'alinhado com o ' + fo[2].toLowerCase() + ' — pode tirar' : 'gire ' + Math.abs(Math.round(dlt)) + '° para a ' + (dlt > 0 ? 'direita' : 'esquerda');
+      if (declinacao() == null) dica.textContent += ' · norte MAGNÉTICO (sem declinação)';
+      mira.classList.toggle('ok', ok); if (ok && !alinhado && navigator.vibrate) navigator.vibrate(80); alinhado = ok;
+    }
+    requestAnimationFrame(pinta);
+  };
+  requestAnimationFrame(pinta);
+  const fecha = () => { window.removeEventListener('deviceorientationabsolute', _rumo); window.removeEventListener('deviceorientation', _rumo);
+    if (fluxo) fluxo.getTracks().forEach(t => t.stop()); cx.remove(); };
+  const segue = () => { feitas.push(n); if (!fila.length){ fecha(); msg('fotos F1 a F4 do ' + p + ' guardadas: envie ou guarde em Downloads'); return; }
+    n = fila.shift(); fo = FOTOS[n - 1]; alinhado = false; pintaTopo(); if (navigator.vibrate) navigator.vibrate([60, 80, 60]); };
+  const mostraFeito = t => { feito.textContent = t; feito.hidden = false; setTimeout(() => { feito.hidden = true; }, 1600); };
+  const doArquivo = async (inp, comAz) => { const f = inp.files[0]; inp.value = ''; if (!f) return;
+    ocupado = true; try { await guarda(p, n, f, comAz ? azAgora() : null); mostraFeito('✓ F' + n + ' guardada'); segue(); } catch (e){ msg('foto: ' + e.message, true); } finally { ocupado = false; } };
+  cx.querySelector('[data-cam]').addEventListener('change', e => doArquivo(e.target, true));
+  cx.querySelector('[data-galin]').addEventListener('change', e => doArquivo(e.target, false));
+  cx.querySelector('[data-sai]').addEventListener('click', fecha);
+  cx.querySelector('[data-gal]').addEventListener('click', () => cx.querySelector('[data-galin]').click());
+  btira.addEventListener('click', async () => {
+    if (ocupado) return;
+    if (!fluxo) return cx.querySelector('[data-cam]').click();        // sem câmera na página: a do sistema (o azimute é lido ao guardar)
+    const W = vid.videoWidth, H = vid.videoHeight; if (!W || !H) return msg('a câmera ainda não abriu', true);
+    ocupado = true; btira.disabled = true;
+    try { const az = azAgora(), c = document.createElement('canvas'); c.width = W; c.height = H; c.getContext('2d').drawImage(vid, 0, 0, W, H);
+      const b = await new Promise(ok => c.toBlob(ok, 'image/jpeg', 0.92)); await guarda(p, n, b, az); mostraFeito('✓ F' + n + ' guardada'); segue(); }
+    catch (e){ msg('foto: ' + e.message, true); } finally { ocupado = false; btira.disabled = false; }
+  });
+}
+/* ---------- lista, envio, Downloads ---------- */
+function _arq(x){ return new File([x.blob], x.nome, {type: 'image/jpeg', lastModified: x.quando}); }
+async function pintaLista(){
+  const L = (await todas()).sort((a, b) => a.p.localeCompare(b.p) || a.n - b.n), el = $('#lista');
+  if (!L.length){ el.innerHTML = '<p class="leg">nenhuma ainda</p>'; return; }
+  el.innerHTML = L.map(x => '<div><span><b>' + x.p + '</b> F' + x.n + (x.az != null ? ' · az ' + x.az + '°' : ' · sem azimute') + (x.enviada ? ' · enviada' : '') + '</span>'
+    + '<span>' + Math.round(x.blob.size / 1024) + ' KB</span></div>').join('');
+}
+async function pintaProg(){ const p = ponto(), L = p ? (await todas()).filter(x => x.p === p).map(x => x.n) : [];
+  $('#prog').innerHTML = p ? [1, 2, 3, 4].map(i => '<span class="' + (L.includes(i) ? 'ja' : '') + '">' + (L.includes(i) ? '✓ ' : '') + 'F' + i + '</span>').join('') : ''; }
+async function envia(){
+  const L = await todas(); if (!L.length) return msg('nenhuma foto guardada', true);
+  const arqs = L.map(_arq);
+  if (navigator.canShare && navigator.canShare({files: arqs})){
+    try { await navigator.share({files: arqs, title: 'Fotos dos pontos', text: 'Fotos dos pontos ' + [...new Set(L.map(x => x.p))].join(', ')});
+      for (const x of L) await poe(x.k, Object.assign(x, {enviada: true}));
+      await pintaLista(); return msg(arqs.length + ' foto(s) enviada(s)'); }
+    catch (e){ if (e.name === 'AbortError') return msg('envio cancelado'); msg('compartilhar falhou (' + e.message + '); guardando em Downloads', true); }
+  }
+  baixa(L);
+}
+async function baixa(L){
+  L = L || await todas(); if (!L.length) return msg('nenhuma foto guardada', true);
+  for (const x of L){ const u = URL.createObjectURL(x.blob), a = document.createElement('a'); a.href = u; a.download = x.nome; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 30000); await new Promise(r => setTimeout(r, 400)); await poe(x.k, Object.assign(x, {enviada: true})); }
+  await pintaLista(); msg(L.length + ' arquivo(s) em Downloads — ligue o cabo e, no notebook, use "Fotos de outro aparelho" (a pasta Download do celular)');
+}
+$('#b_tirar').addEventListener('click', () => tirarSequencia().catch(e => msg('câmera: ' + e.message, true)));
+$('#b_envia').addEventListener('click', envia);
+$('#b_baixa').addEventListener('click', () => baixa());
+$('#b_limpa').addEventListener('click', async () => { const L = (await todas()).filter(x => x.enviada);
+  if (!L.length) return msg('nada enviado ainda — as fotos só se apagam depois de enviadas ou guardadas');
+  if (!confirm('Apagar deste celular as ' + L.length + ' foto(s) já enviada(s)?')) return;
+  for (const x of L) await tira(x.k); await pintaLista(); pintaProg(); msg('apagadas'); });
+pintaLista(); pintaProg();
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>

@@ -738,6 +738,7 @@ você cabe o que nenhum arquivo registra.</p>
       <button type="button" class="btn sec peq" id="b_limpa_dia">Arquivar o dia e limpar a tela</button>
     </div>
   </div>
+  <div class="cart naoimprime" id="cart_redist" hidden></div>
   <details class="bloco naoimprime" id="bloco_ppp"><summary>Coordenadas do IBGE-PPP<span class="conta">dias depois</span></summary><div class="itens">
   <div class="cart naoimprime" id="cart_ppp">
     <h3>Coordenadas do IBGE-PPP</h3>
@@ -6100,11 +6101,23 @@ async function testaAparelho(){
   const R = [], ok = (s, t, d) => R.push([s, t, d || '']);
   const el = $('#res_aparelho'); el.innerHTML = '<p class="leg">testando… (até 20 s)</p>';
   const ua = navigator.userAgent, cv = (ua.match(/Chrome\/(\d+)/) || [])[1], av = (ua.match(/Android (\d+)/) || [])[1];
-  ok(/Android/.test(ua) ? (av >= 10 ? 1 : 0) : 2, 'Sistema', /Android/.test(ua) ? 'Android ' + av + (av >= 10 ? '' : ' — o Chrome atual pede Android 10 ou mais novo')
-     : (/iPhone|iPad/.test(ua) ? 'iPhone/iPad — não testado no campo' : 'computador — serve para planejar, não para o campo'));
-  ok(cv >= 100 ? 1 : 0, 'Chrome', cv ? 'versão ' + cv + (cv >= 100 ? '' : ' — atualize o Chrome') : 'não é o Chrome — use o Chrome');
+  /* iPhone e iPad: todo navegador usa o motor do Safari (WebKit), também o Chrome (CriOS); o que
+     importa é a versão do iOS (16.4+: ZIP, tela acesa, ícone na Tela de Início) e abrir pelo ícone
+     da Tela de Início, onde o iOS não apaga os dados do site por falta de uso. */
+  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const iv = (ua.match(/OS (\d+)[_.](\d+)/) || []).slice(1).map(Number), iosOk = iv.length && (iv[0] > 16 || (iv[0] === 16 && iv[1] >= 4));
+  const icone = navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  if (ios){
+    ok(iv.length ? (iosOk ? 1 : 0) : 2, 'Sistema', (iv.length ? 'iOS ' + iv.join('.') : 'iPhone/iPad') + (iv.length && !iosOk ? ' — atualize para o iOS 16.4 ou mais novo' : '') + ' · ainda não usado em campo');
+    ok(1, 'Navegador', /CriOS/.test(ua) ? 'Chrome do iPhone (motor do Safari): serve; o recomendado é o Safari' : /FxiOS|EdgiOS/.test(ua) ? 'motor do Safari: serve; o recomendado é o Safari' : 'Safari');
+    ok(icone ? 1 : 2, 'Forma de abrir', icone ? 'pelo ícone da Tela de Início' : 'aba do navegador — instale: Compartilhar › Adicionar à Tela de Início e abra sempre pelo ícone (os dados ficam guardados)');
+  } else {
+    ok(/Android/.test(ua) ? (av >= 10 ? 1 : 0) : 2, 'Sistema', /Android/.test(ua) ? 'Android ' + av + (av >= 10 ? '' : ' — o Chrome atual pede Android 10 ou mais novo')
+       : 'computador — serve para planejar, não para o campo');
+    ok(cv >= 100 ? 1 : 0, 'Chrome', cv ? 'versão ' + cv + (cv >= 100 ? '' : ' — atualize o Chrome') : 'não é o Chrome — use o Chrome');
+  }
   ok(window.isSecureContext ? 1 : 0, 'Página segura', window.isSecureContext ? 'sim' : 'não — o GNSS fica bloqueado');
-  ok(ABERTA_CONTENT ? 0 : 1, 'Forma de abrir', ABERTA_CONTENT ? 'pelo app de arquivos (content://) — o Chrome bloqueia a localização; abra pelo endereço https'
+  if (!ios) ok(ABERTA_CONTENT ? 0 : 1, 'Forma de abrir', ABERTA_CONTENT ? 'pelo app de arquivos (content://) — o Chrome bloqueia a localização; abra pelo endereço https'
      : location.protocol === 'https:' ? 'endereço https' : location.protocol.replace(':', ''));
   // localização: uma posição com precisão
   const P = await new Promise(r => navigator.geolocation ? navigator.geolocation.getCurrentPosition(
@@ -6115,7 +6128,8 @@ async function testaAparelho(){
   const bus = await new Promise(r => { let t = setTimeout(() => r(null), 3000);
     const f = e => { if (e.alpha != null){ clearTimeout(t); window.removeEventListener('deviceorientationabsolute', f); r(e); } };
     window.addEventListener('deviceorientationabsolute', f); });
-  ok(bus ? 1 : (/iPhone|iPad/.test(ua) ? 2 : 0), 'Bússola', bus ? 'responde' : 'não respondeu — mire as fotos por referência (rua, sombra)');
+  ok(bus ? 1 : (ios ? 2 : 0), 'Bússola', bus ? 'responde' : ios ? 'no iPhone ela responde depois de aceitar o aviso de movimento, ao tocar em Tirar as 4 fotos'
+     : 'não respondeu — mire as fotos por referência (rua, sombra)');
   try { const d = (await navigator.mediaDevices.enumerateDevices()).filter(x => x.kind === 'videoinput');
         ok(d.length ? 1 : 0, 'Câmera', d.length ? d.length + ' câmera(s)' : 'nenhuma'); } catch (e){ ok(0, 'Câmera', 'sem acesso'); }
   try { const e = await navigator.storage.estimate(), pe = navigator.storage.persisted ? await navigator.storage.persisted() : false;
@@ -6127,7 +6141,7 @@ async function testaAparelho(){
   const fz = new File(['x'], 'x.zip', {type: 'application/zip'});
   ok(navigator.canShare && navigator.canShare({files: [fz]}) ? 1 : 2, 'Compartilhar arquivos',
      navigator.canShare && navigator.canShare({files: [fz]}) ? 'sim (WhatsApp, Drive)' : 'não — a cópia vai para Downloads');
-  ok(typeof DecompressionStream !== 'undefined' ? 1 : 0, 'Abrir ZIP', typeof DecompressionStream !== 'undefined' ? 'sim' : 'não — atualize o Chrome');
+  ok(typeof DecompressionStream !== 'undefined' ? 1 : 0, 'Abrir ZIP', typeof DecompressionStream !== 'undefined' ? 'sim' : ios ? 'não — atualize o iOS' : 'não — atualize o Chrome');
   try { const b = await navigator.getBattery();
         ok(b.level >= 0.8 || b.charging ? 1 : 2, 'Bateria', Math.round(b.level * 100) + '%' + (b.charging ? ', carregando' : '')
           + ' — 8 h de campo pedem carregador no carro ou bateria externa'); } catch (e){}
@@ -6238,6 +6252,9 @@ $('#b_limpa_dia').addEventListener('click', async () => {
   setTimeout(() => marca(vazio ? 'tela limpa — a campanha continua'
       : 'dia arquivado (' + F.dias.length + ' na campanha) — a tela está limpa'), 700);
   window.scrollTo({top: 0, behavior: 'smooth'});
+  // dia fechado: a folha propõe refazer os dias que faltam (passo 5), se houver o que redistribuir
+  if (!vazio && !pend){ const RR = redistPossivel();
+    if (RR && !RR.motivo && RR.U.length && RR.datas.length && navigator.onLine) setTimeout(() => propoeRedist(), 1800); }
 });
 
 $('#b_limpar').addEventListener('click', () => {
@@ -7422,7 +7439,8 @@ async function rotaNovaDaqui(){
 function trajetosNav(a){
   if (!a) return [];
   return [].concat(NAV.rotaNova && NAV.rotaNova[0] && NAV.rotaNova[0].id === a.id ? NAV.rotaNova : [],
-    NAV.rotaOff && NAV.rotaOff.id === a.id ? [NAV.rotaOff] : [], trajetosDoPonto(a));
+    NAV.rotaOff && NAV.rotaOff.id === a.id ? [NAV.rotaOff] : [],
+    NAV.daqui && NAV.daqui.longe && NAV.rotaOn && NAV.rotaOn.id === a.id ? [NAV.rotaOn] : [], trajetosDoPonto(a));
 }
 /* o obstáculo fica à frente de quem chega a ele: a marca vai 40 m adiante pelo caminho que se
    seguia (ou pelo rumo do deslocamento), para a nova rota poder voltar por onde se veio */
@@ -7943,9 +7961,8 @@ function pintaPlano(){
     + '<div class="lin" style="margin-top:6px"><label for="plano_n">Pontos no dia</label><input type="number" id="plano_n" min="1" max="15" value="'
     + ((p && p.paradas.length) || (F.campanha.planoCampanha ? F.campanha.planoCampanha.porDia : 5)) + '"><button type="button" class="btn peq" id="b_plano">Planejar</button>'
     + (p ? '<button type="button" class="btn sec peq" id="b_plano_tira">Esquecer o plano</button>' : '') + '</div>';
-  { const pcH = F.campanha.planoCampanha, hj = pcH && hojeNoPlano(pcH, F.dia.data || undefined);
+  { const pcH = F.campanha.planoCampanha, EQh = equipeDoPlano(), hj = pcH && hojeNoPlano(pcH, F.dia.data || undefined, EQh);
     if (hj){
-      const EQh = equipeDoPlano();
       h += '<p class="leg" style="margin:6px 0;padding:6px 8px;border-radius:8px;background:' + (hj.util === false ? '#FEF3C7' : '#EFF6FF') + '">'
         + (hj.antes ? (pcH.calendario.ida ? 'A campanha começa em ' + _ddmm(_diaDe(pcH.calendario.ida)) + (_nIda(pcH.calendario) ? ' (ida)' : '') + '; a coleta, em ' + _ddmm(_diaDe(pcH.calendario.inicio)) + '.'
                       : 'O campo começa em ' + _ddmm(_diaDe(pcH.calendario.inicio)) + '.')
@@ -7953,6 +7970,7 @@ function pintaPlano(){
           : hj.util === false && (hj.motivo.tipo === 'ida' || hj.motivo.tipo === 'volta') ? '<b>' + _ddmm(hj.data) + ': ' + esc(textoFolga(hj.motivo)) + '</b> — sem coleta prevista.'
           : hj.util === false ? '<b>' + _ddmm(hj.data) + ': ' + esc(textoFolga(hj.motivo)) + ' — pelo plano, sem atividades de campo</b> ('
             + esc(hj.motivo.tipo === 'fds' ? FDS_TXT[pcH.calendario.fds || 'sem'] : FER_TXT[pcH.calendario.feriados || 'sem']) + ').'
+          : EQh && hj.semDia ? 'Hoje, ' + _ddmm(hj.data) + ', não tem dia no plano da ' + esc(EQh.nome) + ' (refeito na redistribuição): o que faltar entra no plano do dia.'
           : EQh && hj.j < EQh.dias.length ? 'Hoje, ' + _ddmm(hj.data) + ', é o <b>Dia ' + (hj.j + 1) + '</b> do plano da ' + esc(EQh.nome) + ': '
             + EQh.dias[hj.j].ids.map(esc).join(', ') + '.'
           : EQh && hj.reserva ? 'Hoje, ' + _ddmm(hj.data) + ', é <b>dia de reserva</b> (manutenção do carro ou remedições): o que faltar entra no plano do dia.'
@@ -8570,10 +8588,10 @@ function basePrevista(pc, EQ, iso){
 function _basePrevista0(pc, EQ, iso){
   if (!pc || !pc.hotel) return null;
   if (!EQ || !EQ.dias.length) return {b0: 0, b1: 0, dia: null};
-  const hj = hojeNoPlano(pc, iso);
-  if (hj && hj.util && hj.j < EQ.dias.length){ const d = EQ.dias[hj.j]; return {b0: d.b0 || 0, b1: d.b1 || 0, dia: hj.j + 1}; }
+  const hj = hojeNoPlano(pc, iso, EQ);
+  if (hj && hj.util && !hj.semDia && hj.j < EQ.dias.length){ const d = EQ.dias[hj.j]; return {b0: d.b0 || 0, b1: d.b1 || 0, dia: hj.j + 1}; }
   if (hj && hj.antes){ const b = EQ.dias[0].b0 || 0; return {b0: b, b1: b, dia: null}; }
-  const DT = datasDoPlano(pc, EQ.dias.length) || []; let k = -1;
+  const DT = datasDoPlano(pc, EQ.dias.length, EQ) || []; let k = -1;
   DT.forEach((t, i) => { if (_isoDia(t) <= iso) k = i; });
   const b = k >= 0 ? (EQ.dias[k].b1 || 0) : (EQ.dias[0].b0 || 0);
   return {b0: b, b1: b, dia: null};
@@ -8619,7 +8637,7 @@ function htmlPlanejadoExecutado(todos){
     let prev = '';
     if (!o){ cont.fora++; obs.push('fora do plano da campanha'); }
     else {
-      if (!datas.has(o.e)) datas.set(o.e, datasDoPlano(pc, o.e.dias.length) || []);
+      if (!datas.has(o.e)) datas.set(o.e, datasDoPlano(pc, o.e.dias.length, o.e) || []);
       const DT = datas.get(o.e); prev = DT[o.j] ? _isoDia(DT[o.j]) : '';
       if (EQ && o.e !== EQ){ cont.outra++; obs.push('previsto para a ' + o.e.nome); }
       if (prev && feito){ if (feito < prev){ cont.ante++; obs.push('antecipado'); } else if (feito > prev){ cont.adia++; obs.push('adiado'); } else cont.prev++; }
@@ -8633,7 +8651,7 @@ function htmlPlanejadoExecutado(todos){
   for (const r of listaNaoMedidos()){
     if (EQ && r.equipe && r.equipe !== EQ.nome) continue;
     const o = onde(r.id); let prev = '';
-    if (o){ if (!datas.has(o.e)) datas.set(o.e, datasDoPlano(pc, o.e.dias.length) || []); const DT = datas.get(o.e); prev = DT[o.j] ? _isoDia(DT[o.j]) : ''; }
+    if (o){ if (!datas.has(o.e)) datas.set(o.e, datasDoPlano(pc, o.e.dias.length, o.e) || []); const DT = datas.get(o.e); prev = DT[o.j] ? _isoDia(DT[o.j]) : ''; }
     cont.naomed++;
     L.push({data: r.data || String(r.quando || '').slice(0, 10), id: r.id, prev: prev ? _dataBr(prev) + ' (Dia ' + (o.j + 1) + ')' : '—',
             obs: ['não medido: ' + r.motivo + (r.iniciado ? ' (rastreio iniciado e cancelado)' : '') + (r.distancia_m != null ? ' — registro a ' + _metros(r.distancia_m) + ' do ponto' : '')]});
@@ -8655,7 +8673,8 @@ function htmlPlanejadoExecutado(todos){
     + (desv.length ? '<table><tr><th>data</th><th>ponto</th><th>previsto</th><th>mudança</th></tr>'
         + desv.map(x => '<tr><td>' + (x.data ? _dataBr(x.data) : '—') + '</td><td>' + esc(x.id) + '</td><td>' + esc(x.prev) + '</td><td>' + esc(x.obs.join('; ')) + '</td></tr>').join('') + '</table>' : '')
     + (pous.length ? '<h3 style="margin:8px 0 4px">Pouso (só o município)</h3><table><tr><th>noite de</th><th>plano</th><th>usado</th><th>motivo</th></tr>'
-        + pous.map(linhaPouso).join('') + '</table>' : '');
+        + pous.map(linhaPouso).join('') + '</table>' : '')
+    + htmlRedistRelatorio(pc, EQ);
 }
 /* Plano pronto, feito por outro planejador (planilha, QGIS): uma linha por ponto, com a
    equipe, o dia e a ordem de visita. O planejador não mexe nas regiões, nos dias nem na
@@ -8942,6 +8961,59 @@ async function montaDiasTempo(G, iH, ordem, dH, MT, capDe, fimDe, j0, xMax, ocup
   }
   return dias;
 }
+/* Rotas de carro de um dia do plano (ordem pelo menor tempo, quando o dia não é de ordem fixa;
+   até 3 caminhos por trecho; caminhos até as reservas B, C e D de cada círculo). Grava em d.trechos,
+   d.pernas e d.reservas; erro de rede sobe para quem chamou. rot: prefixo das mensagens. */
+async function _rotasDoDia(d, bases, ordem, prim, rot){
+  const H0 = bases[d.b0 || 0], H1 = bases[d.b1 || 0], aberto = (d.b0 || 0) !== (d.b1 || 0);
+  let pts = d.ids.map(id => F.campanha.alvos.find(a => a.id === id));
+  const ks = {}; d.ids.forEach((id, j) => { ks[id] = d.ks[j]; });
+  if (!d.fixo && (pts.length > 2 || (aberto && pts.length > 1))){   // plano importado: a ordem é a do arquivo
+    marca(rot + ' — ordem pelo menor tempo de carro…');
+    const c = [H0].concat(pts).concat(aberto ? [H1] : []).map(p => p.lon.toFixed(6) + ',' + p.lat.toFixed(6)).join(';');
+    const t = await _osrm('table/v1/driving/' + c + '?annotations=duration,distance');
+    const Mt = t.durations.map(r => r.map(v => v == null ? 1e9 : v));
+    let seq = ordemComPrimeiro(Mt, ordem, _primeiroIdx(pts, ordem, prim), aberto);
+    if (d.importado){   // plano importado: a ordem do arquivo fica, a não ser que a otimizada ganhe mais de 1 min
+      const cus = s2 => { const q = [0].concat(s2, [aberto ? pts.length + 1 : 0]); let c = 0; for (let z = 1; z < q.length; z++) c += Mt[q[z - 1]][q[z]]; return c; };
+      const atual = pts.map((_, z) => z + 1);
+      if (cus(atual) <= cus(seq) + 60) seq = atual;
+    }
+    pts = seq.map(j => pts[j - 1]);
+    d.ids = pts.map(p => p.id); d.ks = d.ids.map(id => ks[id]);
+    await _espera(1100);
+  }
+  const seqP = [Object.assign({id: 'hotel'}, H0)].concat(pts).concat([Object.assign({id: 'hotel'}, H1)]);
+  const trechos = [], pernas = [];
+  for (let j = 0; j + 1 < seqP.length; j++){
+    marca(rot + ' — trecho ' + (j + 1) + ' de ' + (seqP.length - 1) + '…');
+    const a = seqP[j], b = seqP[j + 1];
+    const r = await _osrm('route/v1/driving/' + a.lon.toFixed(6) + ',' + a.lat.toFixed(6) + ';' + b.lon.toFixed(6) + ',' + b.lat.toFixed(6)
+      + '?alternatives=3&overview=full&geometries=geojson&steps=true');
+    const op = (r.routes || []).slice(0, 3).map((ro, o) => ({o: o + 1, km: Math.round(ro.distance) / 1000, min: Math.round(ro.duration / 60),
+      g: ro.geometry.coordinates.map(q => [+q[0].toFixed(5), +q[1].toFixed(5)])}));
+    trechos.push(H1.retorno && j + 2 === seqP.length ? {de: a.id, para: b.id, op: op, pv: true} : {de: a.id, para: b.id, op: op});
+    pernas.push(_pernasUR({legs: [r.routes[0].legs[0]]})[0]);
+    await _espera(1100);
+  }
+  d.trechos = trechos; d.pernas = pernas;
+  // reservas: se a A não puder ser ocupada, a equipe sai dela para a B, C ou D do mesmo círculo
+  const reservas = [];
+  for (const pA of pts){
+    const c = circuloDe(pA.id); if (!c) continue;
+    for (const r of (F.campanha.alvos || []).filter(x => x.id !== pA.id && circuloDe(x.id) === c)){
+      marca(rot + ' — caminhos até a reserva ' + r.id + '…');
+      try {
+        const rr = await _osrm('route/v1/driving/' + pA.lon.toFixed(6) + ',' + pA.lat.toFixed(6) + ';' + r.lon.toFixed(6) + ',' + r.lat.toFixed(6)
+          + '?alternatives=3&overview=full&geometries=geojson');
+        reservas.push({de: pA.id, para: r.id, op: (rr.routes || []).slice(0, 3).map((ro, o) => ({o: o + 1, km: Math.round(ro.distance) / 1000, min: Math.round(ro.duration / 60),
+          g: ro.geometry.coordinates.map(q => [+q[0].toFixed(5), +q[1].toFixed(5)])}))});
+      } catch (e3){}
+      await _espera(1100);
+    }
+  }
+  d.reservas = reservas.length ? reservas : undefined;
+}
 async function planejaCampanha(){
   const v = s => ($(s) || {}).value;
   const x = Math.max(1, Math.min(12, parseInt(v('#pc_n'), 10) || 8));
@@ -9117,55 +9189,9 @@ async function planejaCampanha(){
     let n = 0;
     for (const e of equipes) for (const d of e.dias){
       n++;
-      const H0 = bases[d.b0 || 0], H1 = bases[d.b1 || 0], aberto = (d.b0 || 0) !== (d.b1 || 0);
-      let pts = d.ids.map(id => F.campanha.alvos.find(a => a.id === id));
-      const ks = {}; d.ids.forEach((id, j) => { ks[id] = d.ks[j]; });
       try {
-        if (!d.fixo && (pts.length > 2 || (aberto && pts.length > 1))){   // plano importado: a ordem é a do arquivo
-          marca('plano da campanha: dia ' + n + ' de ' + tot + ' — ordem pelo menor tempo de carro…');
-          const c = [H0].concat(pts).concat(aberto ? [H1] : []).map(p => p.lon.toFixed(6) + ',' + p.lat.toFixed(6)).join(';');
-          const t = await _osrm('table/v1/driving/' + c + '?annotations=duration,distance');
-          const Mt = t.durations.map(r => r.map(v => v == null ? 1e9 : v));
-          let seq = ordemComPrimeiro(Mt, ordem, _primeiroIdx(pts, ordem, prim), aberto);
-          if (d.importado){   // plano importado: a ordem do arquivo fica, a não ser que a otimizada ganhe mais de 1 min
-            const cus = s2 => { const q = [0].concat(s2, [aberto ? pts.length + 1 : 0]); let c = 0; for (let z = 1; z < q.length; z++) c += Mt[q[z - 1]][q[z]]; return c; };
-            const atual = pts.map((_, z) => z + 1);
-            if (cus(atual) <= cus(seq) + 60) seq = atual;
-          }
-          pts = seq.map(j => pts[j - 1]);
-          d.ids = pts.map(p => p.id); d.ks = d.ids.map(id => ks[id]);
-          await _espera(1100);
-        }
-        const seqP = [Object.assign({id: 'hotel'}, H0)].concat(pts).concat([Object.assign({id: 'hotel'}, H1)]);
-        const trechos = [], pernas = [];
-        for (let j = 0; j + 1 < seqP.length; j++){
-          marca('plano da campanha: dia ' + n + ' de ' + tot + ' — trecho ' + (j + 1) + ' de ' + (seqP.length - 1) + '…');
-          const a = seqP[j], b = seqP[j + 1];
-          const r = await _osrm('route/v1/driving/' + a.lon.toFixed(6) + ',' + a.lat.toFixed(6) + ';' + b.lon.toFixed(6) + ',' + b.lat.toFixed(6)
-            + '?alternatives=3&overview=full&geometries=geojson&steps=true');
-          const op = (r.routes || []).slice(0, 3).map((ro, o) => ({o: o + 1, km: Math.round(ro.distance) / 1000, min: Math.round(ro.duration / 60),
-            g: ro.geometry.coordinates.map(q => [+q[0].toFixed(5), +q[1].toFixed(5)])}));
-          trechos.push(H1.retorno && j + 2 === seqP.length ? {de: a.id, para: b.id, op: op, pv: true} : {de: a.id, para: b.id, op: op});
-          pernas.push(_pernasUR({legs: [r.routes[0].legs[0]]})[0]);
-          await _espera(1100);
-        }
-        d.trechos = trechos; d.pernas = pernas; rotas++;
-        // reservas: se a A não puder ser ocupada, a equipe sai dela para a B, C ou D do mesmo círculo
-        const reservas = [];
-        for (const pA of pts){
-          const c = circuloDe(pA.id); if (!c) continue;
-          for (const r of (F.campanha.alvos || []).filter(x => x.id !== pA.id && circuloDe(x.id) === c)){
-            marca('plano da campanha: dia ' + n + ' de ' + tot + ' — caminhos até a reserva ' + r.id + '…');
-            try {
-              const rr = await _osrm('route/v1/driving/' + pA.lon.toFixed(6) + ',' + pA.lat.toFixed(6) + ';' + r.lon.toFixed(6) + ',' + r.lat.toFixed(6)
-                + '?alternatives=3&overview=full&geometries=geojson');
-              reservas.push({de: pA.id, para: r.id, op: (rr.routes || []).slice(0, 3).map((ro, o) => ({o: o + 1, km: Math.round(ro.distance) / 1000, min: Math.round(ro.duration / 60),
-                g: ro.geometry.coordinates.map(q => [+q[0].toFixed(5), +q[1].toFixed(5)])}))});
-            } catch (e3){}
-            await _espera(1100);
-          }
-        }
-        d.reservas = reservas.length ? reservas : undefined;
+        await _rotasDoDia(d, bases, ordem, prim, 'plano da campanha: dia ' + n + ' de ' + tot);
+        rotas++;
       } catch (err){
         d.trechos = null; d.pernas = null;
         if (!avisos.some(a => a.startsWith('rotas'))) avisos.push('rotas dos dias incompletas (' + err.message + ')');
@@ -9227,6 +9253,7 @@ function equipeDaChave(k){
   for (let i = 0; i < pc.equipes.length; i++){
     const e = pc.equipes[i];
     for (let j = 0; j < e.dias.length; j++) if (e.dias[j].ks.includes(k)) return {i: i, e: e, dia: j + 1};
+    if (e.sobra && (e.sobra.ks || []).includes(k)) return {i: i, e: e, dia: null};
   }
   return null;
 }
@@ -9478,12 +9505,16 @@ function periodoCampanha(c){
   return {uteis: U, reserva: U.slice(U.length - r), plano: U.slice(0, U.length - r)};
 }
 /* datas dos n primeiros dias de campo do plano (null sem data de início) */
-function datasDoPlano(pc, n){
+function datasDoPlano(pc, n, e){
   const c = pc && pc.calendario; if (!c || !c.inicio || !n) return null;
   const L = []; let d = _diaDe(c.inicio), guarda = 0;
   while (L.length < n && guarda++ < 400){ if (diaDeTrabalho(d, c)) L.push(new Date(d)); d.setUTCDate(d.getUTCDate() + 1); }
+  // dias refeitos na redistribuição têm a data gravada: ela vale sobre a contagem do calendário
+  if (e && e.dias && e.dias.some(x => x.data)) return e.dias.slice(0, n).map((x, j) => x.data ? _diaDe(x.data) : L[j] || null);
   return L;
 }
+/* datas (ISO) dos dias de uma equipe, alinhadas a e.dias */
+function _datasEquipeIso(pc, e){ const D = datasDoPlano(pc, e.dias.length, e) || []; return e.dias.map((_, j) => D[j] ? _isoDia(D[j]) : null); }
 /* resumo do período: do início ao último dia de campo da equipe com mais dias */
 function resumoCalendario(pc){
   const c = pc && pc.calendario, n = Math.max(0, ...((pc && pc.equipes) || []).map(e => e.dias.length));
@@ -9518,7 +9549,16 @@ function resumoCalendario(pc){
     + (f0 && !c.ida ? ' (o início, ' + _ddmm(_diaDe(c.inicio)) + ', é ' + textoFolga(f0) + ': o primeiro dia de campo é ' + _ddmm(D[0]) + ')' : '') + '.';
 }
 /* o dia de hoje no plano: {util, j (índice do dia de campo), data} */
-function hojeNoPlano(pc, iso){
+function hojeNoPlano(pc, iso, e){
+  const h = _hojeNoPlano0(pc, iso);
+  // equipe com dias de data gravada: o dia de hoje é o da data; sem dia nesta data, semDia
+  if (h && h.util && e && e.dias && e.dias.some(x => x.data)){
+    const DI = _datasEquipeIso(pc, e), hi = _isoDia(h.data), k = DI.indexOf(hi);
+    if (k >= 0) h.j = k; else { h.j = DI.filter(x => x && x < hi).length; h.semDia = true; }
+  }
+  return h;
+}
+function _hojeNoPlano0(pc, iso){
   const c = pc && pc.calendario; if (!c || !c.inicio) return null;
   const hoje = _diaDe(iso || new Date().toISOString());
   if (hoje < _diaDe(c.ida || c.inicio)) return {antes: true, data: hoje};
@@ -9560,7 +9600,7 @@ function calendarioPlano(pc, so){
   const PL = {}; let ini = null, fim = null;
   const lim = d => { if (!ini || d < ini) ini = new Date(d); if (!fim || d > fim) fim = new Date(d); };
   if (pc) pc.equipes.forEach((e, i) => { if (so && e !== so) return;
-    const DT = datasDoPlano(pc, e.dias.length); if (!DT) return;
+    const DT = datasDoPlano(pc, e.dias.length, e); if (!DT) return;
     DT.forEach((d, j) => { const iso = _isoDia(d); (PL[iso] = PL[iso] || []).push({e: e, j: j, d: e.dias[j]}); lim(d); }); });
   const soNome = so && so.nome;
   Object.keys(RZ).forEach(iso => { if (soNome) RZ[iso] = RZ[iso].filter(x => { const o = _ondePlanejado(pc, x.id); return x.prop || (o ? o.e === so : x.eq === soNome); });
@@ -9621,7 +9661,7 @@ function tabelaPlano(pc, so){
   h += '<p class="leg" style="margin:4px 0"><b>Calendário:</b> ' + esc(resumoCalendario(pc)) + '</p>'
     + (pc.retorno ? '<p class="leg" style="margin:4px 0">' + textoRetorno(pc, so) + '</p>' : '') + calendarioPlano(pc, so);
   pc.equipes.filter(e => !so || e === so).forEach(e => {
-    const H = e.dias.map(d => horarioDia(p, d.pernas, d.ids.length, d.limite, d.vesp && ehPousoVolta(pc, d.b1 || 0))), DT = datasDoPlano(pc, e.dias.length);
+    const H = e.dias.map(d => horarioDia(p, d.pernas, d.ids.length, d.limite, d.vesp && ehPousoVolta(pc, d.b1 || 0))), DT = datasDoPlano(pc, e.dias.length, e);
     const kmT = H.reduce((s, x) => s + (x ? x.km : 0), 0), carT = H.reduce((s, x) => s + (x ? x.car : 0), 0);
     const n = e.dias.reduce((s, d) => s + d.ids.length, 0);
     const feitosE = e.dias.reduce((t, d) => t + _feitosDia(d, Et), 0);
@@ -10183,7 +10223,7 @@ function abreNav(i){
   montaTelaNav();
   NAV.volta = false;
   NAV.i = Math.max(0, Math.min(i, A.length - 1));
-  NAV.dz = 0; NAV.opc = 1; NAV.chegouAviso = false;
+  NAV.dz = 0; NAV.opc = 1; NAV.chegouAviso = false; NAV.daqui = null;
   NAV.modo = (F.config && F.config.navModo) || (Object.keys(TRAJ).length || (F.dia && F.dia.plano) ? 'carro' : 'direcao');
   NAV.el.classList.remove('oculto');
   document.body.style.overflow = 'hidden';
@@ -10646,9 +10686,26 @@ function desenhaNav(){
   const pp = carro ? pernaDoPlano(a) : null;
   let TL = carro ? trajetosDoPonto(a) : [];
   const temOff = carro && NAV.rotaOff && NAV.rotaOff.id === a.id;
-  if (carro && !TL.length && !temOff){
+  /* Saída de outro lugar (08/11/2026: na pousada, pedido o ponto mais próximo, a folha mostrava o
+     trecho do plano que sai do ponto anterior do dia, a 9,7 km). Com a posição, decide-se uma vez
+     por destino: se nenhum caminho do plano passa a menos de 3 km de onde a equipe está (ou o ponto
+     só tem os caminhos desde a BR), vale a rota daqui (OSRM, com internet), e os do plano ficam como
+     opções em Trajeto. Sem internet: "Outra rota, sem internet" calcula no aparelho. */
+  const doPlano = t => t.fonte === 'plano' || t.fonte === 'campanha';
+  if (carro && P && !volta && !temOff && (!NAV.daqui || NAV.daqui.id !== a.id)){
+    const pl = TL.filter(doPlano);
+    const longe = !pl.length || pl.every(t => { const z = noTrajeto(t, P); return !z || z.fora > 3000; });
+    NAV.daqui = {id: a.id, longe: longe};
+    if (longe && NAV.opc === 1) NAV.opc = 0;
+  }
+  const daqui = carro && !volta && !temOff && NAV.daqui && NAV.daqui.id === a.id && NAV.daqui.longe;
+  if (carro && !temOff && (!TL.length || daqui)){
     pedeRotaOnline(a, P);
-    if (NAV.rotaOn && NAV.rotaOn.id === a.id) TL = [NAV.rotaOn];
+    if (NAV.rotaOn && NAV.rotaOn.id === a.id) TL = [NAV.rotaOn].concat(TL);
+    else if (daqui) TL = TL.filter(t => !doPlano(t));          // enquanto a rota daqui não chega
+    // sem internet (ou o OSRM fora): a rota daqui sai pelas ruas guardadas no aparelho, uma vez
+    if (daqui && !NAV.daqui.off && (!navigator.onLine || (NAV.rotaErro && !NAV.rotaOn))){
+      NAV.daqui.off = true; setTimeout(() => { if (alvoNav() === a) calculaRotaOffline(); }, 0); }
   }
   if (temOff) TL = [NAV.rotaOff].concat(TL);
   if (carro && NAV.rotaNova && NAV.rotaNova[0] && NAV.rotaNova[0].id === a.id) TL = NAV.rotaNova.concat(TL);
@@ -10669,7 +10726,8 @@ function desenhaNav(){
     ? '<b>Rota nova daqui</b>, com internet (OSRM · dados © colaboradores do OpenStreetMap)' + (t.n > 1 ? ' · caminho <b>' + t.k + '</b> de ' + t.n : '')
       + (t.evita ? ' · sem as marcas sem passagem' : '') + ' · ' + _numBR(t.km, 1) + ' km · ~' + Math.max(1, Math.round(t.min)) + ' min'
     : t.fonte === 'osrm'
-    ? 'Rota de carro (OSRM · dados © colaboradores do OpenStreetMap) · ' + _numBR(t.km, 1) + ' km · ~' + Math.max(1, Math.round(t.min)) + ' min'
+    ? (daqui ? '<b>Rota daqui</b>, com internet — o caminho do plano sai de longe; ele fica em Trajeto · ' : '')
+      + 'Rota de carro (OSRM · dados © colaboradores do OpenStreetMap) · ' + _numBR(t.km, 1) + ' km · ~' + Math.max(1, Math.round(t.min)) + ' min'
     : t.ob ? 'Desde a BR (arquivo de trajetos) · caminho <b>' + t.ob + '</b> de ' + t.nbr + ' · ' + _numBR(t.km, 1) + ' km'
     : 'Trajeto <b>opção ' + t.o + '</b> de ' + TL.length + ' · ' + _numBR(t.km, 1) + ' km';
 
@@ -11412,17 +11470,23 @@ function diaDoPlanoHoje(){
   if (pl && pl.paradas && pl.paradas.length) return {ids: pl.paradas.map(x => x.id), atras: [], rotulo: 'Plano do dia montado neste aparelho'};
   const e = equipeDoPlano(), pc = F.campanha.planoCampanha;
   if (!e || !e.dias || !e.dias.length) return null;
-  const h = hojeNoPlano(pc) || {util: true, j: 0};
+  const h = hojeNoPlano(pc, undefined, e) || {util: true, j: 0};
   const A = F.campanha.alvos || [], vivo = _vivo(), viva = id => { const a = A.find(z => z.id === id); return a && vivo(a); };
   const de = j => (e.dias[j] && e.dias[j].ids) || [];
+  const sob = ((e.sobra && e.sobra.ids) || []).filter(viva);     // não couberam na redistribuição
+  if (h.util && !h.reserva && h.semDia){
+    const atr = []; for (let j = 0; j < h.j; j++) atr.push(...de(j).filter(viva));
+    return {ids: [], atras: atr.concat(sob.filter(x => !atr.includes(x))), rotulo: 'Hoje (' + _dataBr(_isoDia(h.data)) + ') não tem dia no plano refeito'};
+  }
   if (h.antes) return {ids: de(0), atras: [], rotulo: 'Dia 1 do plano — a campanha ainda não começou'};
   if (h.depois || !h.util || h.reserva || h.j >= e.dias.length){
-    const pend = [].concat(...e.dias.map(x => x.ids || [])).filter(viva);
+    const pend = [].concat(...e.dias.map(x => x.ids || [])).filter(viva).concat(sob);
     const mot = h.depois ? 'campanha encerrada' : h.reserva ? 'dia de reserva (manutenção do carro ou remedições)'
       : !h.util ? 'dia sem atividades previstas (' + textoFolga(h.motivo) + ')' : 'todos os dias do plano já passaram';
     return {ids: [], atras: [], pend: pend.length, rotulo: 'Hoje: ' + mot};
   }
   const atras = []; for (let j = 0; j < h.j; j++) atras.push(...de(j).filter(viva));
+  sob.forEach(x => { if (!atras.includes(x) && !de(h.j).includes(x)) atras.push(x); });
   return {ids: de(h.j), atras: atras, rotulo: 'Dia ' + (h.j + 1) + ' do plano (' + _dataBr(_isoDia(h.data)) + ')'};
 }
 function proximoDoDia(){
@@ -11621,6 +11685,223 @@ $('#b_area_tira').addEventListener('click', async () => {
   try { await blocoLimpa(); } catch (e){}
   await contaBlocos(); await carregaArea(); marca('mapa da área esquecido');
 });
+
+/* ---------- Redistribuir os pontos que faltam, ao fechar o dia ----------
+   Pedido da coordenação (08/11/2026): com pontos coletados fora da ordem e em dias diferentes
+   do previsto, ao fechar o dia a folha propõe refazer os dias que faltam DESTA equipe.
+   - Entram os círculos pendentes da equipe, também os que ficaram de dias anteriores; os que a
+     outra equipe já mediu (ocupações juntadas) saem. Trocar pontos entre equipes continua com a
+     coordenação, no planejador.
+   - Mesmas datas até o fim do plano da campanha (calendário: sábado, folgas, dias de reserva
+     fora; véspera da volta com a hora-limite e o fim no pouso da volta, como no planejador).
+   - Cada dia pela jornada, pelo método do planejador (montaDiasTempo: inserção mais barata,
+     ROSENKRANTZ; STEARNS; LEWIS, 1977; tempos de carro pela tabela do OSRM, conferidos pela rota).
+   - O que não couber fica como sobra: aparece no Hoje depois da rota do dia e vai à coordenação.
+   Nada muda sem o aceite da equipe; aceito, a folha faz as rotas offline dos dias novos. */
+let REDIST = null;                                   // proposta em tela
+function _desdeRedist(){
+  const L = (F.dias || []).map(d => d.data).filter(Boolean);
+  try { datasDoDia(F.dia).forEach(x => { if (x.data) L.push(x.data); }); } catch (e){}
+  return L.sort().pop() || null;
+}
+function datasRestantes(pc, e){
+  const c = (pc && pc.calendario) || {}, PE = periodoCampanha(c), desde = _desdeRedist(), hoje = _isoLocal(Date.now());
+  const L = PE ? PE.plano.slice() : _datasEquipeIso(pc, e).filter(Boolean);
+  return L.filter(iso => (!desde || iso > desde) && iso >= hoje);
+}
+function pendentesDaEquipe(e){
+  return unidadesPendentes().filter(u => { const q = equipeDaChave(u.k); return q && q.e === e; });
+}
+function redistPossivel(){
+  if (MODO_PLAN || !modoEquipe()) return null;
+  const pc = F.campanha.planoCampanha, e = equipeDoPlano();
+  if (!pc || !e || !pc.calendario || !pc.calendario.inicio) return null;
+  if ((e.bases || [0]).length > 1 || multiBase(pc))
+    return {pc: pc, e: e, motivo: 'O plano tem mais de uma base de pouso: a redistribuição fica com a coordenação, no planejador'};
+  return {pc: pc, e: e, datas: datasRestantes(pc, e), U: pendentesDaEquipe(e)};
+}
+function _paramRedist(pc){
+  return {pt: {velUrb: pc.velUrb || 20, velRod: pc.velRod || 60}, jornada: pc.jornada || 8, ocup: pc.ocup || 40,
+          almoco: pc.almoco != null ? pc.almoco : 60, saida: pc.saida || '07:00', xMax: Math.max(1, Math.min(12, pc.porDia || 5)),
+          ordem: pc.ordem || 'longe'};
+}
+async function propoeRedist(){
+  const R = redistPossivel(); if (!R || R.motivo) return;
+  const pc = R.pc, e = R.e, datas = R.datas, U = R.U;
+  if (!U.length) return marca('redistribuição: nada pendente da ' + e.nome);
+  if (!datas.length) return marca('redistribuição: não há dia de campo pela frente no calendário da campanha');
+  if (!navigator.onLine) return marca('redistribuição: precisa de internet (tempos de carro e rotas) — faça na hospedagem');
+  const B = basesDe(pc), Q = _paramRedist(pc), avisos = [];
+  const RV = pc.retorno, iPV = RV && RV.iPV >= 0 && B[RV.iPV] ? RV.iPV : -1;
+  const ehV = j => !!(RV && RV.vesp && datas[j] === RV.vesp);
+  const capDe = j => ehV(j) && RV.limV ? Math.max(60, Math.min(Q.jornada * 60, RV.limV - _minDe(Q.saida) - Q.almoco)) : Q.jornada * 60;
+  const fimDe = j => ehV(j) && iPV >= 0 ? iPV : 0;
+  const soCampo = j => ehV(j) && iPV >= 0;
+  const b = $('#b_redist'); if (b) b.disabled = true;
+  try {
+    marca('redistribuição: tempos de carro entre ' + U.length + ' círculo(s)…');
+    const MT = await _matrizTempos(B.concat(U), Q.pt, true, avisos);
+    MT.ix = new Map(U.map((u, i) => [u.k, B.length + i]));
+    const dH = {}; U.forEach(u => { dH[u.k] = MT.M[0][MT.ix.get(u.k)]; });
+    marca('redistribuição: montando os dias pela jornada…');
+    const D = await montaDiasTempo(U, 0, Q.ordem, dH, MT, capDe, fimDe, 0, Q.xMax, Q.ocup, MT.fonte === 'osrm' ? Q.pt : null, soCampo, null);
+    const dias = D.slice(0, datas.length), sobra = [].concat(...D.slice(datas.length));
+    while (dias.length < datas.length) dias.push([]);
+    const carDia = (seq, j) => { const nn = [0].concat(seq.map(u => MT.ix.get(u.k)), [fimDe(j)]); let c = 0;
+      for (let q = 1; q < nn.length; q++) if (!(soCampo(j) && q === nn.length - 1)) c += MT.M[nn[q - 1]][nn[q]]; return c; };
+    // repescagem: o que sobrou entra, pela inserção mais barata, em qualquer dia em que ainda caiba
+    for (const u of sobra.slice()){
+      let best = null;
+      dias.forEach((seq, j) => { if (seq.length >= Q.xMax) return; const c0 = carDia(seq, j) + Q.ocup * seq.length;
+        for (let q = 0; q <= seq.length; q++){ const s2 = seq.slice(0, q).concat([u], seq.slice(q)), c = carDia(s2, j) + Q.ocup * s2.length;
+          if (c <= capDe(j) && (!best || c - c0 < best.dl)) best = {j: j, s2: s2, dl: c - c0}; } });
+      if (best){ dias[best.j] = best.s2; sobra.splice(sobra.indexOf(u), 1); }
+    }
+    const est = dias.map((seq, j) => {
+      if (!seq.length) return null;
+      const car = carDia(seq, j), campo = car + Q.ocup * seq.length, alm = _minDe(Q.saida) + campo > 690 ? Q.almoco : 0;
+      return {car: Math.round(car), total: Math.round(campo), fim: Math.round(_minDe(Q.saida) + campo + alm), cap: capDe(j)};
+    });
+    const isoE = _datasEquipeIso(pc, e), vivo = _vivo(), A = F.campanha.alvos || [];
+    const viva = id => { const a = A.find(z => z.id === id); return a && vivo(a); };
+    const atual = datas.map(iso => { const j = isoE.indexOf(iso); return j >= 0 ? e.dias[j].ids.filter(viva) : []; });
+    const atras = [];
+    isoE.forEach((iso, j) => { if (iso && iso < datas[0]) e.dias[j].ids.filter(viva).forEach(id => { if (!atras.includes(id)) atras.push(id); }); });
+    ((e.sobra && e.sobra.ids) || []).filter(viva).forEach(id => { if (!atras.includes(id)) atras.push(id); });
+    REDIST = {quando: new Date().toISOString(), equipe: e.nome, desde: _desdeRedist(), datas: datas,
+      dias: dias.map(s2 => ({ids: s2.map(u => u.id), ks: s2.map(u => u.k)})), sobra: {ids: sobra.map(u => u.id), ks: sobra.map(u => u.k)},
+      est: est, atual: atual, atras: atras, fonte: MT.fonte, avisos: avisos, vesp: datas.map((_, j) => ehV(j)), iPV: iPV, nU: U.length};
+    marca('redistribuição: proposta pronta — confira e aceite ou mantenha o plano');
+  } catch (er){ marca('redistribuição: ' + (er.name === 'AbortError' ? 'o servidor de rotas não respondeu' : er.message)); }
+  finally { pintaRedist(); const c = $('#cart_redist'); if (c && REDIST) c.scrollIntoView({behavior: 'smooth'}); }
+}
+function htmlPropostaRedist(R, pc, e){
+  const lst = L => L.length ? L.map(esc).join(', ') : '—';
+  let h = '<table class="tab_redist" style="width:100%;border-collapse:collapse;font-size:.92em;margin:6px 0">'
+    + '<tr><th style="text-align:left">dia</th><th style="text-align:left">plano atual (pendentes)</th><th style="text-align:left">proposta</th><th style="text-align:right">carro + pontos</th><th style="text-align:right">fim do campo</th></tr>';
+  R.datas.forEach((iso, j) => {
+    const d = R.dias[j], t = R.est[j], passa = t && t.total > t.cap;
+    h += '<tr style="border-top:1px solid #ccc"><td>' + _ddmm(_diaDe(iso)) + (R.vesp[j] ? '<br><small>véspera da volta</small>' : '') + '</td>'
+      + '<td>' + lst(R.atual[j]) + '</td><td><b>' + lst(d.ids) + '</b></td>'
+      + '<td style="text-align:right">' + (t ? _hm(t.car) + ' + ' + d.ids.length + ' × ' + (pc.ocup || 40) + ' min' : '—') + '</td>'
+      + '<td style="text-align:right' + (passa ? ';color:#B91C1C' : '') + '">' + (t ? _hora(t.fim) + (R.vesp[j] ? '<br><small>depois, o pouso</small>' : '') : '—') + '</td></tr>';
+  });
+  h += '</table>';
+  if (R.atras.length) h += '<p class="leg">De dias anteriores, ainda pendentes, e que entram na proposta: ' + lst(R.atras) + '.</p>';
+  if (R.sobra.ids.length) h += '<p class="leg" style="color:#B91C1C"><b>Não cabem até ' + _dataBr(R.datas[R.datas.length - 1]) + ': ' + lst(R.sobra.ids)
+    + '.</b> Ficam como sobra: aparecem no Hoje depois da rota do dia, se der tempo. Avise a coordenação (arquivo abaixo, depois de aceitar).</p>';
+  else h += '<p class="leg">Todos os ' + R.nU + ' círculo(s) pendente(s) cabem nos dias que restam.</p>';
+  if (R.fonte !== 'osrm') h += '<p class="leg" style="color:#B45309">Tempos em linha reta (o servidor de rotas não respondeu): confira antes de aceitar.</p>';
+  if (R.avisos.length) h += '<p class="leg">' + R.avisos.map(esc).join('; ') + '</p>';
+  try {
+    const eq = Object.assign({}, e, {dias: R.dias.filter(d => d.ids.length).map(d => ({ids: d.ids, ks: d.ks}))});
+    const ps = Object.assign({}, pc, {equipes: [eq], cortes: [], cortesB: []});
+    h += '<details><summary>Mapa da proposta</summary>' + svgPlanoCampanha(ps, 520)
+      + '<p class="leg">Número do ponto e, embaixo, dia.ordem da proposta (dia 1 = ' + _ddmm(_diaDe(R.datas[0])) + '). Quadrado preto: hospedagem.</p></details>';
+  } catch (er){ console.error(er); }
+  return h;
+}
+async function aceitaRedist(){
+  const R = REDIST, pc = F.campanha.planoCampanha, e = equipeDoPlano();
+  if (!R || !pc || !e || R.equipe !== e.nome) return;
+  if (!navigator.onLine) return marca('redistribuição: precisa de internet para as rotas dos dias novos');
+  const B = basesDe(pc), novos = [], falhas = [];
+  const ok = $('#b_redist_ok'); if (ok) ok.disabled = true;
+  for (let j = 0; j < R.dias.length; j++){
+    const s2 = R.dias[j]; if (!s2.ids.length) continue;
+    const d = {ids: s2.ids.slice(), ks: s2.ks.slice(), pernas: null, b0: 0, b1: R.vesp[j] && R.iPV >= 0 ? R.iPV : 0,
+               fixo: true, data: R.datas[j], redist: R.quando};
+    if (R.vesp[j] && pc.retorno){ d.vesp = true; d.limite = pc.retorno.limV; }
+    try { await _rotasDoDia(d, B, pc.ordem || 'longe', null, 'redistribuição: ' + _ddmm(_diaDe(d.data))); }
+    catch (er){ d.trechos = null; d.pernas = null; falhas.push(_dataBr(d.data)); }
+    novos.push(d);
+  }
+  const isoE = _datasEquipeIso(pc, e), ini = R.datas[0], fica = [];
+  const movidos = new Set(R.dias.flatMap(d => d.ks).concat(R.sobra.ks));
+  // os dias que ficam ganham a data gravada, para não deslizarem com o calendário; deles saem os
+  // círculos pendentes que foram para os dias novos (ou para a sobra) — o antes fica no histórico
+  e.dias.forEach((d, j) => { if (isoE[j] && isoE[j] < ini){
+    if (!d.data) d.data = isoE[j];
+    const z = d.ks.map((k, q) => movidos.has(k) ? -1 : q).filter(q => q >= 0);
+    if (z.length !== d.ks.length){ d.ids = z.map(q => d.ids[q]); d.ks = z.map(q => d.ks[q]); d.trechos = d.trechos && z.length === 0 ? null : d.trechos; }
+    fica.push(d); } });
+  e.dias = fica.concat(novos);
+  if (R.sobra.ids.length) e.sobra = {ids: R.sobra.ids.slice(), ks: R.sobra.ks.slice(), quando: R.quando}; else delete e.sobra;
+  (pc.redistribuicoes = pc.redistribuicoes || []).push({quando: R.quando, aceita: new Date().toISOString(), equipe: e.nome, desde: R.desde,
+    datas: R.datas, antes: R.atual, depois: novos.map(d => ({data: d.data, ids: d.ids})), sobra: R.sobra.ids.slice(), fonte: R.fonte});
+  REDIST = null; grava(); monta();
+  marca('plano da ' + e.nome + ' refeito: ' + novos.length + ' dia(s), ' + novos.reduce((t, d) => t + d.ids.length, 0) + ' círculo(s)'
+    + (R.sobra.ids.length ? '; sobra: ' + R.sobra.ids.join(', ') : '')
+    + (falhas.length ? ' — sem rotas offline em ' + falhas.join(', ') + ' (refaça com internet)' : ' — rotas offline prontas'));
+  const c = $('#cart_redist'); if (c) c.scrollIntoView({behavior: 'smooth'});
+}
+/* Arquivo para a coordenação: os dias que faltam da equipe, no formato do plano pronto do
+   planejador (equipe; dia; data; ordem; ponto; município); a sobra vai em comentário. */
+function csvRedist(){
+  const pc = F.campanha.planoCampanha, e = equipeDoPlano(); if (!pc || !e) return null;
+  const iE = pc.equipes.indexOf(e) + 1, isoE = _datasEquipeIso(pc, e), A = F.campanha.alvos || [], vivo = _vivo();
+  const hoje = _isoLocal(Date.now()), mun = id => { const a = A.find(z => z.id === id); return a ? (a.municipio || '') : ''; };
+  const L = ['equipe;dia;data;ordem;ponto;municipio'];
+  let n = 0;
+  e.dias.forEach((d, j) => {
+    if (!isoE[j] || isoE[j] < hoje) return;
+    const ids = d.ids.filter(id => { const a = A.find(z => z.id === id); return a && vivo(a); });
+    if (!ids.length) return; n++;
+    ids.forEach((id, o) => L.push([iE, n, isoE[j], o + 1, id, mun(id)].join(';')));
+  });
+  if (e.sobra && e.sobra.ids.length) L.push('# sobra (não coube até o fim do plano): ' + e.sobra.ids.join(', '));
+  const r = (pc.redistribuicoes || []).filter(x => x.equipe === e.nome).pop();
+  if (r) L.push('# redistribuição aceita em ' + new Date(r.aceita).toLocaleString('pt-BR').slice(0, 17) + ' pela ' + e.nome);
+  return L.join('\r\n') + '\r\n';
+}
+async function enviaCsvRedist(){
+  const t = csvRedist(); if (!t) return;
+  const e = equipeDoPlano(), nome = [carimbo(), _parteNome(F.campanha.nome), 'dias_restantes', _parteNome(e.nome)].filter(Boolean).join('_') + '.csv';
+  const arq = new File(['﻿' + t], nome, {type: 'text/csv'});
+  if (navigator.canShare && navigator.canShare({files: [arq]})){
+    try { await navigator.share({files: [arq], title: nome, text: 'Dias que faltam da ' + e.nome + ', depois da redistribuição'}); return marca('enviado: ' + nome); }
+    catch (er){ if (er.name === 'AbortError') return marca('envio cancelado'); }
+  }
+  baixa(nome, arq); marca('arquivo gravado: ' + nome);
+}
+function htmlRedistRelatorio(pc, EQ){
+  const L = (pc.redistribuicoes || []).filter(r => !EQ || r.equipe === EQ.nome);
+  if (!L.length) return '';
+  return '<h3 style="margin:8px 0 4px">Redistribuições dos pontos que faltavam</h3><table><tr><th>aceita em</th><th>equipe</th><th>dias refeitos</th><th>sobra</th></tr>'
+    + L.map(r => '<tr><td>' + esc(new Date(r.aceita).toLocaleString('pt-BR').slice(0, 17)) + '</td><td>' + esc(r.equipe) + '</td><td>'
+      + esc(r.depois.map(d => _dataBr(d.data) + ': ' + d.ids.join(', ')).join(' · ')) + '</td><td>' + esc(r.sobra.length ? r.sobra.join(', ') : '—') + '</td></tr>').join('')
+    + '</table><p class="ocor">Ao fechar o dia, a equipe aceitou refazer os dias que faltavam com os círculos ainda pendentes, pela jornada, '
+    + 'com o mesmo método do plano da campanha. A comparação planejado × executado acima usa o plano em vigor em cada data.</p>';
+}
+function pintaRedist(){
+  const el = $('#cart_redist'); if (!el) return;
+  const R = redistPossivel();
+  if (!R){ el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  let h = '<h3>5. Redistribuir os pontos que faltam</h3>';
+  if (R.motivo){ el.innerHTML = h + '<p class="leg">' + esc(R.motivo) + '.</p>'; return; }
+  const pc = R.pc, e = R.e, datas = R.datas, U = R.U, Q = _paramRedist(pc);
+  if (REDIST && REDIST.equipe !== e.nome) REDIST = null;
+  h += '<p class="leg">Com o dia fechado, a folha refaz os dias que faltam da <b>' + esc(e.nome) + '</b> com os círculos ainda pendentes '
+    + '(também os que ficaram de dias anteriores), nas datas do plano até ' + (datas.length ? _ddmm(_diaDe(datas[datas.length - 1])) : 'o fim da campanha')
+    + ', pela jornada: ' + Q.jornada + ' h de campo, ' + Q.ocup + ' min por ponto, até ' + Q.xMax + ' pontos por dia e o carro pelos tempos do OSRM. '
+    + 'Nada muda sem o seu aceite. Precisa de internet.</p>'
+    + '<p class="leg"><b>' + U.length + '</b> círculo(s) pendente(s) · <b>' + datas.length + '</b> dia(s) de campo pela frente'
+    + (datas.length ? ' (' + datas.map(x => _ddmm(_diaDe(x))).join(', ') + ')' : '') + '.</p>';
+  if (REDIST) h += htmlPropostaRedist(REDIST, pc, e)
+    + '<div class="acoes"><button type="button" class="btn peq so_rede" id="b_redist_ok">Aceitar e gerar as rotas</button>'
+    + '<button type="button" class="btn sec peq" id="b_redist_nao">Manter o plano atual</button></div>';
+  else if (U.length && datas.length) h += '<div class="acoes"><button type="button" class="btn peq so_rede" id="b_redist">Ver a proposta</button></div>';
+  const hist = (pc.redistribuicoes || []).filter(r => r.equipe === e.nome);
+  if (hist.length) h += '<p class="leg">Última redistribuição aceita: ' + new Date(hist[hist.length - 1].aceita).toLocaleString('pt-BR').slice(0, 17)
+    + (e.sobra && e.sobra.ids.length ? ' · sobra: ' + e.sobra.ids.map(esc).join(', ') : '') + '.</p>'
+    + '<div class="acoes"><button type="button" class="btn sec peq" id="b_redist_csv">Enviar à coordenação os dias que faltam</button></div>';
+  el.innerHTML = h;
+  const b1 = $('#b_redist'); if (b1) b1.addEventListener('click', propoeRedist);
+  const b2 = $('#b_redist_ok'); if (b2) b2.addEventListener('click', aceitaRedist);
+  const b3 = $('#b_redist_nao'); if (b3) b3.addEventListener('click', () => { REDIST = null; pintaRedist(); marca('plano mantido'); });
+  const b4 = $('#b_redist_csv'); if (b4) b4.addEventListener('click', enviaCsvRedist);
+}
 
 /* ---------- montagem ---------- */
 function monta(){
@@ -13005,6 +13286,7 @@ function pendenciasPonto(p){
 }
 function pintaHotel(){
   try { pintaQualDia(); } catch (e){}
+  try { pintaRedist(); } catch (e){ console.error(e); }
   const e = $('#hotel_tab'); if (!e) return;
   const P = F.dia.pontos;
   if (!P.length){ e.innerHTML = '<p class="leg">Nenhum ponto na caderneta do dia.</p>'; return; }
@@ -15351,7 +15633,8 @@ function pintaKits(){
   else if (!pc) h += '<p class="leg">Planeje a campanha (quadro acima) para dividir os pontos entre as equipes.</p>';
   else {
     h += '<p class="leg">Cada equipe recebe <b>um arquivo HTML</b>, já preenchido: campanha, município, integrantes, a região e os '
-      + 'dias dela, os pontos, os trechos de acesso e o mapa da região. No celular: baixar pelo Chrome e abrir — não há o que carregar. '
+      + 'dias dela, os pontos, os trechos de acesso e o mapa da região. No celular Android: baixar pelo Chrome e abrir — não há o que carregar. No iPhone: abrir o endereço da folha no Safari, '
+      + 'Adicionar à Tela de Início e, pelo ícone, Abrir a folha da equipe (o arquivo salvo em Arquivos). '
       + 'Material na tela: ' + A.length + ' pontos · ' + Object.keys(TRAJ).length + ' com trechos · ' + AREAS.length + ' imagem(ns) própria(s) do mapa · '
       + VIAS.length + ' trechos de rua · ' + BLOCOS_N + ' blocos da imagem de satélite Esri.</p>';
     h += _htmlCoord() + _htmlFrota();

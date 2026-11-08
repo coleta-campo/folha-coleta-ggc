@@ -280,6 +280,10 @@ body.equipe #b_alvos, body.equipe #b_traj, body.equipe #b_alvos_tira, body.equip
 #nav .topo b{flex:1;min-width:0;font-size:17px;white-space:nowrap;overflow:hidden;
  text-overflow:ellipsis;text-align:center}
 #nav .topo button{margin:0;padding:9px 13px;width:auto;font-size:15px}
+#nav .topo .titsel{flex:1;min-width:0;position:relative;display:flex;align-items:center}
+#nav .topo .titsel b{border-bottom:2px dotted var(--az);cursor:pointer}
+#nav .topo .titsel i{font-style:normal;color:var(--az);margin-left:2px;flex:none}
+#nav .topo .titsel select{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:16px}
 #nav .leitura{display:flex;align-items:center;gap:12px;padding:10px 14px;
  background:var(--cart);border-bottom:1px solid var(--lin)}
 #nav .dist{font:700 34px/1 inherit;font-variant-numeric:tabular-nums}
@@ -5942,6 +5946,14 @@ async function copiaCompleta(){
   }
   try { const v = await _txTraj('readonly', l => l.get('trajetos'));
         if (v) itens.push({nome: 'trajetos.json', dados: JSON.stringify(v)}); } catch (e){}
+  /* as trilhas dos dias arquivados moram fora do registro, uma por trilha_id (a do dia aberto já vai nele):
+     até 08/11/2026 a cópia não as levava, e o aparelho que a restaurava ficava sem o percurso dos dias */
+  let nt = 0;
+  for (const tid of new Set((F.dias || []).map(d => d.trilha_id).filter(Boolean))){
+    if (tid === F.dia.trilha_id) continue;
+    try { const T = await cofreDe(await _txTraj('readonly', l => l.get(tid)));
+          if (Array.isArray(T) && T.length){ itens.push({nome: 'trilhas/' + tid + '.json', dados: JSON.stringify(T)}); nt++; } } catch (e){}
+  }
   itens.push({nome: 'LEIA-ME.txt', dados: 'Cópia completa da folha de coleta de pontos GNSS.\r\n'
     + 'Para restaurar: na folha, aba Fechar o dia > Retomar ou trocar de aparelho > Abrir um registro salvo, '
     + 'e escolha este ZIP. O mapa da área não está aqui: carregue o pacote do mapa de novo.\r\n'});
@@ -5950,7 +5962,7 @@ async function copiaCompleta(){
   const arq = new File([z], nome, {type: 'application/zip'});
   F.config = F.config || {}; F.config.ultimaCopia = new Date().toISOString(); EXPORTADO = true;
   try { gravaRegistroJa(); } catch (e){}
-  const info = (F.dia.pontos || []).length + ' ponto(s) do dia, ' + nf + ' imagem(ns), '
+  const info = (F.dia.pontos || []).length + ' ponto(s) do dia, ' + nf + ' imagem(ns), ' + nt + ' trilha(s) de dias arquivados, '
     + Math.round(z.size / 1e5) / 10 + ' MB';
   if (navigator.canShare && navigator.canShare({files: [arq]})){
     try { await navigator.share({files: [arq], title: nome, text: 'Cópia da folha de coleta — ' + info});
@@ -5989,6 +6001,7 @@ async function pacoteDistribuicao(){
   }
   baixa(nome, arq); marca('pacote para outra equipe gravado (' + Math.round(z.size / 1e4) / 100 + ' MB)');
 }
+let RESTAURO_TRILHAS = 0;
 async function restauraCopia(file){
   const L = await lerZip(file);
   const r = L.find(f => f.name === 'registro.json');
@@ -6002,6 +6015,12 @@ async function restauraCopia(file){
   const t = L.find(f => f.name === 'trajetos.json');
   if (t){ const tv = JSON.parse(await t.text());
           await _txTraj('readwrite', l => l.put(tv, 'trajetos')); await carregaTrajetos(); }
+  let nt = 0;
+  for (const f of L.filter(x => /^trilha_[\w-]+\.json$/.test(x.name))){        // lerZip devolve só o nome, sem a pasta trilhas/
+    try { const tid = f.name.slice(0, -5), T = JSON.parse(await f.text());
+          if (Array.isArray(T)){ const v = await cofrePara(T); await _txTraj('readwrite', l => l.put(v, tid)); nt++; } } catch (e){}
+  }
+  RESTAURO_TRILHAS = nt;
   return j;
 }
 $('#b_fig').addEventListener('click', mandaFigura);
@@ -6184,7 +6203,13 @@ $('#f_abrir').addEventListener('change', async e => {
       TRILHA = F.dia.trilha; delete F.dia.trilha;
       F.dia.trilha_id = 'trilha_' + Date.now(); guardaTrilha(true);
     } else carregaTrilha();
-    monta(); grava(); pintaAlvos(); marca('cópia completa restaurada');
+    monta(); grava(); clearTimeout(TIMER); try { gravaRegistroJa(); } catch (e){} pintaAlvos();
+    const semMapa = !((await mapaChaves().catch(() => [])) || []).some(k => String(k).startsWith('area:'));
+    const ntr = RESTAURO_TRILHAS;
+    marca('cópia completa restaurada: ' + (F.dias || []).length + ' dia(s) arquivado(s), ' + (F.dia.pontos || []).length + ' ponto(s) no dia, '
+      + ntr + ' trilha(s) de dias arquivados'
+      + (!ntr && (F.dias || []).some(d => d.trilha_id) ? ' (cópia feita antes de 08/11: as trilhas dos dias arquivados não vinham nela; faça outra cópia no celular)' : '')
+      + (semMapa && modoEquipe() ? ' — o mapa da área não vem na cópia: abra a folha da equipe (Abrir a folha da equipe) para trazê-lo' : ''));
     return;
   }
   try { j = JSON.parse(await f.text()); } catch (err){ marca('arquivo ilegível'); return; }
@@ -10133,7 +10158,7 @@ function montaTelaNav(){
   d.id = 'nav'; d.className = 'naoimprime oculto';
   d.innerHTML =
     '<div class="topo"><button type="button" class="btn sec" data-n="ant" aria-label="ponto anterior">‹</button>'
-    + '<b data-n="titulo"></b>'
+    + '<span class="titsel"><b data-n="titulo"></b><i>▾</i><select data-n="irponto" aria-label="ir direto a um ponto" title="escolher o ponto pela numeração"></select></span>'
     + '<button type="button" class="btn sec" data-n="prox" aria-label="próximo ponto">›</button>'
     + '<button type="button" class="btn sec" data-n="cheia" aria-label="tela cheia, deitada">⛶</button>'
     + '<button type="button" class="btn sec" data-n="fecha">Fechar</button></div>'
@@ -10185,6 +10210,9 @@ function montaTelaNav(){
     desenhaNav();
   });
   q('bussola').addEventListener('click', alternaBussola);
+  q('irponto').addEventListener('change', e => { const v = e.target.value; if (v === '') return;
+    if (NAV.volta) NAV.volta = false;
+    NAV.i = +v; NAV.dz = 0; NAV.opc = 1; NAV.chegouAviso = false; NAV.panCen = null; desenhaNav(); });
   q('traj').addEventListener('click', () => {
     const L = trajetosNav(alvoNav());
     if (!L.length) return;
@@ -10712,6 +10740,9 @@ function desenhaNav(){
     q('titulo').textContent = (pk >= 0 ? 'plano ' + (pk + 1) + '/' + F.dia.plano.paradas.length : (NAV.i + 1) + '/' + A.length)
       + ' · ' + a.id + papel
       + (at && !at.includes(a.id) ? ' · círculo já atendido (' + at.join(', ') + ')' : ''); }
+  { const si = q('irponto'), chave = (volta ? 'h' : NAV.i) + '|' + Object.keys(ocupacoes()).length;
+    if (si && si.dataset.k !== chave){ si.dataset.k = chave;
+      si.innerHTML = (volta ? '<option value="" selected>Hospedagem</option>' : '') + opcoesPontos(volta ? -1 : NAV.i); } }
   const P = NAV.pos;
   const g = P ? geodInversa(P.lat, P.lon, a.lat, a.lon) : null;
   const perto = g && g.s <= Math.max(volta ? 60 : 15, P.acc || 0);
@@ -11593,9 +11624,13 @@ function pintaHoje(){
     + '<button type="button" class="btn sec" data-h="perto">Navegar ao pendente mais perto</button>';
   const fim = !pEm && D && D.ids.length && !prox && !D.pend;
   if (fim && hospedagemDoPlano()) h += '<button type="button" class="btn prox" data-h="hosp">Voltar à hospedagem</button>';
+  h += '<label class="c" for="hoje_ir" style="margin-top:8px">Ir direto a um ponto (ordem da numeração)</label>'
+    + '<select id="hoje_ir"><option value="">escolha o ponto…</option>' + opcoesPontos(-1) + '</select>';
   h += '<div class="acoes"><button type="button" class="btn sec peq" data-h="lista">Todos os pontos e o mapa</button>'
     + (!fim && hospedagemDoPlano() ? '<button type="button" class="btn sec peq" data-h="hosp">Voltar à hospedagem</button>' : '') + '</div>';
   el.innerHTML = h;
+  const hi = el.querySelector('#hoje_ir');
+  if (hi) hi.addEventListener('change', () => { if (hi.value !== '') abreNav(+hi.value); });
   el.onclick = e => { const b = e.target.closest('[data-h]'); if (!b) return;
     const o = b.dataset.h;
     if (o === 'volta') return focoPonto(kEm);
@@ -11604,6 +11639,38 @@ function pintaHoje(){
     if (o === 'hosp') return abreNavHospedagem();
     if (o === 'lista'){ const bl = $('#bloco_alvos'); bl.open = true; bl.scrollIntoView({behavior: 'smooth'}); }
   };
+}
+/* Seletor direto de ponto (08/11/2026): a lista em ordem de numeração, sem procurar no plano de cada
+   dia. Um item por círculo: a opção em aberto (A, ou a B/C/D reaberta), ou a que atendeu o círculo;
+   pontos sem círculo, um a um. Grupos: pendentes da equipe, atendidos, de outras equipes. */
+function opcoesPontos(sel){
+  const A = F.campanha.alvos || [], oc = ocupacoes(), at = circulosAtendidos(), vivo = _vivo(), EQ = equipeDoPlano();
+  const pend = [], feitos = [], outros = [], vistos = new Set();
+  const ord = A.map((a, i) => ({a: a, i: i})).sort((x, y) => String(x.a.id).localeCompare(String(y.a.id), 'pt-BR', {numeric: true}));
+  for (const {a, i} of ord){
+    const c = circuloDe(a.id), chave = c ? 'c' + c : 'p' + a.id;
+    if (vistos.has(chave)) continue;
+    let alvo = null, st = '';
+    if (c){
+      const L = ord.filter(x => circuloDe(x.a.id) === c);
+      if (at[c]){ const o = L.find(x => oc[x.a.id]); alvo = o || L[0]; st = '✓ ' + (o ? o.a.id : 'atendido'); }
+      else { const o = L.find(x => vivo(x.a)) || L.find(x => opcaoDe(x.a.id) === 'A') || L[0]; alvo = o; st = opcaoDe(o.a.id) !== 'A' ? 'opção ' + opcaoDe(o.a.id) : ''; }
+    } else { alvo = {a: a, i: i}; st = oc[a.id] ? '✓' : ''; }
+    vistos.add(chave);
+    const q = c ? equipeDaChave('c' + c) : equipeDaChave('p' + a.id);
+    let quando = '';
+    if (q && q.dia){ const pc = F.campanha.planoCampanha, D = pc && datasDoPlano(pc, q.e.dias.length, q.e);
+      quando = D && D[q.dia - 1] ? _dataBR(_isoDia(D[q.dia - 1])) : 'dia ' + q.dia; }
+    else if (q && q.e && q.e.sobra) quando = 'sobra';
+    const rot = (c || a.id) + (st ? ' · ' + st : '') + (quando ? ' · ' + quando : '') + (alvo.a.municipio ? ' · ' + alvo.a.municipio : '');
+    const op = '<option value="' + alvo.i + '"' + (alvo.i === sel ? ' selected' : '') + '>' + esc(rot) + '</option>';
+    if (EQ && q && q.e !== EQ) outros.push(op);
+    else if ((c && at[c]) || (!c && oc[a.id])) feitos.push(op);
+    else pend.push(op);
+  }
+  return (pend.length ? '<optgroup label="' + (EQ ? 'Pendentes da ' + esc(EQ.nome) : 'Pendentes') + ' (' + pend.length + ')">' + pend.join('') + '</optgroup>' : '')
+    + (feitos.length ? '<optgroup label="Atendidos (' + feitos.length + ')">' + feitos.join('') + '</optgroup>' : '')
+    + (outros.length ? '<optgroup label="De outras equipes (' + outros.length + ')">' + outros.join('') + '</optgroup>' : '');
 }
 function proximoNavegar(p){
   const A = F.campanha.alvos || [], vivo = _vivo();
@@ -11767,10 +11834,16 @@ function _desdeRedist(){
   try { datasDoDia(F.dia).forEach(x => { if (x.data) L.push(x.data); }); } catch (e){}
   return L.sort().pop() || null;
 }
-function datasRestantes(pc, e){
+/* datas de campo pela frente, pelo calendário; a equipe pode dizer até quando vai coletar
+   (F.campanha.redist_fim): pedido de 08/11/2026 — a quinta, véspera da volta, ficava sempre no plano */
+function _datasCandidatas(pc, e){
   const c = (pc && pc.calendario) || {}, PE = periodoCampanha(c), desde = _desdeRedist(), hoje = _isoLocal(Date.now());
   const L = PE ? PE.plano.slice() : _datasEquipeIso(pc, e).filter(Boolean);
   return L.filter(iso => (!desde || iso > desde) && iso >= hoje);
+}
+function datasRestantes(pc, e){
+  const L = _datasCandidatas(pc, e), fim = F.campanha.redist_fim;
+  return fim && L.includes(fim) ? L.filter(iso => iso <= fim) : L;
 }
 function pendentesDaEquipe(e){
   return unidadesPendentes().filter(u => { const q = equipeDaChave(u.k); return q && q.e === e; });
@@ -11945,12 +12018,17 @@ function pintaRedist(){
   if (R.motivo){ el.innerHTML = h + '<p class="leg">' + esc(R.motivo) + '.</p>'; return; }
   const pc = R.pc, e = R.e, datas = R.datas, U = R.U, Q = _paramRedist(pc);
   if (REDIST && REDIST.equipe !== e.nome) REDIST = null;
+  const cand = _datasCandidatas(pc, e), fimSel = F.campanha.redist_fim && cand.includes(F.campanha.redist_fim) ? F.campanha.redist_fim : '';
   h += '<p class="leg">Com o dia fechado, a folha refaz os dias que faltam da <b>' + esc(e.nome) + '</b> com os círculos ainda pendentes '
     + '(também os que ficaram de dias anteriores), nas datas do plano até ' + (datas.length ? _ddmm(_diaDe(datas[datas.length - 1])) : 'o fim da campanha')
     + ', pela jornada: ' + Q.jornada + ' h de campo, ' + Q.ocup + ' min por ponto, até ' + Q.xMax + ' pontos por dia e o carro pelos tempos do OSRM. '
     + 'Nada muda sem o seu aceite. Precisa de internet.</p>'
     + '<p class="leg"><b>' + U.length + '</b> círculo(s) pendente(s) · <b>' + datas.length + '</b> dia(s) de campo pela frente'
-    + (datas.length ? ' (' + datas.map(x => _ddmm(_diaDe(x))).join(', ') + ')' : '') + '.</p>';
+    + (datas.length ? ' (' + datas.map(x => _ddmm(_diaDe(x))).join(', ') + ')' : '') + '.</p>'
+    + (cand.length > 1 ? '<label class="c" for="redist_fim">Último dia de coleta</label><select id="redist_fim">'
+      + cand.map((iso, j) => '<option value="' + (j === cand.length - 1 ? '' : iso) + '"' + ((j === cand.length - 1 ? !fimSel : iso === fimSel) ? ' selected' : '') + '>'
+        + _ddmm(_diaDe(iso)) + (j === cand.length - 1 ? ' — fim do calendário' : '') + (pc.retorno && pc.retorno.vesp === iso ? ' (véspera da volta)' : '') + '</option>').join('')
+      + '</select><p class="leg">Os dias depois dele saem do plano refeito; o que não couber fica como sobra.</p>' : '');
   if (REDIST) h += htmlPropostaRedist(REDIST, pc, e)
     + '<div class="acoes"><button type="button" class="btn peq so_rede" id="b_redist_ok">Aceitar e gerar as rotas</button>'
     + '<button type="button" class="btn sec peq" id="b_redist_nao">Manter o plano atual</button></div>';
@@ -11964,6 +12042,9 @@ function pintaRedist(){
   const b2 = $('#b_redist_ok'); if (b2) b2.addEventListener('click', aceitaRedist);
   const b3 = $('#b_redist_nao'); if (b3) b3.addEventListener('click', () => { REDIST = null; pintaRedist(); marca('plano mantido'); });
   const b4 = $('#b_redist_csv'); if (b4) b4.addEventListener('click', enviaCsvRedist);
+  const sf = $('#redist_fim'); if (sf) sf.addEventListener('change', () => {
+    F.campanha.redist_fim = sf.value || ''; REDIST = null; grava(); pintaRedist();
+    marca(sf.value ? 'redistribuição até ' + _ddmm(_diaDe(sf.value)) : 'redistribuição até o fim do calendário'); });
 }
 
 /* ---------- montagem ---------- */
@@ -13448,7 +13529,7 @@ const QR = (() => {
    Quick Share. Aqui: o QR que abre a página já no ponto (com a declinação WMM2025) e a entrada
    dos arquivos, pelo nome ou, sem nome, pela ordem do horário da câmera. */
 const URL_SITE = 'https://coleta-campo.github.io/folha-coleta-ggc/';
-function _idsDoPonto(p){ return [p.id, chaveOcup(p), p.planejado && p.planejado.id].filter(Boolean).map(x => String(x).toUpperCase()); }
+function _idsDoPonto(p){ return [...new Set([p.planejado && p.planejado.id, chaveOcup(p), p.id].filter(Boolean).map(x => String(x).toUpperCase()))]; }
 function urlFotosPonto(p){
   const base = /^https:$/.test(location.protocol) && /github\.io$/.test(location.hostname) ? location.href.replace(/[^/]*$/, '') : URL_SITE;
   const lugar = (p.lat != null && p.lon != null) ? p : (p.chegada || p.planejado || null), d = _decl(lugar);
@@ -15043,16 +15124,18 @@ async function figuraTrechosDia(d){
   const c = document.createElement('canvas'); c.width = W; c.height = Hm + Hl;
   const x = c.getContext('2d');
   x.fillStyle = '#fff'; x.fillRect(0, 0, W, c.height);
-  // fundo: blocos do OSM; sem eles, as vias do OSM guardadas no aparelho
+  /* fundo: o mapa de ruas da Esri (World Street Map), o mesmo serviço já usado nos croquis; sem rede, as vias
+     do OSM guardadas no aparelho. 08/11/2026: os blocos de tile.openstreetmap.org saíam "403 Access blocked" —
+     a política de uso do OSM recusa página aberta como arquivo (sem identificação), e eles nem são para isso. */
   x.fillStyle = '#F2EFE9'; x.fillRect(0, 0, W, Hm);
   let credito = '';
   let n = 0;
   if (navigator.onLine){
     const tw = Math.ceil(W / f), th = Math.ceil(Hm / f), tc = document.createElement('canvas'); tc.width = tw; tc.height = th;
-    n = await mosaico(tc.getContext('2d'), OSM_TILES.url, cen.lat, cen.lon, z, tw, th, 0, 0);
+    n = await mosaico(tc.getContext('2d'), SRV_MAPA.url, cen.lat, cen.lon, Math.min(z, SRV_MAPA.zmax), tw, th, 0, 0);
     if (n){ x.imageSmoothingQuality = 'high'; x.drawImage(tc, 0, 0, W, Hm); }
   }
-  if (n) credito = 'Fundo: OpenStreetMap ' + OSM_TILES.credito + ' (ODbL)';
+  if (n) credito = 'Fundo: Esri World Street Map — ' + SRV_MAPA.credito;
   else if (VIAS.length){
     const o0 = Math.min(...lons) - 0.05, l0 = Math.max(...lons) + 0.05, s0 = Math.min(...lats) - 0.05, n0 = Math.max(...lats) + 0.05;
     const grande = /^(motorway|trunk|primary|secondary)/;
@@ -16175,14 +16258,25 @@ async function atualizaPlanoKit(kit, tem){
   F.config.equipePlano = kit.equipe.i;
   if (kit.servidor && kit.servidor.url) F.config.servidor = {url: kit.servidor.url, chave: kit.servidor.chave || '',
     lc: kit.servidor.lc || '', equipe: kit.servidor.equipe || '', ultimoEnvio: (F.config.servidor || {}).ultimoEnvio};
-  try { await mapaLimpa(); for (const [k, v] of kit.mapa || []) await mapaPoeUm(k, v); } catch (e){ marca('mapa: ' + e.message); }
-  try { await blocoLimpa(); for (const [k, v] of kit.blocos || []){ const bl = _deURL(v); if (bl) await blocoPoe(k, bl); } } catch (e){}
-  // só a chave 'trajetos' muda: o mesmo armazém guarda as TRILHAS gravadas nos dias, que ficam
-  try { await _txTraj('readwrite', l => kit.trajetos ? l.put(kit.trajetos, 'trajetos') : l.delete('trajetos')); } catch (e){}
+  await _kitMapa(kit, false);
   grava(); await carregaArea(); await contaBlocos(); await carregaTrajetos(); monta();
   const n = (F.campanha.alvos || []).length;
   setTimeout(() => marca('plano da ' + kit.equipe.nome + ' atualizado: ' + n + ' pontos planejados; a coleta deste aparelho foi mantida'), 700);
   return true;
+}
+/* Mapa da área, blocos de imagem e trechos de acesso da folha da equipe, com o andamento na tela
+   (sem ele, a carga longa parecia travada). limpaTraj: só na folha nova; na atualização e na
+   reposição, as TRILHAS gravadas nos dias, que moram no mesmo armazém, ficam. */
+async function _kitMapa(kit, limpaTraj){
+  const M = kit.mapa || [], nome = kit.equipe.nome;
+  try { await mapaLimpa();
+        for (let i = 0; i < M.length; i++){ await mapaPoeUm(M[i][0], M[i][1]);
+          if (i % 10 === 9 || i === M.length - 1) marca('preparando a folha da ' + nome + ': mapa da área ' + (i + 1) + ' de ' + M.length + '…'); } }
+  catch (e){ marca('mapa: ' + e.message); }
+  try { await blocoLimpa(); for (const [k, v] of kit.blocos || []){ const bl = _deURL(v); if (bl) await blocoPoe(k, bl); } } catch (e){}
+  marca('preparando a folha da ' + nome + ': trechos de acesso…');
+  try { if (limpaTraj) await _txTraj('readwrite', l => l.clear());
+        await _txTraj('readwrite', l => kit.trajetos ? l.put(kit.trajetos, 'trajetos') : l.delete('trajetos')); } catch (e){}
 }
 function kitDeHTML(txt){
   const m = String(txt).match(/<script type="application\/json" id="kit_dados">([\s\S]*?)<\/script>/);
@@ -16197,7 +16291,20 @@ async function aplicaKit(kitDoArquivo){
   let kit = kitDoArquivo;
   if (!kit) try { kit = JSON.parse(KIT_EL.textContent); } catch (e){ marca('folha da equipe ilegível: ' + e.message); return false; }
   if (F.config && F.config.kit && F.config.kit.id === kit.id){                     // já aplicada neste aparelho
-    if (kitDoArquivo) marca('a folha da ' + kit.equipe.nome + ' já está aberta neste aparelho');
+    /* 08/11/2026: restaurada a cópia completa noutro aparelho (notebook), o plano vem na cópia, mas o
+       mapa da área não (é grande) — e a folha da equipe, aberta depois, dizia só "já está aberta".
+       Agora, se faltam o mapa ou os trechos, eles vêm da folha; a coleta não muda. */
+    if (kitDoArquivo){
+      const temMapa = ((await mapaChaves().catch(() => [])) || []).some(k => String(k).startsWith('area:'));
+      const falta = (!temMapa && (kit.mapa || []).length) || (!Object.keys(TRAJ).length && kit.trajetos);
+      if (falta){
+        await _kitMapa(kit, false);
+        grava(); await carregaArea(); await contaBlocos(); await carregaTrajetos(); monta();
+        setTimeout(() => marca('mapa da área e trechos da ' + kit.equipe.nome + ' trazidos para este aparelho; a coleta foi mantida'), 700);
+        return true;
+      }
+      marca('a folha da ' + kit.equipe.nome + ' já está aberta neste aparelho, com o mapa');
+    }
     return false;
   }
   const tem = (F.dias || []).length || (F.dia.pontos || []).length;
@@ -16215,9 +16322,7 @@ async function aplicaKit(kitDoArquivo){
     lc: kit.servidor.lc || '', equipe: kit.servidor.equipe || ''};
   F.dia.data = new Date().toISOString().slice(0, 10); F.dia.data_auto = true;
   try { await idbLimpa(); } catch (e){}
-  try { await mapaLimpa(); for (const [k, v] of kit.mapa || []) await mapaPoeUm(k, v); } catch (e){ marca('mapa: ' + e.message); }
-  try { await blocoLimpa(); for (const [k, v] of kit.blocos || []){ const bl = _deURL(v); if (bl) await blocoPoe(k, bl); } } catch (e){}
-  try { await _txTraj('readwrite', l => l.clear()); if (kit.trajetos) await _txTraj('readwrite', l => l.put(kit.trajetos, 'trajetos')); } catch (e){}
+  await _kitMapa(kit, true);
   grava(); await carregaArea(); await contaBlocos(); await carregaTrajetos(); monta();
   const n = (kit.registro.campanha.alvos || []).length;
   setTimeout(() => marca('folha da ' + kit.equipe.nome + ' pronta neste aparelho: ' + n + ' pontos, '
@@ -16240,7 +16345,28 @@ function aplicaModo(){
   }
 }
 
+/* Uma aba só (08/11/2026). Duas abas da folha no mesmo navegador (ou dois arquivos .html abertos,
+   que no Chrome dividem o mesmo armazenamento) gravam uma por cima da outra: uma folha de equipe
+   aberta numa aba trocava a da outra, que ao recarregar refazia "preparando a folha…" sem fim.
+   Ao abrir, a folha pergunta às outras abas (BroadcastChannel); havendo outra, as duas avisam. */
+function vigiaAbas(){
+  if (MODO_PLAN || typeof BroadcastChannel === 'undefined') return;
+  const eu = Math.random().toString(36).slice(2), bc = new BroadcastChannel(CHAVE + '_abas');
+  const aviso = () => {
+    if (document.getElementById('aviso_abas')) return;
+    const d = document.createElement('div'); d.id = 'aviso_abas';
+    d.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:80;background:#B91C1C;color:#fff;padding:12px 14px;font:600 16px/1.35 system-ui,sans-serif;text-align:center';
+    d.innerHTML = 'A folha está aberta em <b>outra aba</b> deste navegador (ou outro arquivo da folha está aberto). Duas abas gravam uma por cima da outra '
+      + 'e trocam a folha da equipe. <b>Feche as outras abas da folha</b> e recarregue esta (F5).';
+    document.body.appendChild(d);
+  };
+  bc.onmessage = e => { const m = e.data || {}; if (m.de === eu) return;
+    if (m.t === 'ola'){ bc.postMessage({t: 'aqui', de: eu}); aviso(); }
+    if (m.t === 'aqui') aviso(); };
+  bc.postMessage({t: 'ola', de: eu});
+}
 async function inicia(){
+  try { vigiaAbas(); } catch (e){}
   if (MODO_PLAN) montaPlanejador();
   if (COFRE.ativo){
     if (!(window.crypto && crypto.subtle)){ marca('este navegador não tem criptografia: abra a folha no Chrome atualizado'); return; }

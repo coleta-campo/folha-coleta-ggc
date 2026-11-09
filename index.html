@@ -667,6 +667,24 @@ você cabe o que nenhum arquivo registra.</p>
       </div>
       <p class="leg" id="traj_estado"></p>
       <p class="leg" id="area_estado"></p>
+      <div class="acoes"><button type="button" class="btn sec peq" id="b_xyz">Camadas do projeto QGIS (notebook)</button></div>
+      <p class="leg" id="xyz_estado"></p>
+      <details class="ajuda">
+        <summary>Camadas do projeto QGIS no notebook: a imagem original e o que mais quiser</summary>
+        <p>No notebook cabe o que o celular não carrega: a <b>imagem original</b> inteira e as demais camadas do
+        projeto QGIS (vetores, rótulos, outras imagens), com a simbologia do projeto. No QGIS, deixe visíveis as
+        camadas que quer levar e rode <b>Processamento &gt; Ferramentas raster &gt; Gerar blocos XYZ
+        (Diretório)</b>: extensão da área da campanha (ou da camada de pontos, com margem); zoom mínimo 12;
+        zoom máximo o do pixel da imagem (18 para 60 cm, 21 para 5 cm de ARP); formato JPG para imagem e PNG
+        para vetores sobre transparência; sem marcar o eixo y invertido (se marcar, a folha percebe). Depois,
+        aqui, <b>Camadas do projeto QGIS</b> e escolha a pasta gerada (a que tem as subpastas 12, 13, …).</p>
+        <p>A folha lê os blocos direto da pasta, sem copiar. No Chrome e no Edge do computador, a pasta fica
+        lembrada; ao reabrir a folha, toque em <b>Reativar</b> para o navegador liberar a leitura de novo. Pode
+        escolher mais de uma pasta: elas se sobrepõem na ordem da escolha. Perto do ponto, as camadas do projeto
+        vêm antes do recorte do mapa da área e da imagem Esri — na navegação, no croqui do relatório do ponto e
+        no do formulário do dia.</p>
+        <div class="acoes"><button type="button" class="btn sec peq" id="b_xyz_tira">Esquecer as camadas do projeto QGIS</button></div>
+      </details>
       <details class="ajuda">
         <summary>O mapa da área, para usar sem rede</summary>
         <p><b>Duas fontes, as duas preparadas para você.</b> (1) O <b>pacote do
@@ -706,6 +724,7 @@ você cabe o que nenhum arquivo registra.</p>
   </details>
   <input type="file" id="f_alvos" accept=".csv,.txt,.geojson,.json,.kml,.gpx" class="oculto">
   <input type="file" id="f_traj" accept=".geojson,.json,.gpx" class="oculto">
+  <input type="file" id="f_xyz" webkitdirectory multiple class="oculto">
   <input type="file" id="f_area" accept="image/*,.pgw,.jgw,.wld,.pngw,.jpgw,.tfw,.prj,.zip,.geojson,.json" multiple class="oculto">
 
   <div class="cart naoimprime" id="cart_dias"></div>
@@ -2917,6 +2936,156 @@ async function quadroDetalheProjeto(x, f, a, lat, lon, ladoM, px, py, lado){
     + a.nome + '): ' + _numBR(g * 100, 0) + ' cm por pixel, ampliado ' + _numBR(amp, 1) + '× sem suavização.';
 }
 
+/* ---------- camadas do projeto QGIS, no notebook ----------
+   09/11/2026: no notebook cabe o que o celular não carrega — a imagem original inteira e as demais
+   camadas do projeto QGIS (vetores, rótulos, outras ortofotos), do jeito que estão simbolizadas no
+   projeto. O caminho é o do próprio QGIS: Processamento > Ferramentas raster > "Gerar blocos XYZ
+   (Diretório)", que desenha o mapa do projeto em blocos de 256 px no esquema XYZ (Web Mercator,
+   EPSG:3857), uma pasta por nível z, uma por coluna x e um arquivo por linha y. A folha lê os blocos
+   direto dessa pasta, sem copiar nada: no Chrome e no Edge do computador, a pasta escolhida fica
+   lembrada (File System Access API) e, ao reabrir a folha, um clique a reativa. Pode haver mais de uma
+   pasta (por exemplo, a ortofoto em JPG e, por cima, os vetores em PNG transparente), desenhadas na
+   ordem em que foram escolhidas. Perto do ponto elas vêm antes do recorte do mapa da área e da Esri:
+   na navegação, no croqui do relatório e no do formulário do dia. */
+let XYZ = [];                                  // [{id, nome, h | arqs, ext, zmin, zmax, tms, ok}]
+const _XYZ_T = new Map();
+async function _xyzArquivo(L, z, x, y){
+  const yy = L.tms ? Math.pow(2, z) - 1 - y : y, nome = yy + '.' + L.ext;
+  if (L.arqs) return L.arqs.get(z + '/' + x + '/' + nome) || null;
+  try { const dz = await L.h.getDirectoryHandle(String(z)), dx = await dz.getDirectoryHandle(String(x));
+        return await (await dx.getFileHandle(nome)).getFile(); } catch (e){ return null; }
+}
+/* níveis, formato e sentido do eixo y de uma pasta de blocos (handle do diretório ou lista de arquivos) */
+async function _xyzInfo(L){
+  let zs = [], ext = '';
+  if (L.arqs){ for (const k of L.arqs.keys()){ const m = k.match(/^(\d+)\/\d+\/\d+\.(\w+)$/); if (m){ zs.push(+m[1]); ext = ext || m[2].toLowerCase(); } } }
+  else {
+    for await (const [nome, e] of L.h.entries()) if (e.kind === 'directory' && /^\d+$/.test(nome)) zs.push(+nome);
+    if (zs.length){ const dz = await L.h.getDirectoryHandle(String(Math.max(...zs)));
+      fora: for await (const [, ex] of dz.entries()) if (ex.kind === 'directory') for await (const [nf, f] of ex.entries())
+        if (f.kind === 'file' && /\.(png|jpe?g|webp)$/i.test(nf)){ ext = nf.split('.').pop().toLowerCase(); break fora; } }
+  }
+  zs = [...new Set(zs)].sort((a, b) => a - b);
+  if (!zs.length || !ext) throw new Error('a pasta não tem os blocos XYZ (subpastas de nível 0 a 22, com x/y.png ou x/y.jpg dentro)');
+  L.zmin = zs[0]; L.zmax = zs[zs.length - 1]; L.ext = ext; L.tms = false;
+  // sentido do eixo y: o bloco de algum ponto planejado no nível mais fundo existe em XYZ ou em TMS?
+  const A = (F.campanha.alvos || []).slice(0, 40);
+  for (const a of A){ const c = _n(a.lat, a.lon, L.zmax), x = Math.floor(c.x), y = Math.floor(c.y);
+    if (await _xyzArquivo(Object.assign({}, L, {tms: false}), L.zmax, x, y)) break;
+    if (await _xyzArquivo(Object.assign({}, L, {tms: true}), L.zmax, x, y)){ L.tms = true; break; } }
+  return L;
+}
+/* bloco para a navegação: devolve a imagem se já está aberta; senão pede e redesenha quando chegar */
+function _tileXYZ(L, z, x, y){
+  const n = Math.pow(2, z); if (y < 0 || y >= n) return null; x = ((x % n) + n) % n;
+  const k = L.id + '/' + z + '/' + x + '/' + y;
+  let t = _XYZ_T.get(k);
+  if (!t){
+    t = {ok: false}; _XYZ_T.set(k, t);
+    _xyzArquivo(L, z, x, y).then(f => { if (!f){ t.falha = true; return; }
+      t.url = URL.createObjectURL(f); const im = new Image();
+      im.onload = () => { t.im = im; t.ok = true; pedeQuadro(); }; im.onerror = () => { t.falha = true; }; im.src = t.url; });
+    if (_XYZ_T.size > 600){ const [k0, t0] = _XYZ_T.entries().next().value; if (t0.url) URL.revokeObjectURL(t0.url); _XYZ_T.delete(k0); }
+  }
+  return t.ok ? t.im : null;
+}
+async function _imgXYZ(L, z, x, y){
+  const f = await _xyzArquivo(L, z, x, y); if (!f) return null;
+  const u = URL.createObjectURL(f), im = await _abreImagem(u); URL.revokeObjectURL(u); return im;
+}
+const xyzAtivas = () => XYZ.filter(L => L.ok);
+/* A janela de mosaico() desenhada com as camadas do projeto QGIS; só vale se alguma tem o bloco do centro. */
+async function mosaicoXYZ(ctx, lat, lon, z, W, Hc, cx, cy){
+  const LL = xyzAtivas().filter(L => z >= L.zmin); if (!LL.length) return null;
+  const usadas = [];
+  let base = false;
+  for (const L of LL){
+    const zt = Math.min(z, L.zmax), k = Math.pow(2, z - zt), c = _n(lat, lon, zt);
+    const px = c.x * TB, py = c.y * TB, R = Math.hypot(W, Hc) / 2 / k;
+    const i0 = Math.floor((px - R) / TB), i1 = Math.floor((px + R) / TB), j0 = Math.floor((py - R) / TB), j1 = Math.floor((py + R) / TB);
+    const blocos = [];
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) blocos.push(_imgXYZ(L, zt, i, j).then(im => ({im, i, j})));
+    const R2 = await Promise.all(blocos);
+    const tem = R2.some(b => b.im && b.i === Math.floor(c.x) && b.j === Math.floor(c.y));
+    if (!tem && !base) continue;
+    if (!base){ ctx.save(); ctx.beginPath(); ctx.rect(cx, cy, W, Hc); ctx.clip(); ctx.fillStyle = '#E5E7EB'; ctx.fillRect(cx, cy, W, Hc); ctx.restore(); base = true; }
+    ctx.save(); ctx.beginPath(); ctx.rect(cx, cy, W, Hc); ctx.clip(); ctx.imageSmoothingEnabled = k <= 1;
+    for (const b of R2) if (b.im) ctx.drawImage(b.im, cx + W / 2 + (b.i * TB - px) * k, cy + Hc / 2 + (b.j * TB - py) * k, TB * k + 0.5, TB * k + 0.5);
+    ctx.restore();
+    usadas.push({nome: L.nome, z: zt});
+  }
+  return base ? {nomes: usadas.map(u => u.nome), z: Math.max(...usadas.map(u => u.z)), L: LL} : null;
+}
+/* Quadro de detalhe sobre as camadas do projeto: o nível mais fundo, em pixels nativos, ampliado sem suavizar. */
+async function quadroDetalheXYZ(x, f, lat, lon, ladoM, px, py, lado){
+  const zf = Math.max(...xyzAtivas().map(L => L.zmax)), g = gsd(lat, zf);
+  const npx = Math.max(8, Math.round(ladoM / g)), amp = lado / npx;
+  const fora = document.createElement('canvas'); fora.width = fora.height = npx;
+  const r = await mosaicoXYZ(fora.getContext('2d'), lat, lon, zf, npx, npx, 0, 0); if (!r) return null;
+  x.save(); x.beginPath(); x.rect(px, py, lado, lado); x.clip(); x.imageSmoothingEnabled = amp < 1;
+  x.drawImage(fora, 0, 0, npx, npx, px, py, lado, lado); x.restore(); fora.width = fora.height = 1;
+  x.strokeStyle = '#FFFFFF'; x.lineWidth = 3; x.strokeRect(px - 1.5, py - 1.5, lado + 3, lado + 3);
+  x.strokeStyle = '#26333A'; x.lineWidth = 1; x.strokeRect(px - 3.5, py - 3.5, lado + 7, lado + 7);
+  const cx = px + lado / 2, cy = py + lado / 2;
+  const cruz = () => { x.beginPath(); x.moveTo(cx - 16, cy); x.lineTo(cx - 5, cy); x.moveTo(cx + 5, cy); x.lineTo(cx + 16, cy);
+    x.moveTo(cx, cy - 16); x.lineTo(cx, cy - 5); x.moveTo(cx, cy + 5); x.lineTo(cx, cy + 16); x.stroke(); };
+  x.strokeStyle = 'rgba(255,255,255,0.95)'; x.lineWidth = 4.5; cruz(); x.strokeStyle = '#C01616'; x.lineWidth = 1.8; cruz();
+  const hf = 34; x.fillStyle = 'rgba(255,255,255,0.92)'; x.fillRect(px, py + lado - hf, lado, hf);
+  f(12, '700'); x.fillStyle = C.ESC; x.fillText('DETALHE  ' + _numBR(ladoM) + ' × ' + _numBR(ladoM) + ' m', px + 8, py + lado - hf + 14);
+  f(11); x.fillStyle = C.CZ;
+  x.fillText('projeto QGIS · nível ' + zf + ' · ' + _numBR(g * 100, 1) + ' cm/pixel · ' + (amp >= 1 ? 'ampliado ' : 'reduzido ') + _numBR(amp >= 1 ? amp : 1 / amp, 1) + '×', px + 8, py + lado - hf + 28);
+  return 'Quadro de ' + _numBR(ladoM) + ' × ' + _numBR(ladoM) + ' m centrado no ponto, sobre as camadas do projeto QGIS (' + r.nomes.join(', ')
+    + '): nível ' + zf + ', ' + _numBR(g * 100, 1) + ' cm por pixel, ' + (amp >= 1 ? 'ampliado ' : 'reduzido ') + _numBR(amp >= 1 ? amp : 1 / amp, 1) + '× sem suavização.';
+}
+/* escolher, lembrar, reativar e esquecer as pastas */
+async function escolhePastaXYZ(){
+  if (window.showDirectoryPicker){
+    let h; try { h = await window.showDirectoryPicker({id: 'blocos_qgis', mode: 'read'}); } catch (e){ if (e.name === 'AbortError') return; throw e; }
+    const L = await _xyzInfo({id: 'xyz_' + Date.now().toString(36), nome: h.name, h: h, ok: true});
+    XYZ = XYZ.filter(q => q.nome !== L.nome).concat([L]);
+    await mapaPoeUm('xyz:' + L.nome, {nome: L.nome, h: h, id: L.id, ext: L.ext, zmin: L.zmin, zmax: L.zmax, tms: L.tms, quando: new Date().toISOString()});
+    _XYZ_T.clear(); pintaXYZEstado(); try { pedeQuadro(); } catch (e){}
+    return marca('camada do projeto QGIS "' + L.nome + '": níveis ' + L.zmin + ' a ' + L.zmax + ' (' + L.ext.toUpperCase() + (L.tms ? ', eixo y TMS' : '') + ') — lembrada neste computador');
+  }
+  $('#f_xyz').click();                         // sem a API (outro navegador): a pasta vale só enquanto a folha está aberta
+}
+async function xyzDeArquivos(files){
+  const arqs = new Map(); let nome = '';
+  for (const f of files){ const r = String(f.webkitRelativePath || f.name).split('/'); nome = nome || r[0];
+    const m = r.slice(-3).join('/'); if (/^\d+\/\d+\/\d+\.\w+$/.test(m)) arqs.set(m, f); }
+  const L = await _xyzInfo({id: 'xyz_' + Date.now().toString(36), nome: nome || 'blocos', arqs: arqs, ok: true});
+  XYZ = XYZ.filter(q => q.nome !== L.nome).concat([L]); _XYZ_T.clear(); pintaXYZEstado(); try { pedeQuadro(); } catch (e){}
+  marca('camada do projeto QGIS "' + L.nome + '": ' + arqs.size + ' blocos, níveis ' + L.zmin + ' a ' + L.zmax + ' — só enquanto a folha estiver aberta (este navegador não lembra pastas)');
+}
+async function carregaXYZ(){
+  const ks = ((await mapaChaves().catch(() => [])) || []).filter(k => String(k).startsWith('xyz:'));
+  const L = [];
+  for (const k of ks){ const m = await mapaPegaUm(k).catch(() => null); if (!m || !m.h) continue;
+    let ok = false; try { ok = (await m.h.queryPermission({mode: 'read'})) === 'granted'; } catch (e){}
+    L.push(Object.assign({}, m, {ok: ok})); }
+  XYZ = L.concat(XYZ.filter(q => q.arqs)); pintaXYZEstado();
+}
+async function reativaXYZ(){
+  let n = 0;
+  for (const L of XYZ) if (!L.ok && L.h){ try { L.ok = (await L.h.requestPermission({mode: 'read'})) === 'granted'; } catch (e){} if (L.ok) n++; }
+  _XYZ_T.clear(); pintaXYZEstado(); try { pedeQuadro(); } catch (e){}
+  marca(n ? n + ' camada(s) do projeto QGIS reativada(s)' : 'nenhuma camada reativada (o navegador não deu acesso à pasta)');
+}
+async function esqueceXYZ(){
+  for (const k of ((await mapaChaves().catch(() => [])) || []).filter(k => String(k).startsWith('xyz:'))) await _txMapa('readwrite', l => l.delete(k));
+  XYZ = []; _XYZ_T.clear(); pintaXYZEstado(); try { pedeQuadro(); } catch (e){} marca('camadas do projeto QGIS esquecidas neste computador (as pastas continuam no disco)');
+}
+function pintaXYZEstado(){
+  const e = $('#xyz_estado'); if (!e) return;
+  if (!XYZ.length){ e.innerHTML = 'Nenhuma camada do projeto QGIS neste computador.'; return; }
+  const inat = XYZ.filter(L => !L.ok).length;
+  e.innerHTML = 'Camadas do projeto QGIS: ' + XYZ.map(L => '<b>' + esc(L.nome) + '</b> (níveis ' + L.zmin + '–' + L.zmax + ', ' + esc(String(L.ext).toUpperCase())
+      + (L.ok ? '' : ', <span style="color:#B91C1C">inativa</span>') + ')').join(' · ')
+    + (inat ? ' <button type="button" class="btn peq" id="b_xyz_reativa">Reativar</button>' : '');
+  const b = $('#b_xyz_reativa'); if (b) b.addEventListener('click', () => reativaXYZ());
+  const nb = NAV && NAV.el ? NAV.el.querySelector('[data-n="xyz"]') : null; if (nb) nb.style.display = inat ? '' : 'none';
+}
+
 /* ---------- o relatório do ponto ----------
    O PRODUTO é o relatório do ponto; o croqui é a parte cartográfica dele, ao
    lado da situação, da posição no Brasil, da ficha do rastreio, da descrição
@@ -3003,14 +3172,16 @@ async function montaRelatorio(p){
   const y1 = M + 100, hm = cpp ? 640 - (36 + Math.ceil(Object.keys(cpp).length / 4) * 21 + 14) : 640;
   const zP = Math.min(SRV_DETALHE.zmax || 19, 18);
   /* a imagem do projeto primeiro (é nela que a posição se avalia); a Esri só sem ela */
-  const proj = await mosaicoProjeto(x, p.lat, p.lon, zP, larg, hm, M, y1).catch(() => null);
-  if (proj) srv = {nome: IMG_PROJETO.nome, credito: proj.area.nome + ', ' + _numBR(resDaArea(proj.area, p.lat) * 100, 0) + ' cm/pixel'};
-  const nP = proj ? 1 : await mosaico(x, srv.url, p.lat, p.lon, zP, larg, hm, M, y1);
+  const pxyz = await mosaicoXYZ(x, p.lat, p.lon, zP, larg, hm, M, y1).catch(() => null);
+  const proj = pxyz ? null : await mosaicoProjeto(x, p.lat, p.lon, zP, larg, hm, M, y1).catch(() => null);
+  if (pxyz) srv = {nome: 'Camadas do projeto QGIS (' + pxyz.nomes.join(' + ') + ')', credito: 'blocos XYZ gerados do projeto, nível ' + pxyz.z};
+  else if (proj) srv = {nome: IMG_PROJETO.nome, credito: proj.area.nome + ', ' + _numBR(resDaArea(proj.area, p.lat) * 100, 0) + ' cm/pixel'};
+  const nP = pxyz || proj ? 1 : await mosaico(x, srv.url, p.lat, p.lon, zP, larg, hm, M, y1);
   x.strokeStyle = '#DCE3E5'; x.lineWidth = 1.5;
   x.strokeRect(M, y1, larg, hm);
   alvoNoMapa(x, M + larg/2, y1 + hm/2);
   rosaEescala(x, M, y1, larg, hm, p.lat, zP, p.lon, dataDoPontoRef(p));
-  _tarjaQuadro(x, f, M, y1, proj ? 'CROQUI · IMAGEM DO PROJETO' : 'CROQUI · ESRI (SEM IMAGEM DO PROJETO AQUI)');
+  _tarjaQuadro(x, f, M, y1, pxyz ? 'CROQUI · PROJETO QGIS' : proj ? 'CROQUI · IMAGEM DO PROJETO' : 'CROQUI · ESRI (SEM IMAGEM DO PROJETO AQUI)');
 
   /* Quadros de detalhe na DIAGONAL do croqui: o primeiro da lista no alto à
      esquerda, logo abaixo da tarja, e o segundo embaixo à direita. São dois
@@ -3023,7 +3194,8 @@ async function montaRelatorio(p){
     const cantos = [[M + 14, y1 + 44],
                     [M + larg - 14 - DET.lado, y1 + hm - 14 - DET.lado]];
     for (let i = 0; i < Math.min(lados.length, 2); i++){
-      const nota = proj ? await quadroDetalheProjeto(x, f, proj.area, p.lat, p.lon, lados[i], cantos[i][0], cantos[i][1], DET.lado)
+      const nota = pxyz ? await quadroDetalheXYZ(x, f, p.lat, p.lon, lados[i], cantos[i][0], cantos[i][1], DET.lado)
+                 : proj ? await quadroDetalheProjeto(x, f, proj.area, p.lat, p.lon, lados[i], cantos[i][0], cantos[i][1], DET.lado)
                         : await quadroDetalhe(x, f, srv.url, p.lat, p.lon, lados[i], cantos[i][0], cantos[i][1], DET.lado);
       if (nota) notasDetalhe.push(nota);
     }
@@ -3591,7 +3763,8 @@ async function formularioCCAR(p, o){
       x.strokeText('F' + (j + 1), tx, ty); x.fillText('F' + (j + 1), tx, ty); x.restore(); }); };
   const quadro = async (srv, z, x0, x1, rot, comFotos) => {
     const top = y + 14, hq = H - 30 - top - 30, cx = x0 + 10 + (x1 - x0 - 20) / 2, cy = top + hq / 2;
-    if (c){ try { const pj = srv === SRV_DETALHE ? await mosaicoProjeto(x, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top) : null;
+    if (c){ try { const qx = srv === SRV_DETALHE ? await mosaicoXYZ(x, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top) : null;
+      const pj = qx ? {area: {nome: 'projeto QGIS: ' + qx.nomes.join(' + ')}} : srv === SRV_DETALHE ? await mosaicoProjeto(x, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top) : null;
       if (pj) rot = rot.replace('imagem ' + SRV_DETALHE.nome, 'imagem do projeto (' + pj.area.nome + ')');
       else if (srv === SRV_DETALHE) rot = rot.replace('imagem ' + SRV_DETALHE.nome, 'imagem ' + SRV_DETALHE.nome + ' (sem imagem do projeto aqui)');
       const n = pj ? 1 : await mosaico(x, srv.url, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top);
@@ -7056,7 +7229,9 @@ function _txMapa(modo, fn){
 const mapaPoeUm = (k, v) => _txMapa('readwrite', l => l.put(v, k));
 const mapaPegaUm = k => _txMapa('readonly', l => l.get(k));
 const mapaChaves = () => _txMapa('readonly', l => l.getAllKeys());
-const mapaLimpa = () => _txMapa('readwrite', l => l.clear());
+// as pastas de blocos do projeto QGIS (chaves 'xyz:') são do computador, não do mapa da área: ficam
+const mapaLimpa = async () => { const ks = ((await mapaChaves()) || []).filter(k => !String(k).startsWith('xyz:'));
+  return _txMapa('readwrite', l => { ks.forEach(k => l.delete(k)); }); };
 // compatibilidade com o nome antigo, chamado ao começar uma folha nova
 function mapaPoe(v){ return v == null ? mapaLimpa() : Promise.resolve(); }
 
@@ -10368,6 +10543,8 @@ function montaTelaNav(){
     + '<button type="button" class="btn sec" data-n="rotaoff">Outra rota, sem internet</button>'
     + '<button type="button" class="btn sec" data-n="naomede">Não dá para medir esta opção — abrir as outras</button>'
     + '<button type="button" class="btn sec" data-n="campo">Nenhuma opção serve — escolher em campo</button>'
+    + '<button type="button" class="btn sec" data-n="perto">Ir ao pendente mais perto daqui</button>'
+    + '<button type="button" class="btn sec" data-n="xyz" style="display:none">Reativar as camadas do projeto QGIS</button>'
     + '<button type="button" class="btn sec" data-n="hosp">Voltar à hospedagem</button>'
     + '</div>';
   document.body.appendChild(d);
@@ -10397,6 +10574,9 @@ function montaTelaNav(){
   q('comeca').addEventListener('click', comecaPontoAqui);
   q('hosp').addEventListener('click', () => NAV.volta ? proximoNavegar(null) : abreNavHospedagem());
   q('bloq').addEventListener('click', marcaSemPassagem);
+  q('perto').addEventListener('click', () => navegaMaisPerto().catch(e => marca('pendente mais perto: ' + e.message)));
+  q('xyz').addEventListener('click', () => reativaXYZ());
+  q('xyz').style.display = XYZ.some(L => !L.ok) ? '' : 'none';
   q('rotaoff').addEventListener('click', calculaRotaOffline);
   q('rotanova').addEventListener('click', () => rotaNovaDaqui().catch(e => marca('nova rota: ' + e.message)));
   q('mapsdir').addEventListener('click', () => { const a = alvoNav(); if (a) abreNoMaps(a, 'direto'); });
@@ -11131,10 +11311,24 @@ function desenhaNav(){
     if (usados.length) credito = 'imagem do projeto: ' + (aProj && usados.includes(aProj.nome) ? aProj.nome.replace(/_recorte\.jpg$/i, '')
       : usados.length > 1 ? usados.length + ' imagens' : usados[0]);
   }
+  // camadas do projeto QGIS (blocos XYZ no notebook): por cima de tudo, onde houver bloco
+  NAV.nXYZ = 0;
+  if (fundo === 'auto' || fundo === 'area') for (const L of xyzAtivas()){
+    if (z < L.zmin) continue;
+    const zt = Math.min(z, L.zmax), k = Math.pow(2, z - zt), ct = _n(cen.lat, cen.lon, zt), R = Math.hypot(W, H) / 2 / k;
+    const i0 = Math.floor((ct.x * TB - R) / TB), i1 = Math.floor((ct.x * TB + R) / TB), j0 = Math.floor((ct.y * TB - R) / TB), j1 = Math.floor((ct.y * TB + R) / TB);
+    let n = 0; x.imageSmoothingEnabled = k <= 1;
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++){
+      const im = _tileXYZ(L, zt, i, j); if (!im) continue;
+      x.drawImage(im, W / 2 + (i * TB - ct.x * TB) * k, H / 2 + (j * TB - ct.y * TB) * k, TB * k + 0.5, TB * k + 0.5); n++;
+    }
+    x.imageSmoothingEnabled = true;
+    if (n){ NAV.nXYZ += n; credito = 'projeto QGIS: ' + xyzAtivas().filter(q => z >= q.zmin).map(q => q.nome).join(' + ') + ' · nível ' + zt; }
+  }
   x.restore();
   if (!volta && g && g.s <= 600){
-    if (!aProj) credito = 'SEM IMAGEM DO PROJETO NESTE PONTO — ' + (credito || 'sem fundo');
-    else if (!NAV.nArea || !usaArea) credito = 'imagem do projeto ' + (usaArea ? 'abrindo…' : 'desligada em Fundo') + ' — ' + (credito || 'sem fundo');
+    if (!aProj && !NAV.nXYZ) credito = 'SEM IMAGEM DO PROJETO NESTE PONTO — ' + (credito || 'sem fundo');
+    else if (!NAV.nXYZ && (!NAV.nArea || !usaArea)) credito = 'imagem do projeto ' + (usaArea ? 'abrindo…' : 'desligada em Fundo') + ' — ' + (credito || 'sem fundo');
   }
 
   // ruas do OpenStreetMap guardadas: por cima quando não há imagem no quadro,
@@ -11810,9 +12004,8 @@ function pintaHoje(){
   if (pEm) h += '<button type="button" class="btn prox" data-h="volta">Voltar ao ponto ' + esc(pEm.id || String(kEm + 1))
     + (pEm.ocup_ini ? ' — ocupação em curso' : ' — cartão aberto') + '</button>';
   else if (prox && !(D && D.pend != null)) h += '<button type="button" class="btn prox" data-h="nav">Navegar até ' + esc(prox.id) + '</button>';
-  else if (D && D.pend) h += '<button type="button" class="btn sec" data-h="perto">Navegar ao pendente mais perto</button>';
-  else h += '<p class="leg">' + (D && D.ids.length ? '<b>Pontos do dia concluídos.</b> ' : '') + 'Outro ponto: Todos os pontos e o mapa.</p>'
-    + '<button type="button" class="btn sec" data-h="perto">Navegar ao pendente mais perto</button>';
+  else if (!(D && D.pend)) h += '<p class="leg">' + (D && D.ids.length ? '<b>Pontos do dia concluídos.</b> ' : '') + 'Outro ponto: Todos os pontos e o mapa.</p>';
+  h += '<button type="button" class="btn sec" data-h="perto">Navegar ao pendente mais perto daqui</button>';
   const fim = !pEm && D && D.ids.length && !prox && !D.pend;
   if (fim && hospedagemDoPlano()) h += '<button type="button" class="btn prox" data-h="hosp">Voltar à hospedagem</button>';
   h += '<label class="c" for="hoje_ir" style="margin-top:8px">Ir direto a um ponto (ordem da numeração)</label>'
@@ -11826,7 +12019,7 @@ function pintaHoje(){
     const o = b.dataset.h;
     if (o === 'volta') return focoPonto(kEm);
     if (o === 'nav') return abreNav(A.indexOf(prox));
-    if (o === 'perto') return proximoNavegar(null);
+    if (o === 'perto') return navegaMaisPerto();
     if (o === 'hosp') return abreNavHospedagem();
     if (o === 'lista'){ const bl = $('#bloco_alvos'); bl.open = true; bl.scrollIntoView({behavior: 'smooth'}); }
   };
@@ -11862,6 +12055,33 @@ function opcoesPontos(sel){
   return (pend.length ? '<optgroup label="' + (EQ ? 'Pendentes da ' + esc(EQ.nome) : 'Pendentes') + ' (' + pend.length + ')">' + pend.join('') + '</optgroup>' : '')
     + (feitos.length ? '<optgroup label="Atendidos (' + feitos.length + ')">' + feitos.join('') + '</optgroup>' : '')
     + (outros.length ? '<optgroup label="De outras equipes (' + outros.length + ')">' + outros.join('') + '</optgroup>' : '');
+}
+/* Pendente mais perto DAQUI (09/11/2026: "deve estar disponível em toda ocasião"): sem olhar o plano do
+   dia, o círculo ainda não atendido mais perto da posição atual do aparelho — em cada círculo, a opção em
+   aberto (A, ou a reserva reaberta). Da equipe primeiro; sem nenhum dela, de qualquer equipe. A distância
+   é em linha reta (geodésica); o caminho de carro a navegação traça em seguida. */
+async function navegaMaisPerto(){
+  const A = F.campanha.alvos || [];
+  if (!A.length) return marca('carregue a lista de pontos planejados');
+  const fresca = q => q && Date.now() - (q.t || 0) < 60000 ? q : null;
+  let P = fresca(NAV.pos) || fresca(ULTIMA_POS);
+  if (!P){ marca('procurando a posição do aparelho…'); P = await posicaoAgora(10) || ULTIMA_POS || NAV.pos; }
+  if (!P) return marca('sem a posição do aparelho: libere a localização e tente de novo');
+  const oc = ocupacoes(), at = circulosAtendidos(), d = desprezados();
+  const aberto = a => !oc[a.id] && !d.has(a.id) && !(circuloDe(a.id) && at[circuloDe(a.id)]);
+  const cand = eq => { const vistos = new Set(), L = [];
+    const ord = A.filter(a => aberto(a) && (!eq || daMinhaEquipe(a))).sort((x, y) => String(x.id).localeCompare(String(y.id), 'pt-BR', {numeric: true}));
+    for (const a of ord){ const c = circuloDe(a.id); if (c){ if (vistos.has(c)) continue; vistos.add(c); } L.push(a); }
+    return L; };
+  let L = cand(true), outra = false;
+  if (!L.length){ L = cand(false); outra = true; }
+  if (!L.length) return marca('nenhum ponto pendente');
+  L.forEach(a => { a._dp = geodInversa(P.lat, P.lon, a.lat, a.lon).s; });
+  L.sort((x, y) => x._dp - y._dp);
+  const alvo = L[0], dist = alvo._dp; L.forEach(a => { delete a._dp; });
+  abreNav(A.indexOf(alvo));
+  setTimeout(() => marca('navegando para ' + alvo.id + ' — o pendente mais perto daqui' + (outra ? ' (de outra equipe: a sua não tem pendentes)' : '')
+    + ', ' + _metros(dist) + ' em linha reta'), 600);
 }
 function proximoNavegar(p){
   const A = F.campanha.alvos || [], vivo = _vivo();
@@ -11998,6 +12218,10 @@ $('#f_area').addEventListener('change', async e => {
   catch (err){ marca('mapa não guardado: ' + err.message); }
   e.target.value = '';
 });
+$('#b_xyz').addEventListener('click', () => escolhePastaXYZ().catch(e => marca('camadas do projeto QGIS: ' + e.message)));
+$('#b_xyz_tira').addEventListener('click', () => esqueceXYZ());
+$('#f_xyz').addEventListener('change', e => { const L = Array.from(e.target.files || []); e.target.value = '';
+  if (L.length) xyzDeArquivos(L).catch(er => marca('camadas do projeto QGIS: ' + er.message)); });
 $('#b_area_tira').addEventListener('click', async () => {
   if (!AREAS.length && !VIAS.length && !BLOCOS_N) return marca('não há mapa da área guardado');
   if (!confirm('Esquecer o mapa offline guardado neste aparelho (' + AREAS.length + ' imagem(ns) de ortofoto, '
@@ -16578,6 +16802,7 @@ async function inicia(){
   await carrega();
   try { await arrumaDiasMisturados(); } catch (e){}
   carregaArea();
+  carregaXYZ().catch(() => {});
   contaBlocos();
   carregaTrajetos();
   carregaTrilha().then(() => { if (F.dia.trilha_ligada) ligaTrilha(false); });

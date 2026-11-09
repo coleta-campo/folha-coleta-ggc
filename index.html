@@ -718,7 +718,7 @@ você cabe o que nenhum arquivo registra.</p>
       </details>
       <div id="plano_camp"></div>
       <div id="plano_dia"></div>
-      <input type="file" id="f_ocup" accept=".json,.zip,application/json,application/zip" multiple class="oculto">
+      <input type="file" id="f_ocup" accept=".fcp,.json,.zip,application/json,application/zip,application/octet-stream" multiple class="oculto">
       <div id="alvos"></div>
     </div>
   </details>
@@ -894,10 +894,12 @@ você cabe o que nenhum arquivo registra.</p>
     carimbo é o instante da geração — é ele que ordena os arquivos na pasta e
     distingue duas gerações do mesmo dia; a data do dia de campo já está dentro
     do documento. O produto no fim diz o que o arquivo é.</p>
-    <p><b>Cópia completa</b> (botão na barra de baixo): um ZIP com o registro, as fotos,
-    os trajetos, o plano do dia e a trilha. No celular, abre a tela de compartilhar
-    (WhatsApp, Drive, e-mail); no computador, grava o arquivo. <b>Abrir um registro
-    salvo</b> com esse ZIP, em qualquer aparelho, deixa a folha exatamente como estava
+    <p><b>Cópia completa</b> (botão na barra de baixo): o registro, as fotos,
+    os trajetos, o plano do dia e as trilhas num arquivo <b>.fcp criptografado</b> (AES-256), que só abre com a
+    <b>senha da cópia</b> — uma frase de 10 caracteres ou mais, pedida na hora, combinada com a coordenação e
+    guardada fora do celular; sem ela não há recuperação. No celular, grava o arquivo em Downloads (ou abre a
+    tela de compartilhar); no computador, grava o arquivo. <b>Abrir um registro
+    salvo</b> com esse .fcp (ou com um ZIP antigo), em qualquer aparelho, deixa a folha exatamente como estava
     — é assim que se planeja no notebook e se passa para o celular, ou se troca de
     celular. <b>Pacote para outra equipe</b> leva só a preparação da campanha (dados da
     campanha, pontos planejados, trajetos, declinação, remedições e ocupações já juntadas),
@@ -910,8 +912,8 @@ você cabe o que nenhum arquivo registra.</p>
       <button type="button" class="btn sec peq" id="b_recfotos">Recuperar fotos de uma cópia completa</button>
       <button type="button" class="btn sec peq" id="b_limpar">Começar uma folha nova (apaga também a campanha)</button>
     </div>
-    <input type="file" id="f_abrir" accept=".json,.zip,.html,.htm,application/json,application/zip,text/html" class="oculto">
-    <input type="file" id="f_recfotos" accept=".zip,application/zip" class="oculto">
+    <input type="file" id="f_abrir" accept=".fcp,.json,.zip,.html,.htm,application/json,application/zip,application/octet-stream,text/html" class="oculto">
+    <input type="file" id="f_recfotos" accept=".fcp,.zip,application/zip,application/octet-stream" class="oculto">
   </details>
   <details class="ajuda naoimprime" id="cofre_pin_box">
     <summary>PIN da folha</summary>
@@ -6209,14 +6211,19 @@ async function copiaCompleta(){
   }
   itens.push({nome: 'LEIA-ME.txt', dados: 'Cópia completa da folha de coleta de pontos GNSS.\r\n'
     + 'Para restaurar: na folha, aba Fechar o dia > Retomar ou trocar de aparelho > Abrir um registro salvo, '
-    + 'e escolha este ZIP. O mapa da área não está aqui: carregue o pacote do mapa de novo.\r\n'});
+    + 'e escolha o arquivo .fcp (com a senha da cópia). O mapa da área não está aqui: carregue o pacote do mapa de novo.\r\n'});
   const z = zipGuarda(itens);
-  const nome = nomeSaida('copia_completa') + '.zip';
-  const arq = new File([z], nome, {type: 'application/zip'});
+  const senha = await pedeSenhaCopia(true);
+  if (senha == null) return marca('cópia cancelada — nada saiu do aparelho');
+  marca('criptografando a cópia…');
+  const fcp = await cifraFCP(new Uint8Array(await z.arrayBuffer()), senha,
+    {campanha: F.campanha.nome || '', gerado: new Date().toISOString()});      // o nome da campanha já está no nome do arquivo; nada mais fica aberto
+  const nome = nomeSaida('copia_completa') + '.fcp';
+  const arq = new File([fcp], nome, {type: 'application/octet-stream'});
   F.config = F.config || {}; F.config.ultimaCopia = new Date().toISOString(); EXPORTADO = true;
   try { gravaRegistroJa(); } catch (e){}
   const info = (F.dia.pontos || []).length + ' ponto(s) do dia, ' + nf + ' imagem(ns), ' + nt + ' trilha(s) de dias arquivados, '
-    + Math.round(z.size / 1e5) / 10 + ' MB';
+    + Math.round(fcp.length / 1e5) / 10 + ' MB, criptografada';
   if (navigator.canShare && navigator.canShare({files: [arq]})){
     try { await navigator.share({files: [arq], title: nome, text: 'Cópia da folha de coleta — ' + info});
           return marca('cópia completa enviada (' + info + ')'); }
@@ -6253,6 +6260,96 @@ async function pacoteDistribuicao(){
     catch (e){ if (e.name === 'AbortError') return marca('envio cancelado'); }
   }
   baixa(nome, arq); marca('pacote para outra equipe gravado (' + Math.round(z.size / 1e4) / 100 + ' MB)');
+}
+/* ---------- cópia completa protegida (.fcp) ----------
+   09/11/2026: o PIN protege os dados DENTRO do aparelho; a cópia completa saía em ZIP aberto — registro,
+   integrantes, fotos e trilhas legíveis por qualquer um que pegasse o arquivo. Agora ela sai sempre
+   criptografada, num arquivo de extensão própria (.fcp, "folha de coleta de pontos"):
+     · AES-256-GCM (NIST SP 800-38D), que cifra e autentica — arquivo alterado ou senha errada não abrem;
+     · chave derivada da SENHA DA CÓPIA por PBKDF2-HMAC-SHA-256 com 600 000 iterações e sal aleatório de
+       16 bytes (NIST SP 800-132; OWASP, 2023), a mesma derivação do PIN da folha;
+     · senha própria, de no mínimo 10 caracteres: fora do celular, o arquivo pode ser atacado por tentativa
+       sem limite, e um PIN de poucos dígitos cairia em dias; uma frase longa, não.
+   Estrutura: "FCPIBGE1" (8 bytes) · tamanho do cabeçalho (4 bytes) · cabeçalho JSON legível (algoritmo,
+   iterações, sal, vetor inicial, o que é o arquivo) · ZIP cifrado. O cabeçalho entra como dado associado
+   do GCM: trocar um byte dele também impede a abertura. A senha não é guardada em lugar nenhum; sem ela,
+   não há recuperação. Os ZIP abertos antigos continuam sendo aceitos na restauração.
+   Referências: DWORKIN, M. Recommendation for block cipher modes of operation: Galois/Counter Mode (GCM)
+   and GMAC. Gaithersburg: NIST, 2007 (SP 800-38D). TURAN, M. S. et al. Recommendation for password-based
+   key derivation: part 1: storage applications. Gaithersburg: NIST, 2010 (SP 800-132). */
+const FCP_MAGICA = 'FCPIBGE1', FCP_ITER = 600000, FCP_MIN = 10;
+async function _chaveFCP(senha, sal, iter){
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(senha).normalize('NFC')), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name: 'PBKDF2', salt: sal, iterations: iter, hash: 'SHA-256'}, base, {name: 'AES-GCM', length: 256}, false, ['encrypt', 'decrypt']);
+}
+async function cifraFCP(bytes, senha, extra){
+  const sal = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const cab = new TextEncoder().encode(JSON.stringify(Object.assign({tipo: 'copia_completa_cifrada', v: 1, alg: 'AES-256-GCM',
+    kdf: 'PBKDF2-HMAC-SHA-256', iter: FCP_ITER, sal: _b64(sal), iv: _b64(iv),
+    leia: 'Cópia completa CRIPTOGRAFADA da folha de coleta de pontos GNSS (IBGE, GGC/SES-CE). Abre só na própria folha: '
+      + 'Fechar o dia > Retomar ou trocar de aparelho > Abrir um registro salvo, com a senha da cópia.'}, extra || {})));
+  const K = await _chaveFCP(senha, sal, FCP_ITER);
+  const c = new Uint8Array(await crypto.subtle.encrypt({name: 'AES-GCM', iv: iv, additionalData: cab}, K, bytes));
+  const out = new Uint8Array(12 + cab.length + c.length);
+  out.set(new TextEncoder().encode(FCP_MAGICA), 0); new DataView(out.buffer).setUint32(8, cab.length); out.set(cab, 12); out.set(c, 12 + cab.length);
+  return out;
+}
+async function ehFCP(f){
+  if (/\.fcp$/i.test(f.name || '')) return true;
+  try { return new TextDecoder().decode(new Uint8Array(await f.slice(0, 8).arrayBuffer())) === FCP_MAGICA; } catch (e){ return false; }
+}
+async function decifraFCP(f, senha){
+  const u = new Uint8Array(await f.arrayBuffer());
+  if (new TextDecoder().decode(u.subarray(0, 8)) !== FCP_MAGICA) throw new Error('esse arquivo não é uma cópia protegida da folha');
+  const n = new DataView(u.buffer, u.byteOffset).getUint32(8), cabB = u.slice(12, 12 + n), cab = JSON.parse(new TextDecoder().decode(cabB));
+  const K = await _chaveFCP(senha, _deB64(cab.sal), cab.iter || FCP_ITER);
+  try { return new Uint8Array(await crypto.subtle.decrypt({name: 'AES-GCM', iv: _deB64(cab.iv), additionalData: cabB}, K, u.subarray(12 + n))); }
+  catch (e){ throw new Error('senha errada (ou o arquivo foi alterado) — a cópia não abriu'); }
+}
+/* .fcp → File ZIP, pedindo a senha (até 3 tentativas); ZIP aberto passa direto */
+async function zipDaCopia(f){
+  if (!(await ehFCP(f))) return f;
+  for (let t = 0; t < 3; t++){
+    const senha = await pedeSenhaCopia(false, f.name, t ? 'Senha errada. Tente de novo.' : '');
+    if (senha == null) return null;
+    marca('abrindo a cópia protegida…');
+    try { const b = await decifraFCP(f, senha); return new File([b], String(f.name).replace(/\.fcp$/i, '') + '.zip', {type: 'application/zip'}); }
+    catch (e){ if (t === 2) throw e; }
+  }
+  return null;
+}
+/* Caixa de senha (a de prompt() mostraria a senha na tela): gerar pede duas vezes; abrir, uma. */
+function pedeSenhaCopia(gerar, nome, aviso){
+  return new Promise(ok => {
+    const v = document.createElement('div');
+    v.style.cssText = 'position:fixed;inset:0;z-index:90;background:rgba(10,30,45,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+    v.innerHTML = '<div style="background:#fff;border-radius:12px;max-width:440px;width:100%;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.3)">'
+      + '<h3 style="margin:0 0 6px">' + (gerar ? 'Senha da cópia completa' : 'Abrir a cópia protegida') + '</h3>'
+      + (nome ? '<p class="leg" style="margin:0 0 8px;overflow-wrap:anywhere">' + esc(nome) + '</p>' : '')
+      + (gerar ? '<p class="leg" style="margin:0 0 8px">A cópia sai criptografada (AES-256). Use uma <b>frase de ' + FCP_MIN + ' caracteres ou mais</b>, '
+        + 'combinada com a coordenação e guardada fora do celular: <b>sem a senha, a cópia não abre</b>, e não há como recuperar.</p>' : '')
+      + (aviso ? '<p style="color:#B91C1C;margin:0 0 8px"><b>' + esc(aviso) + '</b></p>' : '')
+      + '<input type="password" data-s="a" autocomplete="' + (gerar ? 'new-password' : 'current-password') + '" placeholder="senha da cópia" style="width:100%;margin:4px 0">'
+      + (gerar ? '<input type="password" data-s="b" autocomplete="new-password" placeholder="repita a senha" style="width:100%;margin:4px 0">' : '')
+      + '<label style="display:flex;gap:6px;align-items:center;margin:6px 0"><input type="checkbox" data-s="ver"> mostrar a senha</label>'
+      + '<p data-s="erro" style="color:#B91C1C;min-height:1.2em;margin:4px 0"></p>'
+      + '<div class="acoes"><button type="button" class="btn peq" data-s="ok">' + (gerar ? 'Gerar a cópia protegida' : 'Abrir') + '</button>'
+      + '<button type="button" class="btn sec peq" data-s="nao">Cancelar</button></div></div>';
+    document.body.appendChild(v);
+    const q = k => v.querySelector('[data-s="' + k + '"]'), a = q('a'), b = q('b');
+    const fim = r => { v.remove(); ok(r); };
+    q('ver').addEventListener('change', e => { a.type = e.target.checked ? 'text' : 'password'; if (b) b.type = a.type; });
+    const vai = () => {
+      const s = a.value;
+      if (gerar && s.length < FCP_MIN) return q('erro').textContent = 'mínimo de ' + FCP_MIN + ' caracteres';
+      if (gerar && s !== b.value) return q('erro').textContent = 'as duas senhas não conferem';
+      if (!s) return q('erro').textContent = 'digite a senha';
+      fim(s);
+    };
+    q('ok').addEventListener('click', vai); q('nao').addEventListener('click', () => fim(null));
+    v.addEventListener('keydown', e => { if (e.key === 'Enter') vai(); if (e.key === 'Escape') fim(null); });
+    setTimeout(() => a.focus(), 50);
+  });
 }
 let RESTAURO_TRILHAS = 0;
 async function restauraCopia(file){
@@ -6375,7 +6472,9 @@ async function recuperaFotos(file){
 }
 $('#b_recfotos').addEventListener('click', () => $('#f_recfotos').click());
 $('#f_recfotos').addEventListener('change', async e => {
-  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  let f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try { f = await zipDaCopia(f); } catch (err){ return marca(err.message); }
+  if (!f) return marca('recuperação cancelada');
   marca('lendo a cópia…');
   try { await recuperaFotos(f); } catch (err){ marca('fotos não recuperadas: ' + err.message); }
 });
@@ -6438,11 +6537,15 @@ async function testaAparelho(){
 $('#b_testa_ap').addEventListener('click', () => testaAparelho().catch(e => marca('teste: ' + e.message)));
 $('#b_distrib').addEventListener('click', () => pacoteDistribuicao().catch(e => marca('pacote não saiu: ' + e.message)));
 $('#f_abrir').addEventListener('change', async e => {
-  const f = e.target.files[0]; e.target.value = '';
+  let f = e.target.files[0]; e.target.value = '';
   if (!f) return;
+  if (await ehFCP(f)){
+    try { f = await zipDaCopia(f); } catch (err){ return marca(err.message); }
+    if (!f) return marca('restauração cancelada');
+  }
   let j;
   if (/\.html?$/i.test(f.name) || f.type === 'text/html'){
-    if (MODO_PLAN) return marca('esse arquivo é a folha de uma equipe, para o celular; no planejador, abra a Cópia completa do planejamento (ZIP)');
+    if (MODO_PLAN) return marca('esse arquivo é a folha de uma equipe, para o celular; no planejador, abra a Cópia completa do planejamento (.fcp, ou o ZIP antigo)');
     marca('lendo a folha da equipe…');
     try { const k = kitDeHTML(await f.text()); if (await aplicaKit(k)){ aplicaModo(); pintaAlvos(); pintaConviteKit(); } }
     catch (err){ marca(err.message); }
@@ -7026,15 +7129,17 @@ async function enviaOcupacoes(){
   }
   baixa(nome, arq); marca('arquivo gravado: ' + info);
 }
-/* Aceita o arquivo de ocupações, o registro em JSON ou a cópia completa (ZIP) da outra equipe. */
+/* Aceita o arquivo de ocupações, o registro em JSON ou a cópia completa (.fcp protegida, ou o ZIP antigo) da outra equipe. */
 async function juntaOcupacoes(files){
   F.campanha.externas = F.campanha.externas || {};
   const msgs = [];
   for (const f of files){
     let j;
     try {
-      if (/\.zip$/i.test(f.name)){
-        const r = (await lerZip(f)).find(x => x.name === 'registro.json');
+      let fz = f;
+      if (await ehFCP(f)){ fz = await zipDaCopia(f); if (!fz){ msgs.push(f.name + ': cancelado'); continue; } }
+      if (/\.zip$/i.test(fz.name)){
+        const r = (await lerZip(fz)).find(x => x.name === 'registro.json');
         if (!r) throw new Error('ZIP sem registro.json');
         j = JSON.parse(await r.text());
       } else j = JSON.parse(await f.text());

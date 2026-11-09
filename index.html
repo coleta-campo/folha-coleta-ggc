@@ -12231,7 +12231,8 @@ function pintaDias(){
   const i = DIA_VISTO === '' ? -1 : +DIA_VISTO, d = L[i];
   if (d){
     h += '<div class="diaarq"><p class="leg" style="margin:6px 0">Dia <b>' + esc(_dataBr(d.data)) + '</b>, arquivado em '
-      + new Date(d.arquivado).toLocaleString('pt-BR').slice(0, 17) + '. Só leitura — para mudar algo, reabra o dia.</p>'
+      + new Date(d.arquivado).toLocaleString('pt-BR').slice(0, 17) + '. Só leitura — para mudar algo, reabra o dia; '
+      + 'a altura de antena se corrige aqui mesmo (fica registrada).</p>'
       + (d.pontos || []).map((p, k) => { const c = coordPonto(p);
           return '<div class="pt"><b>' + esc(p.id || '—') + '</b> · ' + esc(p.tipo || '')
             + (p.planejado ? ' · gabinete ' + esc(p.planejado.id) : '')
@@ -12239,6 +12240,8 @@ function pintaDias(){
                + (p.ocup_fim ? '–' + new Date(p.ocup_fim).toLocaleTimeString('pt-BR').slice(0, 5) : ' (aberta)') : '')
             + '<br><small' + (c && !['rinex', 'ppp'].includes(c.fonte) ? ' style="color:#B91C1C"' : '') + '>'
             + (c ? gms(c.lat, 'lat') + '  ' + gms(c.lon, 'lon') + ' · ' + esc(c.rotulo) : 'sem coordenada') + '</small>'
+            + '<br><small>altura de antena: <b>' + (p.altura !== '' && p.altura != null ? esc(String(p.altura).replace('.', ',')) + ' m' : 'não informada') + '</b>'
+            + ((p.altura_hist || []).length ? ' (corrigida)' : '') + '</small> <button type="button" class="btn sec peq" data-dalt="' + k + '">Corrigir a altura</button>'
             + '<div class="minis" data-minis="' + k + '"></div></div>'; }).join('')
       + '<div class="acoes"><button type="button" class="btn sec peq" id="b_dia_pdf">PDF deste dia</button>'
       + '<button type="button" class="btn sec peq" id="b_dia_reabre">Reabrir este dia na caderneta</button></div></div>';
@@ -12250,6 +12253,12 @@ function pintaDias(){
     const nx = Math.max(0, Math.min(n, cur + (+b.dataset.dpasso)));
     DIA_VISTO = nx === n ? '' : String(nx); pintaDias(); }));
   if (!d) return;
+  el.querySelectorAll('[data-dalt]').forEach(b => b.addEventListener('click', () => {
+    const p = (d.pontos || [])[+b.dataset.dalt]; if (!p) return;
+    const v = prompt('Altura de antena do ponto ' + (p.id || '') + ' (m):', String(p.altura == null ? '' : p.altura).replace('.', ','));
+    if (v == null) return;
+    try { if (corrigeAltura(p, v, 'dia arquivado ' + _dataBr(d.data))) pintaDias(); } catch (er){ marca(er.message); }
+  }));
   (d.pontos || []).forEach(async (p, k) => {
     const cx = el.querySelector('[data-minis="' + k + '"]'); if (!cx) return;
     const ks = FOTOS_CARTAO.map(f => (p.fotos || {})[f[0]]).filter(Boolean);
@@ -13355,6 +13364,8 @@ function linhaPTCON(p, lc, nome, arq){
   if (p.receptor) obs.push('receptor ' + p.receptor);
   if (p.antena) obs.push('antena ' + p.antena);
   if (p.altura) obs.push('altura de antena ' + p.altura + ' m');
+  for (const h of (p.altura_hist || [])) obs.push('altura de antena corrigida de ' + (h.de || 'vazia') + ' para ' + h.para + ' m em '
+    + new Date(h.quando).toLocaleString('pt-BR').slice(0, 17) + ' (' + h.onde + ')');
   if (p.ini || p.fim) obs.push('rastreio ' + (p.ini || '?') + ' a ' + (p.fim || '?'));
   if (p.localidade) obs.push(p.localidade);
   if (p.obs) obs.push(p.obs);
@@ -14146,6 +14157,29 @@ function pendenciasPonto(p){
     municipio: !!p.municipio, relatorio: !!p.relatorio,
   };
 }
+/* Correção da altura de antena no fechamento (09/11/2026: "o usuário errou no preenchimento da altura em
+   campo; deve poder editar no fechamento do dia"). A altura é dado de campo que entra no IBGE-PPP e no
+   relatório: a correção vale, mas fica registrada no ponto (de, para, quando, onde), sai nas observações
+   do PTCON e invalida o que foi feito com a altura antiga — o relatório se monta de novo e, se o PPP já
+   foi processado, a folha avisa para reenviar o RINEX. */
+function corrigeAltura(p, valor, onde){
+  const n = _altNum(valor);
+  if (n == null || n < 0 || n > 10) throw new Error('altura inválida: use metros, entre 0 e 10 (ex.: 1,525)');
+  const novo = String(Math.round(n * 1000) / 1000), velho = p.altura == null ? '' : String(p.altura);
+  if (_altNum(velho) === n) return false;
+  if ((n < 0.2 || n > 3) && !confirm('Altura de ' + _numBR(n, 3) + ' m está fora do usual para tripé ou bastão (0,2 a 3 m). Confirmar?')) return false;
+  if (!confirm('Corrigir a altura de antena do ponto ' + (p.id || '') + ' de ' + (velho === '' ? '(vazia)' : velho.replace('.', ',') + ' m')
+      + ' para ' + _numBR(n, 3) + ' m?\n\nA correção fica registrada no ponto e sai nas observações.')) return false;
+  (p.altura_hist = p.altura_hist || []).push({de: velho, para: novo, quando: new Date().toISOString(), onde: onde || 'fechamento do dia'});
+  p.altura = novo;
+  const avisos = [];
+  if (p.relatorio){ p.relatorio = ''; delete p.relatorio_coord; avisos.push('o relatório do ponto se monta de novo'); }
+  if (p.ppp_coord || p.ppp){ p.ppp_altura_antiga = velho; avisos.push('o PPP já processado usou a altura antiga: reenvie o RINEX ao IBGE-PPP'); }
+  grava();
+  setTimeout(() => marca('altura de antena do ' + (p.id || 'ponto') + ': ' + _numBR(n, 3) + ' m (antes ' + (velho || 'vazia') + ')'
+    + (avisos.length ? ' — ' + avisos.join('; ') : '')), 300);
+  return true;
+}
 function pintaHotel(){
   try { pintaQualDia(); } catch (e){}
   try { pintaRedist(); } catch (e){ console.error(e); }
@@ -14162,8 +14196,12 @@ function pintaHotel(){
   e.innerHTML = '<table class="tabhotel"><tr><th>ponto</th>'
     + col.map(c => '<th>' + c[1] + '</th>').join('') + '<th title="qualidade do RINEX">QC</th></tr>'
     + P.map(p => { const s = pendenciasPonto(p);
-        return '<tr><td>' + esc(p.id || '(sem id)') + '</td>' + col.map(c =>
-          '<td class="' + (s[c[0]] ? 'ok' : 'falta') + '">' + (s[c[0]] ? '✓' : '—') + '</td>').join('')
+        return '<tr><td>' + esc(p.id || '(sem id)') + '</td>' + col.map(c => c[0] === 'altura'
+          ? '<td class="' + (s.altura ? 'ok' : 'falta') + '"><input type="text" inputmode="decimal" data-halt="' + P.indexOf(p) + '" value="'
+            + esc(String(p.altura == null ? '' : p.altura).replace('.', ',')) + '" placeholder="m" style="width:4.6em;padding:2px 4px;text-align:right"'
+            + ' title="altura de antena (m) — corrija aqui se foi anotada errada">'
+            + ((p.altura_hist || []).length ? '<small title="corrigida">*</small>' : '') + '</td>'
+          : '<td class="' + (s[c[0]] ? 'ok' : 'falta') + '">' + (s[c[0]] ? '✓' : '—') + '</td>').join('')
           + qc(p) + '</tr>'; }).join('')
     + '</table>'
     + (ruins.length ? '<ul class="qcmot">' + ruins.map(p => '<li><b>' + esc(p.id || '') + '</b> — '
@@ -14174,7 +14212,14 @@ function pintaHotel(){
     + '<b>QC</b>, qualidade do RINEX: ✓ ok · <b style="color:#B45309">!</b> atenção (perdas de ciclo, poucos satélites, '
     + 'multicaminho ou lacunas — o IBGE-PPP decide; se o desvio vier alto, remedir) · '
     + '<b style="color:#B91C1C">✗</b> remedir (arquivo corrompido, ocupação curta ou épocas faltando). '
-    + 'Para o GLONASS entrar na conta, leia junto o arquivo de navegação (.AAg).</p>';
+    + 'Para o GLONASS entrar na conta, leia junto o arquivo de navegação (.AAg). '
+    + '<b>Altura</b>: a da coluna é a de antena, em metros; se foi anotada errada em campo, corrija aqui — a correção fica '
+    + 'registrada no ponto (*), sai nas observações e pede o relatório e o PPP de novo.</p>';
+  e.querySelectorAll('[data-halt]').forEach(inp => inp.addEventListener('change', () => {
+    const p = P[+inp.dataset.halt]; if (!p) return;
+    try { corrigeAltura(p, inp.value, 'fechamento do dia'); } catch (er){ marca(er.message); }
+    pintaHotel(); try { pintaPontos(); } catch (x){}
+  }));
 }
 
 function _normId(t){ return String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }

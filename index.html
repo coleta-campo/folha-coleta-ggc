@@ -6769,7 +6769,7 @@ function htmlFotos(p, L, nota){
    Mesma conta do dia, repetida sobre a lista de dias arquivados mais o dia
    aberto. Não leva fotos nem relatórios de ponto: o dia arquivado não os
    guarda, e eles saem no registro daquele dia. */
-function montaImpressaoCampanha(fotos, tempos){
+function montaImpressaoCampanha(fotos, tempos, fig){
   const r = resumoCampanha();
   const pl = planejadosResumo();
   const cor = (r.semAltura || r.pppFalta) ? C.MAU : (r.nPontos ? C.OK : C.CZ);
@@ -6838,6 +6838,7 @@ function montaImpressaoCampanha(fotos, tempos){
     + '<h2>Os pontos da campanha</h2>'
     + (todos.length ? _tabelaPontos(todos, true) : '<p>nenhum ponto registrado</p>')
     + '<h2>A campanha em números</h2><table>' + nums + '</table>'
+    + htmlFiguraTrechosCampanha(fig)
     + htmlTemposCampanha(tempos)
     + (pend.length ? '<h2>Pendências no fechamento da campanha</h2><ul>'
         + pend.map(t => '<li>' + t + '</li>').join('') + '</ul>' : '')
@@ -7312,9 +7313,11 @@ $('#b_camp_csv').addEventListener('click', async () => {
 });
 
 $('#b_camp_pdf').addEventListener('click', async () => {
+  marca('montando o relatório da campanha: cartograma dos trechos…');
+  const fig = await figuraTrechosCampanha().catch(e => { console.error(e); return null; });   // antes dos relatórios: menos memória ocupada
   marca('montando o relatório da campanha…');
   await relatoriosNaHora(pontosDaCampanha());
-  montaImpressaoCampanha(await fotosParaImpressao(pontosDaCampanha()), await temposDaCampanha().catch(() => null));
+  montaImpressaoCampanha(await fotosParaImpressao(pontosDaCampanha()), await temposDaCampanha().catch(() => null), fig);
   REL_TMP.clear();
   marca('carregando as imagens do relatório…');
   const falta = await imagensProntas();
@@ -16640,13 +16643,22 @@ function _pedacosVisiveis(T, ocultos){
   if (cur.length) P.push(cur);
   return P.filter(c => c.length >= 2);
 }
-async function figuraTrechosDia(d){
-  const T = trilhaDaData(await trilhaDoDia(d), d);
-  const pts = (d.pontos || []).map(p => ({p: p, c: coordPonto(p)})).filter(x => x.c && x.c.fonte !== 'gabinete')
+async function figuraTrechosDia(d){ return figuraTrechos([d], false); }
+/* 09/11/2026: o mesmo cartograma para a campanha inteira (relatório da campanha): a trilha de cada dia
+   cortada nos trechos marcados naquele dia, todas no mesmo quadro, com os km somados por revestimento. */
+async function figuraTrechosCampanha(){ return figuraTrechos(diasDaCampanha().map(e => e.dia), true); }
+async function figuraTrechos(dias, campanha){
+  const D = [];
+  for (const d of dias){
+    const T = trilhaDaData(await trilhaDoDia(d), d), oc = _lugaresOcultos(d);
+    D.push({d: d, T: T, R: resumoTrechosDia(T, d), oc: oc, PED: _pedacosVisiveis(T, oc)});
+  }
+  const pts = [].concat(...dias.map(d => (d.pontos || []).map(p => ({p: p, c: coordPonto(p)})).filter(x => x.c && x.c.fonte !== 'gabinete')))
     .sort((a, b) => String(a.p.ocup_ini || a.p.rx_ini || '9').localeCompare(String(b.p.ocup_ini || b.p.rx_ini || '9')));
+  const T = [].concat(...D.map(e => e.T));
   if (T.length < 2 && !pts.length) return null;
-  const R = resumoTrechosDia(T, d);
-  const ocultos = _lugaresOcultos(d), PED = _pedacosVisiveis(T, ocultos);
+  const R = D.length === 1 ? D[0].R : somaResumos(D.map(e => e.R));
+  const ocultos = [].concat(...D.map(e => e.oc)), PED = [].concat(...D.map(e => e.PED));
   const Tv = [].concat(...PED);
   const lats = Tv.map(q => q[1]).concat(pts.map(x => x.c.lat)), lons = Tv.map(q => q[2]).concat(pts.map(x => x.c.lon));
   if (!lats.length) return null;
@@ -16701,7 +16713,7 @@ async function figuraTrechosDia(d){
     const a = tela(c[k - 1][1], c[k - 1][2]), b = tela(c[k][1], c[k][2]);
     x.beginPath(); x.moveTo(a.x, a.y); x.lineTo(b.x, b.y); x.stroke(); nSaltos++; }
   x.setLineDash([]);
-  const partes = [].concat(...PED.map(c => segmentaTrilha(c, d.trechos || []).partes));
+  const partes = [].concat(...D.map(e => [].concat(...e.PED.map(c => segmentaTrilha(c, e.d.trechos || []).partes))));
   for (const p of partes){
     const cor = p.a && COR_REV[p.a.revestimen];
     const caminho = () => { x.beginPath(); p.g.forEach((q, k) => { const t = tela(q[1], q[0]); if (k) x.lineTo(t.x, t.y); else x.moveTo(t.x, t.y); }); };
@@ -16711,10 +16723,13 @@ async function figuraTrechosDia(d){
   x.restore();
   // pontos ocupados
   x.save(); x.font = 'bold 22px Arial, sans-serif'; x.textBaseline = 'middle';
+  const comRot = !campanha || pts.length <= 60;
+  if (campanha) x.font = 'bold 17px Arial, sans-serif';
   for (const [j, {p, c: q}] of pts.entries()){
-    const t = tela(q.lat, q.lon), rot = (j + 1) + ' · ' + ((ptconPonto(p.id) || {}).num || p.id);
+    const t = tela(q.lat, q.lon), rot = campanha ? String((ptconPonto(p.id) || {}).num || p.id || '') : (j + 1) + ' · ' + ((ptconPonto(p.id) || {}).num || p.id);
     x.fillStyle = '#C2410C'; x.strokeStyle = '#fff'; x.lineWidth = 4;
-    x.beginPath(); x.arc(t.x, t.y, 11, 0, 2 * Math.PI); x.fill(); x.stroke();
+    x.beginPath(); x.arc(t.x, t.y, campanha ? 8 : 11, 0, 2 * Math.PI); x.fill(); x.stroke();
+    if (!comRot) continue;
     x.lineWidth = 6; x.strokeStyle = 'rgba(255,255,255,.95)'; x.strokeText(rot, t.x + 16, t.y);
     x.fillStyle = '#7C2D12'; x.fillText(rot, t.x + 16, t.y);
   }
@@ -16741,7 +16756,8 @@ async function figuraTrechosDia(d){
       x.lineWidth = 8; x.setLineDash(k.cor ? [] : [10, 8]); x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + 54, cy); x.stroke(); x.restore(); },
     txt: k.rot + ' · ' + _numBR(k.km, 1) + ' km'}));
   if (pts.length) itens.push({desenha: (cx, cy) => { x.save(); x.fillStyle = '#C2410C'; x.strokeStyle = '#fff'; x.lineWidth = 3;
-      x.beginPath(); x.arc(cx + 27, cy, 10, 0, 2 * Math.PI); x.fill(); x.stroke(); x.restore(); }, txt: 'ponto ocupado (ordem de ocupação · número)'});
+      x.beginPath(); x.arc(cx + 27, cy, 10, 0, 2 * Math.PI); x.fill(); x.stroke(); x.restore(); },
+    txt: !campanha ? 'ponto ocupado (ordem de ocupação · número)' : comRot ? 'ponto ocupado (número)' : 'ponto ocupado'});
   if (temSalto) itens.push({desenha: (cx, cy) => { x.save(); x.strokeStyle = '#111827'; x.lineWidth = 3; x.setLineDash([2, 8]);
       x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + 54, cy); x.stroke(); x.restore(); }, txt: 'sem registro do celular (linha reta)'});
   itens.forEach((it, k) => {
@@ -16749,14 +16765,48 @@ async function figuraTrechosDia(d){
     it.desenha(cx, cy); x.fillStyle = '#0A2E52'; x.textBaseline = 'middle'; x.fillText(it.txt, cx + 70, cy);
   });
   x.textBaseline = 'alphabetic'; x.font = '16px Arial, sans-serif'; x.fillStyle = '#5B6770';
-  const Dd = declinacaoEm(cen.lat, cen.lon, d.data ? d.data + 'T12:00:00' : null);
-  const rod1 = credito + '.', rod2 = 'Trilha: GNSS do celular' + (T.length ? '' : ' (sem trilha neste dia)')
+  const d0 = dias.find(q => q.data) || {}, Dd = declinacaoEm(cen.lat, cen.lon, d0.data ? d0.data + 'T12:00:00' : null);
+  const rod1 = credito + '.', rod2 = 'Trilha: GNSS do celular' + (T.length ? (campanha ? ', ' + D.filter(e => e.T.length >= 2).length + ' dia(s)' : '') : campanha ? ' (sem trilha na campanha)' : ' (sem trilha neste dia)')
     + (ocultos.length && Tv.length < T.length ? ', omitida a menos de ' + _numBR(RAIO_OCULTO / 1000) + ' km da hospedagem' : '') + '. Norte verdadeiro (NV) para cima'
     + (Dd != null ? '; declinação magnética ' + _gm(Dd) + ' (WMM2025)' : '') + '.';
   x.fillText(rod1, 20, c.height - 36); x.fillText(rod2, 20, c.height - 14);
   const src = c.toDataURL('image/jpeg', 0.88); c.width = c.height = 1;
   if (!src || src.length < 2000) throw new Error('o aparelho não conseguiu gerar a imagem do cartograma (memória)');
-  return {src: src, R: R, nPts: pts.length};
+  return {src: src, R: R, D: D, nPts: pts.length};
+}
+async function kmRevCampanha(){
+  const L = [];
+  for (const e of diasDaCampanha()){ const T = trilhaDaData(await trilhaDoDia(e.dia), e.dia); L.push(resumoTrechosDia(T, e.dia)); }
+  return somaResumos(L);
+}
+function somaResumos(L){
+  const porRev = {}; let total = 0, nTrechos = 0, ini = null, fim = null;
+  for (const r of L){ for (const k in r.porRev) porRev[k] = (porRev[k] || 0) + r.porRev[k];
+    total += r.total; nTrechos += r.nTrechos;
+    if (r.ini && (!ini || r.ini < ini)) ini = r.ini; if (r.fim && (!fim || r.fim > fim)) fim = r.fim; }
+  return {porRev: porRev, total: total, nTrechos: nTrechos, ini: ini, fim: fim};
+}
+/* Relatório da campanha: o cartograma de todos os dias e a tabela dos km por revestimento, dia a dia */
+function htmlFiguraTrechosCampanha(fig){
+  if (!fig) return '';
+  const R = fig.R, cls = DOM_TRECHO.revestimen.filter(o => R.porRev[o[0]] >= 0.05);
+  const semT = R.porRev[''] >= 0.05, km = v => v >= 0.05 ? _numBR(v, 1) : '—';
+  const pct = (v, t) => t ? Math.round(100 * v / t) + ' %' : '—';
+  const cab = '<tr><th>dia</th>' + cls.map(o => '<th>' + esc(o[1]) + '</th>').join('') + (semT ? '<th>sem trecho marcado</th>' : '')
+    + '<th>total</th><th>mapeado em trechos</th></tr>';
+  const linha = (rot, r) => '<tr><td>' + rot + '</td>' + cls.map(o => '<td class="n">' + km(r.porRev[o[0]] || 0) + '</td>').join('')
+    + (semT ? '<td class="n">' + km(r.porRev[''] || 0) + '</td>' : '') + '<td class="n"><b>' + km(r.total) + '</b></td>'
+    + '<td class="n">' + pct(r.total - (r.porRev[''] || 0), r.total) + '</td></tr>';
+  const dias = fig.D.filter(e => e.R.total >= 0.05).map(e => linha(_dataBr(e.d.data) || '—', e.R)).join('');
+  const parte = '<tr><td>participação no total</td>' + cls.map(o => '<td class="n">' + pct(R.porRev[o[0]], R.total) + '</td>').join('')
+    + (semT ? '<td class="n">' + pct(R.porRev[''], R.total) + '</td>' : '') + '<td class="n">100 %</td><td></td></tr>';
+  return '<div class="figtr"><h2>Cartograma do deslocamento executado na campanha</h2>'
+    + '<img alt="trechos percorridos na campanha" src="' + fig.src + '"></div>'
+    + '<h2>Km percorridos por revestimento do trecho</h2><table>' + cab + (dias || '') + linha('<b>campanha</b>', R)
+    + (R.total ? parte : '') + '</table>'
+    + '<p class="ident">Km medidos sobre a trilha GNSS do celular com registro contínuo (saltos sem registro ficam fora), cortada nos '
+    + 'trechos marcados na navegação; revestimento conforme o campo revestimen da camada TRACKING. O hodômetro, quando anotado, '
+    + 'mede também os saltos e pode dar mais.</p>';
 }
 function htmlFiguraTrechos(fig, d){
   if (!fig) return '';
@@ -16991,6 +17041,7 @@ async function exportaLC(op){
   const linhasDia = Object.keys(porDia).sort((a, b) => a.split('/').reverse().join('').localeCompare(b.split('/').reverse().join('')))
     .map(k => 'Dia ' + k + ' – Levantamento dos pontos ' + _lista(porDia[k]));
   const rec = (F.campanha.ponto_receptor || '') + (F.campanha.ponto_antena ? ', antena ' + F.campanha.ponto_antena : '');
+  const kmRev = await kmRevCampanha().catch(() => null);
   itens.push({nome: eqd + 'Relatório_Ponto de Controle_' + lc + (iEq > 0 ? '_EQ' + (iEq + 1) : '') + '.docx', dados: await docxDe([{titulo: 'RELATÓRIO DE CAMPANHA DA EQUIPE'},
     {t: [['UNIDADE: GGC/SES/CE', 'DGC - COORDENAÇÃO DE CARTOGRAFIA'],
          ['CAMPANHA: ' + ((F.campanha.ptcon_projeto || '').toUpperCase() + ' ' + lc).trim(), 'DATA (Início e fim): ' + (F.campanha.inicio || (datas[0] ? _br(datas[0]) : '')) + ' a ' + (F.campanha.fim || (datas.length ? _br(datas[datas.length - 1]) : ''))]]},
@@ -17003,6 +17054,8 @@ async function exportaLC(op){
     {h: '6 – QUANTITATIVO DA PRODUÇÃO CARTOGRÁFICA PARA PONTOS DE CONTROLE'},
     'Pontos coletados = ' + reg.length, ...linhasDia,
     ...(function(){ const k = kmDaCampanha(); return k ? ['OBS: KM Percorrido: ' + Math.round(k.km).toLocaleString('pt-BR') + ' km' + (k.fonte === 'hodômetro' ? '' : ' (' + k.fonte + ')') + '.'] : []; })(),
+    ...(kmRev && kmRev.total >= 0.05 ? ['KM por revestimento do trecho (trilha do celular, ' + _numBR(kmRev.total, 1) + ' km): '
+      + DOM_TRECHO.revestimen.filter(o => kmRev.porRev[o[0]] >= 0.05).map(o => o[1] + ' ' + _numBR(kmRev.porRev[o[0]], 1) + ' km').concat(kmRev.porRev[''] >= 0.05 ? ['sem trecho marcado ' + _numBR(kmRev.porRev[''], 1) + ' km'] : []).join('; ') + '.'] : []),
     'Processamento e medição dos pontos: com posicionamento estático, utilizando como tipo de processamento o PPP.',
     {h: '7 - QUANTITATIVO DA PRODUÇÃO CARTOGRÁFICA PARA REAMBULAÇÃO'}, 'Não aplicável',
     {h: '8 - Ocorrências, Dificuldades, Observações.'}, ...(F.dias || []).concat([F.dia]).map(d => d.ocorrencias).filter(Boolean),
@@ -17017,7 +17070,8 @@ async function exportaLC(op){
   try {
     marca('pacote ' + lc + ': PDF do relatório da campanha…');
     reg.forEach(r => { if (r.rel && !r.p.relatorio) REL_TMP.set(r.p, r.rel); });
-    montaImpressaoCampanha(await fotosParaImpressao(pontosDaCampanha()), await temposDaCampanha().catch(() => null));
+    const figC = await figuraTrechosCampanha().catch(() => null);
+    montaImpressaoCampanha(await fotosParaImpressao(pontosDaCampanha()), await temposDaCampanha().catch(() => null), figC);
     itens.push({nome: eqd + 'Relatório da Campanha_' + lc + '.pdf', dados: await pdfDaImpressao()});
     for (const d of DIAS){
       const dt = d.data ? new Date(d.data + 'T12:00:00') : null, ddd = dt ? _diaJuliano(dt) : '000';

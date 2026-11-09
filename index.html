@@ -3600,13 +3600,16 @@ async function varrePastaFotos(avisa){
   if (!VIGIA.h || !VIGIA.ok || varrePastaFotos._rodando) return;
   varrePastaFotos._rodando = true;
   try {
-    const vistas = new Set(_vistas()), novos = [];
+    const vistas = new Set(_vistas()), novos = [], semNome = [];
     for await (const [nome, e] of VIGIA.h.entries()){
-      if (e.kind !== 'file' || !_nomeFotoOutro(nome) || !/\.(jpe?g|png|webp|heic)$/i.test(nome)) continue;
+      if (e.kind !== 'file' || !/\.(jpe?g|png|webp|heic)$/i.test(nome)) continue;
       const f = await e.getFile(), k = nome + '|' + f.size + '|' + f.lastModified;
       if (vistas.has(k)) continue;
-      novos.push({f: f, k: k});
+      if (_nomeFotoOutro(nome)) novos.push({f: f, k: k});
+      else if (/\.jpe?g$/i.test(nome) && Date.now() - f.lastModified < 3 * 864e5) semNome.push({f: f, k: k});
+      else _vistas().push(k);                                       // fora do padrão e antiga: não se olha de novo
     }
+    if (semNome.length) await _fotosSemNome(semNome);
     VIGIA.ult = Date.now();
     if (!novos.length){ if (avisa) marca('pasta das fotos: nada novo'); pintaVigia(); return; }
     novos.sort((a, b) => a.f.lastModified - b.f.lastModified);
@@ -3625,6 +3628,36 @@ async function varrePastaFotos(avisa){
     pintaVigia();
   } catch (e){ if (e.name === 'NotAllowedError'){ VIGIA.ok = false; pintaNotebook(); } }
   finally { varrePastaFotos._rodando = false; }
+}
+/* Câmera comum (09/11/2026): foto sem o nome da página leve entra pela HORA gravada nela (EXIF DateTimeOriginal),
+   no ponto do dia cuja ocupação a contém (de 30 min antes do início a 45 min depois do fim), na ordem F1 norte, F2 sul,
+   F3 oeste, F4 leste, nos rumos ainda vazios — sem azimute (a câmera comum não grava o rumo). Foto sem hora gravada, ou de
+   hora fora de toda ocupação, não entra: a pasta pode ter outras imagens. */
+async function _fotosSemNome(L){
+  const P = (F.dia.pontos || []).filter(p => p.ocup_ini), feitos = [];
+  const comHora = [];
+  for (const x of L){
+    let t = null; try { const m = await leMetaARP(x.f), q = m && m.data && m.data.match(/^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/);
+      if (q) t = new Date(+q[1], +q[2] - 1, +q[3], +q[4], +q[5], +q[6]).getTime(); } catch (e){}
+    if (t == null){ _vistas().push(x.k); continue; }
+    comHora.push(Object.assign(x, {t: t}));
+  }
+  comHora.sort((a, b) => a.t - b.t);
+  for (const x of comHora){
+    const cand = P.filter(p => { const i = Date.parse(p.ocup_ini), f = p.ocup_fim ? Date.parse(p.ocup_fim) : i + 4 * 3600e3;
+      return x.t >= i - 30 * 60e3 && x.t <= f + 45 * 60e3; })
+      .sort((a, b) => Math.abs(Date.parse(a.ocup_ini) - x.t) - Math.abs(Date.parse(b.ocup_ini) - x.t));
+    const p = cand[0];
+    if (!p){ if (Date.now() - x.t > 6 * 3600e3) _vistas().push(x.k); continue; }      // recente: talvez o ponto ainda vá começar
+    const livre = FOTOS.map(f => f[0]).find(k => !(p.fotos && p.fotos[k]));
+    if (!livre){ _vistas().push(x.k); continue; }
+    p.fotos_az = p.fotos_az || {}; p.fotos_az[livre] = null;
+    await guardaFoto(p, livre, x.f); _vistas().push(x.k);
+    const lugar = (p.lat != null && p.lon != null) ? p : (p.chegada || p.planejado || null); p.declinacao = _decl(lugar);
+    feitos.push((p.id || 'ponto') + ' ' + 'F' + (FOTOS.findIndex(f => f[0] === livre) + 1) + ' (câmera comum, ' + new Date(x.t).toLocaleTimeString('pt-BR').slice(0, 5) + ')');
+  }
+  if (feitos.length){ VIGIA.n += feitos.length; VIGIA.recentes = feitos.concat(VIGIA.recentes).slice(0, 12);
+    grava(); pintaPontos(); marca('fotos da câmera comum, pela hora: ' + feitos.join(', ') + ' — confira os rumos no cartão'); }
 }
 function pintaVigia(){
   const e = $('#nb_vigia'); if (!e) return;
@@ -3654,6 +3687,10 @@ function baixaAjudanteUSB(){
     "function Procura($pasta, $prof) {",
     "  foreach ($it in $pasta.Items()) {",
     "    if ($it.IsFolder) { if ($prof -lt 3 -and ($pastas -contains $it.Name)) { Procura $it.GetFolder ($prof + 1) } }",
+    "    elseif ($pasta.Title -eq 'Camera' -and $it.Name -match '\\.(jpe?g)$|^IMG_|^\\d{8}_' -and $it.ModifyDate -gt (Get-Date).AddHours(-24)) {",
+    "      $nome = $it.Name; if ($nome -notmatch '\\.jpe?g$') { $nome = $nome + '.jpg' }",
+    "      if (-not (Test-Path (Join-Path $destino $nome))) { $dst.CopyHere($it, 4 + 16 + 1024); Write-Host ((Get-Date -Format 'HH:mm:ss') + '  camera: ' + $nome) -ForegroundColor Green; Start-Sleep -Milliseconds 400 }",
+    "    }",
     "    elseif ($it.Name -match $padrao) {",
     "      $nome = $it.Name; if ($nome -notmatch '\\.(jpe?g|png|webp)$') { $nome = $nome + '.jpg' }",
     "      if (-not (Test-Path (Join-Path $destino $nome))) { $dst.CopyHere($it, 4 + 16 + 1024); Write-Host ((Get-Date -Format 'HH:mm:ss') + '  copiada: ' + $nome) -ForegroundColor Green; Start-Sleep -Milliseconds 400 }",
@@ -3681,6 +3718,30 @@ function baixaAjudanteUSB(){
   marca('ajudante USB baixado: guarde-o no notebook e dê dois cliques nele antes de plugar o celular');
 }
 
+/* dados para digitar, ponto a ponto, numa tela grande */
+function mostraDigitar(){
+  const A = F.campanha.alvos || []; if (!A.length) return marca('carregue os pontos planejados');
+  const v = document.createElement('div');
+  v.style.cssText = 'position:fixed;inset:0;z-index:70;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px;text-align:center';
+  v.innerHTML = '<b style="font-size:20px">Dados para digitar no aparelho das fotos</b><select style="max-width:520px">' + opcoesPontos(NAV && NAV.i != null ? NAV.i : -1) + '</select>'
+    + '<div data-dig></div><button type="button" class="btn sec peq">Fechar</button>';
+  const sel = v.querySelector('select'), pinta = () => { const a = A[+sel.value]; if (!a) return;
+    const p = (F.dia.pontos || []).find(q => _idsDoPonto(q).includes(String(a.id).toUpperCase()));
+    v.querySelector('[data-dig]').innerHTML = _htmlDigitar(a.id, p ? _declDoPonto(p) : _decl(a)); };
+  sel.addEventListener('change', pinta); v.querySelector('button').addEventListener('click', () => v.remove());
+  document.body.appendChild(v); pinta();
+}
+/* lista dos pontos da equipe para o aparelho das fotos (identificador, coordenada planejada e declinação) */
+function arquivoPontosCelular(){
+  const A = (F.campanha.alvos || []).filter(a => !equipeDoPlano() || daMinhaEquipe(a));
+  if (!A.length) return marca('sem pontos planejados desta equipe');
+  const j = {tipo: 'pontos_para_fotos', v: 1, campanha: F.campanha.nome || '', equipe: (F.config.kit && F.config.kit.equipe) || '',
+    gerado: new Date().toISOString(),
+    pontos: A.map(a => { const d = _decl(a); return {id: a.id, lat: +(+a.lat).toFixed(5), lon: +(+a.lon).toFixed(5), d: d != null ? Math.round(d * 10) / 10 : null}; })};
+  baixa(nomeSaida('pontos_para_fotos' + (j.equipe ? '_' + j.equipe.replace(/\s+/g, '_') : ''), '') + '.json', new Blob([JSON.stringify(j)], {type: 'application/json'}));
+  marca(A.length + ' pontos no arquivo: mande-o ao aparelho das fotos (Bluetooth, Quick Share ou cabo) e, na página das fotos, "Carregar a lista de pontos"');
+}
+
 /* ---- a aba do notebook ---- */
 function montaAbaNotebook(){
   if (!NOTEBOOK || $('#aba_note')) return;
@@ -3695,7 +3756,14 @@ function montaAbaNotebook(){
     + '<div class="cart"><h3>1. O celular das fotos</h3><p class="leg">No celular, abra a página leve das fotos lendo o QR (o do cartão de cada ponto já leva '
     + 'o ponto e a declinação). Ela tira as 4 fotos pelos rumos, com o azimute no nome do arquivo. <b>Guardar</b> põe as fotos na pasta Download do celular; '
     + '<b>Enviar</b> abre o compartilhar (Quick Share, Bluetooth). Na primeira vez a página precisa de internet; depois abre sem rede.</p>'
-    + '<div class="acoes"><button type="button" class="btn sec peq" id="nb_qr">QR da página das fotos</button></div></div>'
+    + '<p class="leg"><b>Aparelho sem leitor de QR</b>, três caminhos: (a) <b>Dados para digitar</b> mostra em letra grande o endereço da página, '
+    + 'o ponto e a declinação — e a declinação nem precisa: a página a calcula pelo GPS do aparelho (WMM2025); (b) o <b>arquivo de pontos</b> vai uma vez '
+    + 'ao aparelho (Bluetooth, Quick Share ou cabo) e, nele, em "Carregar a lista de pontos", o ponto se escolhe numa lista, com o mais perto sugerido; '
+    + '(c) <b>aparelho que só tem a câmera comum</b>: tire as 4 fotos na ordem F1 norte, F2 sul, F3 oeste, F4 leste, durante a ocupação — na pasta '
+    + 'vigiada, a folha casa cada foto sem nome com o ponto ocupado naquela hora (pela hora gravada na foto) e põe na ordem, sem azimute.</p>'
+    + '<div class="acoes"><button type="button" class="btn sec peq" id="nb_qr">QR da página das fotos</button>'
+    + '<button type="button" class="btn sec peq" id="nb_digitar">Dados para digitar</button>'
+    + '<button type="button" class="btn sec peq" id="nb_lista">Arquivo de pontos para o celular</button></div></div>'
     + '<div class="cart"><h3>2. A pasta de chegada das fotos</h3><p class="leg">Escolha <b>uma vez</b> a pasta do notebook onde as fotos do celular chegam — '
     + 'a do ajudante USB (<code>Downloads\\fotos_do_celular</code>) ou a de recebimento do Quick Share/Bluetooth (em geral, Downloads). Enquanto a folha '
     + 'estiver aberta, ela olha a pasta a cada 4 segundos e põe cada foto no cartão do ponto do dia pelo nome (ponto, F1 a F4 e o azimute). '
@@ -3725,6 +3793,8 @@ function montaAbaNotebook(){
     const v = document.createElement('div'); v.style.cssText = 'position:fixed;inset:0;z-index:70;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;text-align:center';
     v.innerHTML = '<b style="font-size:20px">Página das fotos — leia com a câmera do celular</b>' + QR.svg(u, 320) + '<p class="leg">' + esc(u) + '</p><button type="button" class="btn sec peq">Fechar</button>';
     v.querySelector('button').addEventListener('click', () => v.remove()); document.body.appendChild(v); });
+  $('#nb_digitar').addEventListener('click', mostraDigitar);
+  $('#nb_lista').addEventListener('click', arquivoPontosCelular);
   $('#nb_pasta').addEventListener('click', () => escolhePastaFotos().catch(e => marca('pasta das fotos: ' + e.message)));
   $('#nb_varre').addEventListener('click', () => varrePastaFotos(true));
   $('#nb_usb').addEventListener('click', baixaAjudanteUSB);
@@ -14767,6 +14837,16 @@ function urlFotosPonto(p){
   const id = _idsDoPonto(p)[0] || '';
   return base + 'fotos.html#p=' + encodeURIComponent(id) + (d != null ? '&d=' + d.toFixed(1) : '') + (F.campanha.ptcon_lc ? '&lc=' + encodeURIComponent(F.campanha.ptcon_lc) : '');
 }
+/* Sem leitor de QR (09/11/2026): o que digitar no celular, em letra grande */
+const _endFotos = () => (URL_SITE + 'fotos.html').replace(/^https?:\/\//, '');
+function _declDoPonto(p){ const lugar = p && ((p.lat != null && p.lon != null) ? p : (p.chegada || p.planejado || p)); return lugar && lugar.lat != null ? _decl(lugar) : null; }
+function _htmlDigitar(id, d){
+  return '<div style="border:2px dashed #0A2E52;border-radius:12px;padding:10px 16px;max-width:680px;font-size:20px;line-height:1.45">'
+    + '<small style="font-size:14px">Sem leitor de QR: no navegador do celular, abra</small><br><b style="font-size:22px;overflow-wrap:anywhere">' + esc(_endFotos()) + '</b><br>'
+    + 'e digite &nbsp;<b style="font-size:30px;letter-spacing:1px">Ponto ' + esc(id || '—') + '</b>'
+    + (d != null ? ' &nbsp;·&nbsp; <b style="font-size:30px">Declinação ' + _numBR(d, 1) + '</b>' : '')
+    + '<br><small style="font-size:14px">(ou deixe a declinação em branco: a página calcula pelo GPS do celular)</small></div>';
+}
 function mostraQrFotos(p){
   const u = urlFotosPonto(p), id = _idsDoPonto(p)[0] || '';
   if (!id) return marca('o ponto ainda não tem identificador: ligue-o ao planejado ou preencha o identificador');
@@ -14775,8 +14855,8 @@ function mostraQrFotos(p){
   v.style.cssText = 'position:fixed;inset:0;z-index:70;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;text-align:center';
   v.innerHTML = '<b style="font-size:20px">Fotos do ' + esc(id) + ' — leia com a câmera do celular</b>' + svg
     + '<p class="leg" style="max-width:640px;overflow-wrap:anywhere">' + esc(u) + '</p>'
-    + '<p class="leg" style="max-width:640px">Abre a página leve já com o ponto e a declinação. Na primeira vez precisa de internet; depois abre sem rede. '
-    + 'Sem leitor de QR, digite o endereço do site e, nele, o ponto e a declinação.</p>'
+    + '<p class="leg" style="max-width:640px">Abre a página leve já com o ponto e a declinação. Na primeira vez precisa de internet; depois abre sem rede.</p>'
+    + _htmlDigitar(id, _declDoPonto(p))
     + '<button type="button" class="btn sec peq">Fechar</button>';
   v.querySelector('button').addEventListener('click', () => v.remove());
   document.body.appendChild(v);

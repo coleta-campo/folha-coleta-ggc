@@ -2514,8 +2514,10 @@ function urlCidades(nome, uf){
    o croqui tem de sair igual em qualquer aparelho da equipe, e um croqui que
    muda de fonte de um ponto para o outro não serve como peça de documento.
 
-     · CROQUI (o recorte fechado, que mostra o terreno como ele é): Esri
-       Satellite (World Imagery);
+     · CROQUI (o recorte fechado, que mostra o terreno como ele é): a IMAGEM DO
+       PROJETO (ortofoto da campanha, no mapa da área do kit), desde 08/11/2026 —
+       é nela que o ponto foi escolhido e que a posição se avalia; o Esri
+       Satellite (World Imagery) só onde o projeto não tem imagem, e a tarja diz;
      · SITUAÇÃO e NO BRASIL (a visão geral, para ACHAR o ponto): Esri Standard
        (World Street Map), porque ali valem os nomes de rua, de município e as
        estradas.
@@ -2843,6 +2845,78 @@ async function mosaico(ctx, url, lat, lon, z, W, Hc, cx, cy){
   return n;
 }
 
+/* ---------- a imagem do projeto ----------
+   08/11/2026: perto do ponto vale a imagem do PROJETO — a ortofoto da campanha, que vem
+   no mapa da área (um recorte de 600 m × 600 m em volta de cada ponto planejado, na
+   resolução original, e a visão geral reduzida de cada ortofoto). É nela que o ponto foi
+   escolhido no gabinete e é nela que a equipe avalia a posição em campo; a imagem Esri é
+   outra cena, de outra data e de outro georreferenciamento, e só entra onde o projeto não
+   tem imagem, com a tarja dizendo qual fonte valeu. */
+const IMG_PROJETO = {nome: 'Imagem do projeto (ortofoto da campanha)'};
+/* O recorte do projeto que contém o ponto, com folga de `folgaM` metros (o de pixel mais fino). */
+function areaDoProjeto(lat, lon, folgaM){
+  const d = (folgaM || 0), mlat = 111320, mlon = 111320 * Math.cos(lat * Math.PI / 180);
+  return AREAS.filter(a => !a.geral && a.w && lat + d / mlat <= a.n && lat - d / mlat >= a.s
+                         && lon - d / mlon >= a.o && lon + d / mlon <= a.l)
+    .sort((u, v) => (u.n - u.s) / (u.h || 1) - (v.n - v.s) / (v.h || 1))[0] || null;
+}
+function resDaArea(a, lat){ return (a.l - a.o) * 111320 * Math.cos(lat * Math.PI / 180) / (a.w || 1); }
+const _IMG_PROJ = new Map();
+async function _imgDaArea(a){
+  if (_IMG_PROJ.has(a.chave)) return _IMG_PROJ.get(a.chave);
+  const m = await mapaPegaUm(a.chave).catch(() => null);
+  const im = m && m.dados ? await _abreImagem(m.dados) : null;
+  if (_IMG_PROJ.size >= 6) _IMG_PROJ.delete(_IMG_PROJ.keys().next().value);
+  if (im) _IMG_PROJ.set(a.chave, im);
+  return im;
+}
+/* Desenha a imagem do projeto na mesma janela de mosaico() (centro, nível z, W × H). Só
+   desenha se um recorte do projeto contém o ponto; devolve {area, nomes} ou null. As imagens
+   que caem na janela entram da mais grosseira para a mais fina; o que fica fora delas, cinza. */
+async function mosaicoProjeto(ctx, lat, lon, z, W, Hc, cx, cy){
+  const a0 = areaDoProjeto(lat, lon, 0); if (!a0) return null;
+  const c0 = _n(lat, lon, z), m = Math.hypot(W, Hc) / 2 * 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, z) / 111000 / Math.max(0.2, Math.cos(lat * Math.PI / 180));
+  const L = AREAS.filter(r => r.w && !(r.s > lat + m || r.n < lat - m || r.o > lon + m || r.l < lon - m))
+    .sort((u, v) => (v.n - v.s) / (v.h || 1) - (u.n - u.s) / (u.h || 1));
+  ctx.save(); ctx.beginPath(); ctx.rect(cx, cy, W, Hc); ctx.clip();
+  ctx.fillStyle = '#E5E7EB'; ctx.fillRect(cx, cy, W, Hc);
+  const nomes = [];
+  for (const r of L){
+    const im = await _imgDaArea(r); if (!im) continue;
+    const a = _n(r.n, r.o, z), b = _n(r.s, r.l, z);
+    ctx.drawImage(im, cx + W / 2 + (a.x - c0.x) * TB, cy + Hc / 2 + (a.y - c0.y) * TB, (b.x - a.x) * TB, (b.y - a.y) * TB);
+    nomes.push(r.nome);
+  }
+  ctx.restore();
+  return nomes.includes(a0.nome) ? {area: a0, nomes: nomes} : null;
+}
+/* Quadro de detalhe sobre a imagem do projeto: o recorte em pixels NATIVOS da ortofoto,
+   ampliado sem suavização — o quadradinho que aparece é o pixel do projeto. */
+async function quadroDetalheProjeto(x, f, a, lat, lon, ladoM, px, py, lado){
+  const im = await _imgDaArea(a); if (!im) return null;
+  const W = im.naturalWidth, H = im.naturalHeight, g = resDaArea(a, lat);
+  const ix = (lon - a.o) / (a.l - a.o) * W, iy = (a.n - lat) / (a.n - a.s) * H;
+  const npx = Math.max(4, ladoM / g), amp = lado / npx;
+  x.save(); x.beginPath(); x.rect(px, py, lado, lado); x.clip();
+  x.fillStyle = '#E5E7EB'; x.fillRect(px, py, lado, lado);
+  x.imageSmoothingEnabled = amp < 1;
+  x.drawImage(im, ix - npx / 2, iy - npx / 2, npx, npx, px, py, lado, lado);
+  x.restore();
+  x.strokeStyle = '#FFFFFF'; x.lineWidth = 3; x.strokeRect(px - 1.5, py - 1.5, lado + 3, lado + 3);
+  x.strokeStyle = '#26333A'; x.lineWidth = 1; x.strokeRect(px - 3.5, py - 3.5, lado + 7, lado + 7);
+  const cx = px + lado / 2, cy = py + lado / 2;
+  const cruz = () => { x.beginPath(); x.moveTo(cx - 16, cy); x.lineTo(cx - 5, cy); x.moveTo(cx + 5, cy); x.lineTo(cx + 16, cy);
+    x.moveTo(cx, cy - 16); x.lineTo(cx, cy - 5); x.moveTo(cx, cy + 5); x.lineTo(cx, cy + 16); x.stroke(); };
+  x.strokeStyle = 'rgba(255,255,255,0.95)'; x.lineWidth = 4.5; cruz();
+  x.strokeStyle = '#C01616'; x.lineWidth = 1.8; cruz();
+  const hf = 34; x.fillStyle = 'rgba(255,255,255,0.92)'; x.fillRect(px, py + lado - hf, lado, hf);
+  f(12, '700'); x.fillStyle = C.ESC; x.fillText('DETALHE  ' + _numBR(ladoM) + ' × ' + _numBR(ladoM) + ' m', px + 8, py + lado - hf + 14);
+  f(11); x.fillStyle = C.CZ;
+  x.fillText('projeto · ' + _numBR(g * 100, 0) + ' cm/pixel · ampliado ' + _numBR(amp, 1) + '×', px + 8, py + lado - hf + 28);
+  return 'Quadro de ' + _numBR(ladoM) + ' × ' + _numBR(ladoM) + ' m centrado no ponto, sobre a imagem do projeto ('
+    + a.nome + '): ' + _numBR(g * 100, 0) + ' cm por pixel, ampliado ' + _numBR(amp, 1) + '× sem suavização.';
+}
+
 /* ---------- o relatório do ponto ----------
    O PRODUTO é o relatório do ponto; o croqui é a parte cartográfica dele, ao
    lado da situação, da posição no Brasil, da ficha do rastreio, da descrição
@@ -2889,7 +2963,7 @@ async function montaRelatorioPonto(p){
   return cv;
 }
 async function montaRelatorio(p){
-  const srv = SRV_DETALHE;
+  let srv = SRV_DETALHE;
   if ((F.dia.pontos || []).includes(p)) await temposDoDia(F.dia).catch(() => null);
   if (p.lat == null || p.lon == null) throw new Error('ponto sem coordenada');
   /* O croqui já depende de rede; então é aqui que o município se resolve
@@ -2927,13 +3001,16 @@ async function montaRelatorio(p){
   /* Com o resultado do IBGE-PPP, o croqui cede a altura do quadro de campos. */
   const cpp = p._coordPPP && p.ppp_coord && p.ppp_coord.campos && Object.keys(p.ppp_coord.campos).length ? p.ppp_coord.campos : null;
   const y1 = M + 100, hm = cpp ? 640 - (36 + Math.ceil(Object.keys(cpp).length / 4) * 21 + 14) : 640;
-  const zP = Math.min(srv.zmax || 19, 18);
-  const nP = await mosaico(x, srv.url, p.lat, p.lon, zP, larg, hm, M, y1);
+  const zP = Math.min(SRV_DETALHE.zmax || 19, 18);
+  /* a imagem do projeto primeiro (é nela que a posição se avalia); a Esri só sem ela */
+  const proj = await mosaicoProjeto(x, p.lat, p.lon, zP, larg, hm, M, y1).catch(() => null);
+  if (proj) srv = {nome: IMG_PROJETO.nome, credito: proj.area.nome + ', ' + _numBR(resDaArea(proj.area, p.lat) * 100, 0) + ' cm/pixel'};
+  const nP = proj ? 1 : await mosaico(x, srv.url, p.lat, p.lon, zP, larg, hm, M, y1);
   x.strokeStyle = '#DCE3E5'; x.lineWidth = 1.5;
   x.strokeRect(M, y1, larg, hm);
   alvoNoMapa(x, M + larg/2, y1 + hm/2);
   rosaEescala(x, M, y1, larg, hm, p.lat, zP, p.lon, dataDoPontoRef(p));
-  _tarjaQuadro(x, f, M, y1, 'CROQUI');
+  _tarjaQuadro(x, f, M, y1, proj ? 'CROQUI · IMAGEM DO PROJETO' : 'CROQUI · ESRI (SEM IMAGEM DO PROJETO AQUI)');
 
   /* Quadros de detalhe na DIAGONAL do croqui: o primeiro da lista no alto à
      esquerda, logo abaixo da tarja, e o segundo embaixo à direita. São dois
@@ -2946,8 +3023,8 @@ async function montaRelatorio(p){
     const cantos = [[M + 14, y1 + 44],
                     [M + larg - 14 - DET.lado, y1 + hm - 14 - DET.lado]];
     for (let i = 0; i < Math.min(lados.length, 2); i++){
-      const nota = await quadroDetalhe(x, f, srv.url, p.lat, p.lon, lados[i],
-                                       cantos[i][0], cantos[i][1], DET.lado);
+      const nota = proj ? await quadroDetalheProjeto(x, f, proj.area, p.lat, p.lon, lados[i], cantos[i][0], cantos[i][1], DET.lado)
+                        : await quadroDetalhe(x, f, srv.url, p.lat, p.lon, lados[i], cantos[i][0], cantos[i][1], DET.lado);
       if (nota) notasDetalhe.push(nota);
     }
   }
@@ -3514,7 +3591,10 @@ async function formularioCCAR(p, o){
       x.strokeText('F' + (j + 1), tx, ty); x.fillText('F' + (j + 1), tx, ty); x.restore(); }); };
   const quadro = async (srv, z, x0, x1, rot, comFotos) => {
     const top = y + 14, hq = H - 30 - top - 30, cx = x0 + 10 + (x1 - x0 - 20) / 2, cy = top + hq / 2;
-    if (c){ try { const n = await mosaico(x, srv.url, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top);
+    if (c){ try { const pj = srv === SRV_DETALHE ? await mosaicoProjeto(x, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top) : null;
+      if (pj) rot = rot.replace('imagem ' + SRV_DETALHE.nome, 'imagem do projeto (' + pj.area.nome + ')');
+      else if (srv === SRV_DETALHE) rot = rot.replace('imagem ' + SRV_DETALHE.nome, 'imagem ' + SRV_DETALHE.nome + ' (sem imagem do projeto aqui)');
+      const n = pj ? 1 : await mosaico(x, srv.url, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top);
       if (n) alvoNoMapa(x, cx, cy, 12); } catch (e){} }
     if (c && comFotos) setasFotos(cx, cy);
     x.strokeStyle = '#999'; x.lineWidth = 1; x.strokeRect(x0 + 10, top, x1 - x0 - 20, hq);
@@ -7041,7 +7121,7 @@ function imgArea(a){
     // sai a aberta há mais tempo, nunca uma visão geral
     const geral = new Set(AREAS.filter(r => r.geral).map(r => r.chave));
     for (const [k] of _IMG_AREA){
-      if (k !== a.chave && !geral.has(k)){ _IMG_AREA.delete(k); break; }
+      if (k !== a.chave && !geral.has(k) && k !== NAV.protege){ _IMG_AREA.delete(k); break; }
     }
   }
   mapaPegaUm(a.chave).then(m => {
@@ -10180,7 +10260,7 @@ function montaTelaNav(){
     + '<button type="button" class="btn" data-n="comeca" style="flex-basis:100%">Cheguei — começar o ponto aqui</button>'
     + '<button type="button" class="btn sec" data-n="menos" title="Afastar (tecla Page Down)">−</button>'
     + '<button type="button" class="btn sec" data-n="mais" title="Aproximar (tecla Page Up)">+</button>'
-    + '<button type="button" class="btn sec" data-n="fundo">Fundo: auto</button>'
+    + '<button type="button" class="btn sec" data-n="fundo">Fundo: projeto + Esri</button>'
     + '<button type="button" class="btn sec" data-n="bussola">Bússola</button>'
     + '<button type="button" class="btn sec" data-n="modo">Modo: direção</button>'
     + '<select class="btn sec" data-n="app" title="app de navegação por voz"><option value="gmaps">Abrir no Google Maps</option><option value="waze">Abrir no Waze</option><option value="geo">Abrir em outro app de mapas</option></select>'
@@ -10205,7 +10285,7 @@ function montaTelaNav(){
   q('fundo').addEventListener('click', () => {
     const ordem = ['auto', 'area', 'esri', 'nenhum'];
     NAV.fundo = ordem[(ordem.indexOf(NAV.fundo) + 1) % ordem.length];
-    q('fundo').textContent = 'Fundo: ' + {auto: 'auto', area: 'mapa da área',
+    q('fundo').textContent = 'Fundo: ' + {auto: 'projeto + Esri', area: 'só a imagem do projeto',
       esri: 'Esri (rede)', nenhum: 'sem fundo'}[NAV.fundo];
     desenhaNav();
   });
@@ -10890,6 +10970,11 @@ function desenhaNav(){
       || r.o > cen.lon + meiaGraus || r.l < cen.lon - meiaGraus))
     .sort((u, v) => ((v.n - v.s) / (v.h || 1)) - ((u.n - u.s) / (u.h || 1)));
   const temArea = noQuadro.length > 0;
+  /* a imagem do projeto do ponto de destino nunca sai da memória e já se abre antes de entrar
+     no quadro: perto do ponto ela é a referência da posição (08/11/2026) */
+  const aProj = volta ? null : areaDoProjeto(a.lat, a.lon, 0);
+  NAV.protege = aProj ? aProj.chave : null;
+  if (aProj) imgArea(aProj);
   /* auto: os blocos Esri (guardados no aparelho ou, com rede, ao vivo) por baixo
      e a ortofoto da campanha por cima, onde houver */
   const fundo = NAV.fundo;
@@ -10941,10 +11026,14 @@ function desenhaNav(){
       x.drawImage(im, x0, y0, w, h); usados.push(r.nome);
     }
     NAV.nArea = usados.length;
-    if (usados.length) credito = 'mapa da área: ' + (usados.length > 1
-      ? usados.length + ' imagens' : usados[0]);
+    if (usados.length) credito = 'imagem do projeto: ' + (aProj && usados.includes(aProj.nome) ? aProj.nome.replace(/_recorte\.jpg$/i, '')
+      : usados.length > 1 ? usados.length + ' imagens' : usados[0]);
   }
   x.restore();
+  if (!volta && g && g.s <= 600){
+    if (!aProj) credito = 'SEM IMAGEM DO PROJETO NESTE PONTO — ' + (credito || 'sem fundo');
+    else if (!NAV.nArea || !usaArea) credito = 'imagem do projeto ' + (usaArea ? 'abrindo…' : 'desligada em Fundo') + ' — ' + (credito || 'sem fundo');
+  }
 
   // ruas do OpenStreetMap guardadas: por cima quando não há imagem no quadro,
   // ou finas sobre a imagem

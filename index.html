@@ -7920,6 +7920,7 @@ function abreNavHospedagem(){
   if (!h) return marca('a folha não tem a hospedagem do plano');
   abreNav(NAV.i || 0);
   NAV.volta = true; NAV.dz = 0; NAV.opc = 1; NAV.chegouAviso = false; NAV.panCen = null;
+  NAV.modo = 'carro'; NAV.daqui = null;                      // a volta mostra sempre o caminho, desde onde a equipe está
   desenhaNav();
   setTimeout(() => marca('navegando de volta à hospedagem'), 600);
 }
@@ -11113,8 +11114,10 @@ function desenhaNav(){
      por destino: se nenhum caminho do plano passa a menos de 3 km de onde a equipe está (ou o ponto
      só tem os caminhos desde a BR), vale a rota daqui (OSRM, com internet), e os do plano ficam como
      opções em Trajeto. Sem internet: "Outra rota, sem internet" calcula no aparelho. */
-  const doPlano = t => t.fonte === 'plano' || t.fonte === 'campanha';
-  if (carro && P && !volta && !temOff && (!NAV.daqui || NAV.daqui.id !== a.id)){
+  /* 09/11/2026: a volta à hospedagem segue a mesma regra — a volta do plano só vale se a equipe está nela;
+     senão, a rota daqui (internet) ou a calculada no aparelho, pelas ruas guardadas */
+  const doPlano = t => t.fonte === 'plano' || t.fonte === 'campanha' || t.fonte === 'volta';
+  if (carro && P && !temOff && (!NAV.daqui || NAV.daqui.id !== a.id)){
     const pl = TL.filter(doPlano);
     /* 09/11/2026: o caminho do plano só vale se a equipe está nele (até 500 m); antes, 3 km — e, num ponto
        de outro dia, valia o trecho que sai do ponto anterior daquele dia, que não é onde a equipe está */
@@ -11122,20 +11125,20 @@ function desenhaNav(){
     NAV.daqui = {id: a.id, longe: longe};
     if (longe && NAV.opc === 1) NAV.opc = 0;
   }
-  const daqui = carro && !volta && !temOff && NAV.daqui && NAV.daqui.id === a.id && NAV.daqui.longe;
+  const daqui = carro && !temOff && NAV.daqui && NAV.daqui.id === a.id && NAV.daqui.longe;
   if (carro && !temOff && (!TL.length || daqui)){
     pedeRotaOnline(a, P);
     if (NAV.rotaOn && NAV.rotaOn.id === a.id) TL = [NAV.rotaOn].concat(TL);
     else if (daqui) TL = TL.filter(t => !doPlano(t));          // enquanto a rota daqui não chega
     // sem internet (ou o OSRM fora): a rota daqui sai pelas ruas guardadas no aparelho, uma vez
     if (daqui && !NAV.daqui.off && (!navigator.onLine || (NAV.rotaErro && !NAV.rotaOn))){
-      NAV.daqui.off = true; setTimeout(() => { if (alvoNav() === a) calculaRotaOffline(); }, 0); }
+      NAV.daqui.off = true; setTimeout(() => { if ((alvoNav() || {}).id === a.id) calculaRotaOffline(); }, 0); }
   }
   if (temOff) TL = [NAV.rotaOff].concat(TL);
   // a rota do aparelho segue a equipe: saiu dela mais de 80 m, é refeita daqui (no máximo a cada 20 s)
   if (temOff && P && !NAV.offRefaz && Date.now() - NAV.rotaOff.t > 20000){
     const z = noTrajeto(NAV.rotaOff, P);
-    if (z && z.fora > 80){ NAV.offRefaz = true; setTimeout(() => { NAV.offRefaz = false; if (alvoNav() === a) calculaRotaOffline(true); }, 0); }
+    if (z && z.fora > 80){ NAV.offRefaz = true; setTimeout(() => { NAV.offRefaz = false; if ((alvoNav() || {}).id === a.id) calculaRotaOffline(true); }, 0); }
   }
   if (carro && NAV.rotaNova && NAV.rotaNova[0] && NAV.rotaNova[0].id === a.id) TL = NAV.rotaNova.concat(TL);
   const T = TL.find(t => t.o === NAV.opc) || TL[0] || null;

@@ -24,6 +24,10 @@
 body{margin:0;background:var(--bg);color:var(--esc);
  font:17px/1.45 "IBM Plex Sans","Segoe UI",system-ui,-apple-system,sans-serif}
 .wrap{max-width:860px;margin:0 auto;padding:16px 14px 90px}
+body.notebook .wrap{max-width:1180px}
+.tabcam{border-collapse:collapse;width:100%;font-size:14px}
+.tabcam th,.tabcam td{padding:3px 5px;border-bottom:1px solid var(--lin);text-align:left;vertical-align:middle}
+.tabcam .btn.peq{padding:2px 8px;min-width:0}
 h1{font-size:22px;margin:.1em 0 .1em;letter-spacing:-.01em}
 .sub{color:var(--cz);font-size:14px;margin:0 0 14px}
 h2{font-size:18px;margin:26px 0 8px}
@@ -2995,7 +2999,7 @@ async function _imgXYZ(L, z, x, y){
   const f = await _xyzArquivo(L, z, x, y); if (!f) return null;
   const u = URL.createObjectURL(f), im = await _abreImagem(u); URL.revokeObjectURL(u); return im;
 }
-const xyzAtivas = () => XYZ.filter(L => L.ok);
+const xyzAtivas = () => XYZ.filter(L => L.ok && camadaVis('x:' + L.nome));
 /* A janela de mosaico() desenhada com as camadas do projeto QGIS; só vale se alguma tem o bloco do centro. */
 async function mosaicoXYZ(ctx, lat, lon, z, W, Hc, cx, cy){
   const LL = xyzAtivas().filter(L => z >= L.zmin); if (!LL.length) return null;
@@ -3088,6 +3092,659 @@ function pintaXYZEstado(){
   const nb = NAV && NAV.el ? NAV.el.querySelector('[data-n="xyz"]') : null; if (nb) nb.style.display = inat ? '' : 'none';
 }
 
+/* ---------- GeoPackage lido direto do disco (notebook) ----------
+   09/11/2026: no notebook, as imagens originais do projeto (GeoPackage raster, de qualquer tamanho) e os
+   dados auxiliares (GeoPackage vetorial) entram sem conversão. O GeoPackage é um banco SQLite (OGC 12-128r19);
+   a folha não carrega o arquivo inteiro na memória: lê as páginas do banco sob demanda (File.slice), segue as
+   árvores B do SQLite até o bloco pedido — o índice único (zoom_level, tile_column, tile_row) que a norma exige
+   na tabela de blocos — e monta o bloco com as páginas de transbordo. Formato do banco: SQLITE. Database file
+   format. [S. l.], 2024. Disponível em: https://www.sqlite.org/fileformat.html. As coordenadas saem do sistema
+   da camada (gpkg_spatial_ref_sys) para SIRGAS 2000 geográfico: UTM (SIRGAS 2000 e WGS 84, norte e sul),
+   Pseudo-Mercator e geográficas; outros sistemas são recusados com aviso (a folha não faz transformação de datum). */
+class LeSQLite {
+  constructor(file){ this.f = file; this.cache = new Map(); this.blocos = new Map(); }
+  async abre(){
+    const h = new Uint8Array(await this.f.slice(0, 100).arrayBuffer());
+    if (new TextDecoder().decode(h.subarray(0, 15)) !== 'SQLite format 3') throw new Error('não é um banco SQLite/GeoPackage');
+    const dv = new DataView(h.buffer);
+    let ps = dv.getUint16(16); if (ps === 1) ps = 65536;
+    this.ps = ps; this.U = ps - h[20];
+    this.blk = Math.max(ps, 65536);                       // leitura em blocos de 64 KB: as páginas de transbordo costumam vir juntas
+    this.mestre = await this.tabela(1);
+    return this;
+  }
+  async _bloco(i){
+    let p = this.blocos.get(i); if (p) return p;
+    p = this.f.slice(i * this.blk, (i + 1) * this.blk).arrayBuffer().then(b => new Uint8Array(b));
+    this.blocos.set(i, p);
+    if (this.blocos.size > 256){ const k = this.blocos.keys().next().value; this.blocos.delete(k); }
+    return p;
+  }
+  async pag(n){
+    const off = (n - 1) * this.ps, i = Math.floor(off / this.blk), b = await this._bloco(i), o = off - i * this.blk;
+    return b.subarray(o, o + this.ps);
+  }
+  static varint(u, o){
+    let v = 0;
+    for (let i = 0; i < 8; i++){ const c = u[o + i]; v = v * 128 + (c & 0x7f); if (!(c & 0x80)) return [v, o + i + 1]; }
+    return [v * 256 + u[o + 8], o + 9];
+  }
+  /* conteúdo de uma célula (com transbordo) */
+  async _carga(pg, o, P, folhaTabela){
+    const U = this.U, X = folhaTabela ? U - 35 : Math.floor((U - 12) * 64 / 255) - 23;
+    if (P <= X) return pg.subarray(o, o + P);
+    const M = Math.floor((U - 12) * 32 / 255) - 23, K = M + ((P - M) % (U - 4)), loc = K <= X ? K : M;
+    const out = new Uint8Array(P); out.set(pg.subarray(o, o + loc), 0);
+    let nx = new DataView(pg.buffer, pg.byteOffset + o + loc, 4).getUint32(0), pos = loc;
+    while (nx && pos < P){ const q = await this.pag(nx), n = Math.min(U - 4, P - pos);
+      out.set(q.subarray(4, 4 + n), pos); pos += n; nx = new DataView(q.buffer, q.byteOffset, 4).getUint32(0); }
+    return out;
+  }
+  static registro(u){
+    let [hs, o] = LeSQLite.varint(u, 0); const tipos = []; let p = o;
+    while (p < hs){ let t; [t, p] = LeSQLite.varint(u, p); tipos.push(t); }
+    const dv = new DataView(u.buffer, u.byteOffset, u.byteLength), vals = []; let q = hs;
+    for (const t of tipos){
+      if (t === 0){ vals.push(null); continue; }
+      if (t >= 1 && t <= 6){ const n = [0, 1, 2, 3, 4, 6, 8][t]; let v = 0;
+        for (let i = 0; i < n; i++) v = v * 256 + u[q + i];
+        if (u[q] & 0x80) v -= Math.pow(2, 8 * n);
+        vals.push(v); q += n; continue; }
+      if (t === 7){ vals.push(dv.getFloat64(q)); q += 8; continue; }
+      if (t === 8 || t === 9){ vals.push(t - 8); continue; }
+      const n = t >= 12 && t % 2 === 0 ? (t - 12) / 2 : (t - 13) / 2;
+      vals.push(t % 2 === 0 ? u.subarray(q, q + n) : new TextDecoder().decode(u.subarray(q, q + n))); q += n;
+    }
+    return vals;
+  }
+  /* percorre a tabela inteira (árvore B de tabela), chamando fn(rowid, valores) */
+  async percorre(raiz, fn, max){
+    let n = 0;
+    const vai = async pn => {
+      const pg = await this.pag(pn), h = pn === 1 ? 100 : 0, t = pg[h], nc = (pg[h + 3] << 8) | pg[h + 4];
+      const hd = t === 5 || t === 2 ? 12 : 8, dv = new DataView(pg.buffer, pg.byteOffset);
+      for (let i = 0; i < nc; i++){
+        const c = dv.getUint16(h + hd + 2 * i);
+        if (t === 5){ await vai(dv.getUint32(c)); if (max && n >= max) return; }
+        else if (t === 13){ let [P, o] = LeSQLite.varint(pg, c), rid; [rid, o] = LeSQLite.varint(pg, o);
+          fn(rid, LeSQLite.registro(await this._carga(pg, o, P, true))); if (max && ++n >= max) return; }
+      }
+      if (t === 5) await vai(dv.getUint32(h + 8));
+    };
+    await vai(raiz);
+  }
+  async tabela(raiz){ const L = []; await this.percorre(raiz, (r, v) => L.push(v)); return L; }
+  /* linha da tabela pelo rowid */
+  async linha(raiz, rid){
+    let pn = raiz;
+    for (;;){
+      const pg = await this.pag(pn), h = pn === 1 ? 100 : 0, t = pg[h], nc = (pg[h + 3] << 8) | pg[h + 4];
+      const hd = t === 5 ? 12 : 8, dv = new DataView(pg.buffer, pg.byteOffset);
+      if (t === 13){
+        for (let i = 0; i < nc; i++){ const c = dv.getUint16(h + hd + 2 * i); let [P, o] = LeSQLite.varint(pg, c), r; [r, o] = LeSQLite.varint(pg, o);
+          if (r === rid) return LeSQLite.registro(await this._carga(pg, o, P, true)); }
+        return null;
+      }
+      if (t !== 5) return null;
+      let prox = dv.getUint32(h + 8);
+      for (let i = 0; i < nc; i++){ const c = dv.getUint16(h + hd + 2 * i), [k] = LeSQLite.varint(pg, c + 4);
+        if (rid <= k){ prox = dv.getUint32(c); break; } }
+      pn = prox;
+    }
+  }
+  /* procura num índice uma chave (prefixo de números); devolve o registro do índice (último valor = rowid) */
+  async noIndice(raiz, chave){
+    const cmp = v => { for (let i = 0; i < chave.length; i++){ const a = v[i], b = chave[i]; if (a < b) return -1; if (a > b) return 1; } return 0; };
+    let pn = raiz;
+    for (;;){
+      const pg = await this.pag(pn), h = pn === 1 ? 100 : 0, t = pg[h], nc = (pg[h + 3] << 8) | pg[h + 4];
+      const hd = t === 2 ? 12 : 8, dv = new DataView(pg.buffer, pg.byteOffset);
+      let prox = t === 2 ? dv.getUint32(h + 8) : 0;
+      for (let i = 0; i < nc; i++){
+        const c = dv.getUint16(h + hd + 2 * i), o0 = t === 2 ? c + 4 : c, [P, o] = LeSQLite.varint(pg, o0);
+        const v = LeSQLite.registro(await this._carga(pg, o, P, false)), r = cmp(v);
+        if (r === 0) return v;
+        if (r > 0){ if (t === 2) prox = dv.getUint32(c); else return null; break; }
+      }
+      if (t !== 2) return null;
+      pn = prox;
+    }
+  }
+  objeto(tipo, nome){ return this.mestre.find(r => r[0] === tipo && (nome == null || String(r[1]).toLowerCase() === String(nome).toLowerCase())); }
+  /* linhas da tabela; a coluna INTEGER PRIMARY KEY é o próprio rowid (o registro a guarda como NULL) */
+  async consulta(nome){
+    const o = this.objeto('table', nome); if (!o) return [];
+    const ip = this.colunas(nome).findIndex(c => /^INTEGER\b.*\bPRIMARY\s+KEY/i.test(c.def)), L = [];
+    await this.percorre(o[3], (rid, v) => { if (ip >= 0 && v[ip] == null) v[ip] = rid; L.push(v); });
+    return L;
+  }
+  colunas(nome){
+    const o = this.objeto('table', nome); if (!o) return [];
+    const sql = String(o[4] || ''), corpo = sql.slice(sql.indexOf('(') + 1, sql.lastIndexOf(')'));
+    const partes = []; let prof = 0, cur = '';
+    for (const ch of corpo){ if (ch === '(') prof++; if (ch === ')') prof--; if (ch === ',' && !prof){ partes.push(cur); cur = ''; } else cur += ch; }
+    partes.push(cur);
+    return partes.map(x => x.trim()).filter(x => x && !/^(CONSTRAINT|PRIMARY|UNIQUE|CHECK|FOREIGN)\b/i.test(x))
+      .map(x => { const m = x.match(/^["`\[]?([^"`\]\s]+)["`\]]?\s*(.*)$/); return {nome: m[1], def: m[2] || ''}; });
+  }
+}
+
+/* ---------- projeções do GeoPackage ---------- */
+function geoUtm(lat, lon, fuso){
+  const a = GRS80.a, f = GRS80.f, k0 = 0.9996, e2 = f * (2 - f), ep2 = e2 / (1 - e2);
+  const fi = lat * RAD, l0 = (fuso * 6 - 183) * RAD, s = Math.sin(fi), c = Math.cos(fi), t = Math.tan(fi);
+  const N = a / Math.sqrt(1 - e2 * s * s), T = t * t, C = ep2 * c * c, A = (lon * RAD - l0) * c;
+  const M = a * ((1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 ** 3 / 256) * fi - (3 * e2 / 8 + 3 * e2 * e2 / 32 + 45 * e2 ** 3 / 1024) * Math.sin(2 * fi)
+    + (15 * e2 * e2 / 256 + 45 * e2 ** 3 / 1024) * Math.sin(4 * fi) - (35 * e2 ** 3 / 3072) * Math.sin(6 * fi));
+  const E = 500000 + k0 * N * (A + (1 - T + C) * A ** 3 / 6 + (5 - 18 * T + T * T + 72 * C - 58 * ep2) * A ** 5 / 120);
+  let Nn = k0 * (M + N * t * (A * A / 2 + (5 - T + 9 * C + 4 * C * C) * A ** 4 / 24 + (61 - 58 * T + T * T + 600 * C - 330 * ep2) * A ** 6 / 720));
+  return {E: E, N: Nn};
+}
+/* {paraGeo(x, y) -> {lat, lon}, deGeo(lat, lon) -> {x, y}, metro: metros por unidade (aprox.), nome} ou null */
+function projecaoGPKG(org, cod, def){
+  org = String(org || '').toUpperCase(); cod = +cod; def = String(def || '');
+  const geo = {paraGeo: (x, y) => ({lat: y, lon: x}), deGeo: (lat, lon) => ({x: lon, y: lat}), metro: 111320, nome: 'geográficas'};
+  const utm = (fuso, sul, dat) => ({paraGeo: (x, y) => utmGeo(x, y, fuso, sul), deGeo: (lat, lon) => { const r = geoUtm(lat, lon, fuso); return {x: r.E, y: sul ? r.N + 10000000 : r.N}; },
+    metro: 1, nome: dat + ' / UTM ' + fuso + (sul ? 'S' : 'N')});
+  if (org === 'EPSG'){
+    if ([4326, 4674, 4258, 4269, 4019, 4167].includes(cod)) return geo;
+    if (cod === 3857 || cod === 900913 || cod === 3395) return {paraGeo: (x, y) => merc3857Geo(x, y),
+      deGeo: (lat, lon) => ({x: 6378137 * lon * RAD, y: 6378137 * Math.log(Math.tan(Math.PI / 4 + lat * RAD / 2))}), metro: 1, nome: 'Pseudo-Mercator'};
+    if (cod >= 31965 && cod <= 31976) return utm(cod - 31954, false, 'SIRGAS 2000');
+    if (cod >= 31977 && cod <= 31985) return utm(cod - 31960, true, 'SIRGAS 2000');
+    if (cod >= 32601 && cod <= 32660) return utm(cod - 32600, false, 'WGS 84');
+    if (cod >= 32701 && cod <= 32760) return utm(cod - 32700, true, 'WGS 84');
+  }
+  const m = def.match(/UTM[ _]zone[ _](\d{1,2})([NS])/i);
+  if (m && /SIRGAS|WGS[ _]?84/i.test(def)) return utm(+m[1], m[2].toUpperCase() === 'S', /SIRGAS/i.test(def) ? 'SIRGAS 2000' : 'WGS 84');
+  if (/^GEOGCS\[|^GEOGCRS\[/i.test(def.trim()) && /SIRGAS|WGS[ _]?84/i.test(def)) return geo;
+  return null;
+}
+
+/* ---------- uma camada de GeoPackage ---------- */
+async function abreGPKG(file, origem){
+  const db = await new LeSQLite(file).abre();
+  const cont = await db.consulta('gpkg_contents'), srs = await db.consulta('gpkg_spatial_ref_sys');
+  const projDe = id => { const r = srs.find(x => x[1] === id); return r ? projecaoGPKG(r[2], r[3], r[4]) : null; };
+  const camadas = [], recusas = [];
+  const tms = await db.consulta('gpkg_tile_matrix_set'), tm = await db.consulta('gpkg_tile_matrix');
+  const gcol = await db.consulta('gpkg_geometry_columns');
+  for (const c of cont){
+    const nome = c[0], tipo = String(c[1]).toLowerCase(), ident = c[2] || nome;
+    if (tipo === 'tiles' || tipo === '2d-gridded-coverage'){
+      const s = tms.find(x => x[0] === nome); if (!s){ recusas.push(nome + ': sem gpkg_tile_matrix_set'); continue; }
+      const pj = projDe(s[1]); if (!pj){ recusas.push(nome + ': sistema de referência ' + s[1] + ' não suportado'); continue; }
+      const niv = tm.filter(x => x[0] === nome).map(x => ({z: x[1], mw: x[2], mh: x[3], tw: x[4], th: x[5], px: x[6], py: x[7]})).sort((a, b) => a.z - b.z);
+      const ix = db.mestre.find(r => r[0] === 'index' && String(r[2]).toLowerCase() === String(nome).toLowerCase()
+        && (r[4] == null || /\(\s*"?zoom_level"?\s*,\s*"?tile_column"?\s*,\s*"?tile_row"?\s*\)/i.test(String(r[4]))));
+      const tab = db.objeto('table', nome);
+      camadas.push({tipo: 'raster', nome: ident, tabela: nome, db: db, pj: pj, minx: s[2], miny: s[3], maxx: s[4], maxy: s[5], niv: niv,
+        ix: ix ? ix[3] : null, raiz: tab ? tab[3] : null});
+    } else if (tipo === 'features'){
+      const g = gcol.find(x => x[0] === nome); if (!g){ recusas.push(nome + ': sem gpkg_geometry_columns'); continue; }
+      const pj = projDe(g[3]); if (!pj){ recusas.push(nome + ': sistema de referência ' + g[3] + ' não suportado'); continue; }
+      const cols = db.colunas(nome), ig = cols.findIndex(x => x.nome.toLowerCase() === String(g[1]).toLowerCase());
+      const tab = db.objeto('table', nome);
+      camadas.push({tipo: 'vetor', nome: ident, tabela: nome, db: db, pj: pj, geom: g[2], ig: ig, cols: cols, raiz: tab ? tab[3] : null,
+        caixa: c[6] != null ? [c[6], c[7], c[8], c[9]] : null});
+    }
+  }
+  return {nome: file.name, origem: origem, camadas: camadas, recusas: recusas};
+}
+/* bloco de imagem: Promise<ImageBitmap|null> */
+async function blocoGPKG(L, z, col, lin){
+  let v;
+  if (L.ix){ const r = await L.db.noIndice(L.ix, [z, col, lin]); if (!r) return null; v = await L.db.linha(L.raiz, r[r.length - 1]); }
+  else { await L.db.percorre(L.raiz, (rid, x) => { if (!v && x[1] === z && x[2] === col && x[3] === lin) v = x; }); }
+  if (!v) return null;
+  const dados = v.find(x => x instanceof Uint8Array && x.length > 8); if (!dados) return null;
+  try { return await createImageBitmap(new Blob([dados])); } catch (e){ return null; }
+}
+/* geometria GeoPackage (cabeçalho GP + WKB) -> lista de partes [{t: 'p'|'l'|'a', c: [[lon, lat], …]}] em SIRGAS geográfico */
+function geomGPKG(u, pj){
+  if (!(u instanceof Uint8Array) || u[0] !== 0x47 || u[1] !== 0x50) return [];
+  const fl = u[3], env = (fl >> 1) & 7, nEnv = [0, 4, 6, 6, 8][env] || 0;
+  let o = 8 + nEnv * 8; const dv = new DataView(u.buffer, u.byteOffset, u.byteLength), out = [];
+  const le = () => { const lit = u[o] === 1; o++; return lit; };
+  const pt = (lit, dim) => { const x = dv.getFloat64(o, lit), y = dv.getFloat64(o + 8, lit); o += 8 * dim; const g = pj.paraGeo(x, y); return [g.lon, g.lat]; };
+  const um = () => {
+    const lit = le(); let t = dv.getUint32(o, lit); o += 4;
+    let dim = 2;
+    if (t & 0x80000000) dim++; if (t & 0x40000000) dim++; t &= 0x0fffffff;
+    if (t > 3000){ dim = 4; t -= 3000; } else if (t > 2000){ dim = 3; t -= 2000; } else if (t > 1000){ dim = 3; t -= 1000; }
+    const n = () => { const v = dv.getUint32(o, lit); o += 4; return v; };
+    if (t === 1) out.push({t: 'p', c: [pt(lit, dim)]});
+    else if (t === 2){ const k = n(), c = []; for (let i = 0; i < k; i++) c.push(pt(lit, dim)); out.push({t: 'l', c: c}); }
+    else if (t === 3){ const r = n(); for (let j = 0; j < r; j++){ const k = n(), c = []; for (let i = 0; i < k; i++) c.push(pt(lit, dim)); out.push({t: 'a', c: c}); } }
+    else if (t >= 4 && t <= 7){ const k = n(); for (let i = 0; i < k; i++) um(); }
+    else throw new Error('tipo de geometria ' + t);
+  };
+  try { um(); } catch (e){}
+  return out;
+}
+async function feicoesGPKG(L, max){
+  const F = [];
+  await L.db.percorre(L.raiz, (rid, v) => {
+    const g = geomGPKG(v[L.ig], L.pj); if (!g.length) return;
+    let o = Infinity, s = Infinity, l = -Infinity, n = -Infinity;
+    for (const p of g) for (const c of p.c){ if (c[0] < o) o = c[0]; if (c[0] > l) l = c[0]; if (c[1] < s) s = c[1]; if (c[1] > n) n = c[1]; }
+    const at = {}; L.cols.forEach((c, i) => { if (i !== L.ig && !(v[i] instanceof Uint8Array)) at[c.nome] = v[i]; });
+    F.push({g: g, b: [o, s, l, n], a: at});
+  }, max || 300000);
+  return F;
+}
+
+/* ---------- a folha do NOTEBOOK ----------
+   09/11/2026: cada equipe recebe duas folhas — a do celular e a do notebook. A do notebook é a mesma folha
+   (mesmo kit, mesma caderneta), com o que só o notebook faz: (1) as fotos vêm de um dispositivo móvel, pela
+   página leve (fotos.html), e chegam numa PASTA VIGIADA, de onde a folha as importa sozinha, pelo nome
+   (ponto, rumo e azimute); no Windows, o celular plugado no USB aparece como dispositivo portátil (MTP), que o
+   navegador não enxerga — um AJUDANTE USB (script de duplo clique) copia do celular para essa pasta; Quick Share
+   e Bluetooth caem nela também; (2) os recursos do notebook: imagens e dados auxiliares originais do projeto
+   (GeoPackage raster e vetorial, GeoJSON, blocos XYZ do QGIS), num painel de CAMADAS como o de um SIG —
+   ligar e desligar, ordem e transparência —, na navegação e no croqui. */
+const NOTEBOOK = !MODO_PLAN && (document.documentElement.dataset.dispositivo === 'notebook' || /[?&#]notebook\b/i.test(location.search + location.hash));
+
+/* ---- arquivos do notebook: GeoPackage e GeoJSON, lembrados (File System Access) ---- */
+let ARQS_NB = [];                              // [{nome, h?, file?, ok, info:{camadas, recusas}, erro}]
+const _CORES_V = ['#E11D48', '#2563EB', '#16A34A', '#F59E0B', '#7C3AED', '#0891B2', '#DB2777', '#65A30D'];
+async function _abreArquivoNB(A){
+  const f = A.file || (A.h ? await A.h.getFile() : null); if (!f) throw new Error('arquivo inacessível');
+  if (/\.(geo)?json$/i.test(f.name)){
+    const j = JSON.parse(await f.text()), crs = j.crs && j.crs.properties && String(j.crs.properties.name || '');
+    const cod = (crs.match(/EPSG::?(\d+)/i) || [])[1], pj = cod ? projecaoGPKG('EPSG', cod, '') : projecaoGPKG('EPSG', 4326, '');
+    if (!pj) throw new Error('GeoJSON em sistema ' + crs + ' não suportado');
+    const feic = [];
+    const parte = (g, out) => { if (!g) return; const P = c => { const q = pj.paraGeo(c[0], c[1]); return [q.lon, q.lat]; };
+      if (g.type === 'Point') out.push({t: 'p', c: [P(g.coordinates)]});
+      else if (g.type === 'MultiPoint') g.coordinates.forEach(c => out.push({t: 'p', c: [P(c)]}));
+      else if (g.type === 'LineString') out.push({t: 'l', c: g.coordinates.map(P)});
+      else if (g.type === 'MultiLineString') g.coordinates.forEach(l => out.push({t: 'l', c: l.map(P)}));
+      else if (g.type === 'Polygon') g.coordinates.forEach(r => out.push({t: 'a', c: r.map(P)}));
+      else if (g.type === 'MultiPolygon') g.coordinates.forEach(pl => pl.forEach(r => out.push({t: 'a', c: r.map(P)})));
+      else if (g.type === 'GeometryCollection') g.geometries.forEach(x => parte(x, out)); };
+    for (const ft of (j.type === 'FeatureCollection' ? j.features : [j])){ const g = []; parte(ft.geometry || ft, g); if (!g.length) continue;
+      let o = Infinity, s = Infinity, l = -Infinity, n = -Infinity;
+      for (const p of g) for (const c of p.c){ o = Math.min(o, c[0]); l = Math.max(l, c[0]); s = Math.min(s, c[1]); n = Math.max(n, c[1]); }
+      feic.push({g: g, b: [o, s, l, n], a: ft.properties || {}}); }
+    A.info = {camadas: [{tipo: 'vetor', nome: f.name.replace(/\.(geo)?json$/i, ''), tabela: 'geojson', feic: feic, pj: pj}], recusas: []};
+  } else A.info = await abreGPKG(f, A.nome);
+  let k = ARQS_NB.indexOf(A) * 3;
+  for (const c of A.info.camadas){ c.id = 'g:' + A.nome + ':' + c.tabela; if (c.tipo === 'vetor') c.cor = c.cor || _CORES_V[k++ % _CORES_V.length]; }
+  A.ok = true; A.erro = '';
+  return A;
+}
+async function _carregaVetor(c){
+  if (c.feic || c._carregando) return;
+  c._carregando = true;
+  try { c.feic = await feicoesGPKG(c); pedeQuadro(); pintaNotebook(); } catch (e){ c.erro = e.message; } finally { c._carregando = false; }
+}
+async function abreArquivosNB(){
+  let hs = [];
+  if (window.showOpenFilePicker){
+    try { hs = await window.showOpenFilePicker({id: 'dados_projeto', multiple: true, types: [{description: 'GeoPackage e GeoJSON',
+      accept: {'application/geopackage+sqlite3': ['.gpkg'], 'application/geo+json': ['.geojson', '.json']}}]}); }
+    catch (e){ if (e.name === 'AbortError') return; throw e; }
+    for (const h of hs){
+      const A = {nome: h.name, h: h, ok: false}; ARQS_NB = ARQS_NB.filter(q => q.nome !== A.nome).concat([A]);
+      marca('abrindo ' + h.name + '…');
+      try { await _abreArquivoNB(A); await mapaPoeUm('arq:' + A.nome, {nome: A.nome, h: h, quando: new Date().toISOString()}); }
+      catch (e){ A.erro = e.message; marca(h.name + ': ' + e.message); }
+    }
+    pintaNotebook(); pedeQuadro(); _resumoArquivo(hs.length);
+    return;
+  }
+  $('#f_nbarq').click();
+}
+function _resumoArquivo(n){
+  const C = ARQS_NB.flatMap(A => A.ok ? A.info.camadas : []), R = ARQS_NB.flatMap(A => A.info ? A.info.recusas : []);
+  marca(C.filter(c => c.tipo === 'raster').length + ' imagem(ns) e ' + C.filter(c => c.tipo === 'vetor').length + ' camada(s) vetorial(is) do projeto neste notebook'
+    + (R.length ? ' — fora: ' + R.join('; ') : ''));
+}
+async function carregaArquivosNB(){
+  if (!NOTEBOOK) return;
+  const ks = ((await mapaChaves().catch(() => [])) || []).filter(k => String(k).startsWith('arq:'));
+  for (const k of ks){ const m = await mapaPegaUm(k).catch(() => null); if (!m || !m.h) continue;
+    const A = {nome: m.nome, h: m.h, ok: false}; ARQS_NB.push(A);
+    let ok = false; try { ok = (await m.h.queryPermission({mode: 'read'})) === 'granted'; } catch (e){}
+    if (ok) try { await _abreArquivoNB(A); } catch (e){ A.erro = e.message; } }
+  try { const m = await mapaPegaUm('pasta:fotos'); if (m && m.h){ VIGIA.h = m.h; VIGIA.nome = m.nome;
+    let ok = false; try { ok = (await m.h.queryPermission({mode: 'read'})) === 'granted'; } catch (e){}
+    VIGIA.ok = ok; if (ok) ligaVigia(); } } catch (e){}
+  pintaNotebook(); pedeQuadro();
+}
+/* um clique reativa tudo o que o navegador pediu para confirmar: arquivos, pastas de blocos e a pasta das fotos */
+async function reativaNB(){
+  let n = 0;
+  for (const A of ARQS_NB) if (!A.ok && A.h){ try { if ((await A.h.requestPermission({mode: 'read'})) === 'granted'){ await _abreArquivoNB(A); n++; } } catch (e){ A.erro = e.message; } }
+  for (const L of XYZ) if (!L.ok && L.h){ try { L.ok = (await L.h.requestPermission({mode: 'read'})) === 'granted'; if (L.ok) n++; } catch (e){} }
+  if (VIGIA.h && !VIGIA.ok){ try { VIGIA.ok = (await VIGIA.h.requestPermission({mode: 'read'})) === 'granted'; if (VIGIA.ok){ n++; ligaVigia(); } } catch (e){} }
+  _XYZ_T.clear(); pintaXYZEstado(); pintaNotebook(); pedeQuadro();
+  marca(n ? n + ' recurso(s) do notebook reativado(s)' : 'nada reativado (o navegador não deu acesso)');
+}
+const _inativosNB = () => ARQS_NB.filter(A => !A.ok && A.h).length + XYZ.filter(L => !L.ok && L.h).length + (VIGIA.h && !VIGIA.ok ? 1 : 0);
+
+/* ---- camadas: a pilha, como num SIG ---- */
+function camadasNB(){
+  const L = [{id: 'esri', tipo: 'esri', nome: 'Imagem Esri (internet ou blocos guardados)'},
+             {id: 'area', tipo: 'area', nome: 'Mapa da área — recortes da imagem do projeto (kit)'}];
+  for (const A of ARQS_NB) if (A.ok) for (const c of A.info.camadas) if (c.tipo === 'raster') L.push({id: c.id, tipo: 'gr', nome: c.nome + ' · ' + A.nome, C: c});
+  for (const X of XYZ) L.push({id: 'x:' + X.nome, tipo: 'xyz', nome: 'Blocos do QGIS: ' + X.nome, X: X});
+  for (const A of ARQS_NB) if (A.ok) for (const c of A.info.camadas) if (c.tipo === 'vetor') L.push({id: c.id, tipo: 'gv', nome: c.nome + ' · ' + A.nome, C: c});
+  L.push({id: 'vias', tipo: 'vias', nome: 'Ruas (OpenStreetMap)'});
+  const cf = (F.config.camadas = F.config.camadas || {ordem: [], vis: {}, op: {}});
+  const pos = new Map(cf.ordem.map((id, i) => [id, i]));
+  L.forEach((c, i) => { c.rank = (c.tipo === 'gv' || c.tipo === 'vias' ? 2000 : 0) + (pos.has(c.id) ? pos.get(c.id) : 1000 + i); });
+  L.sort((a, b) => a.rank - b.rank);
+  L.forEach(c => { c.vis = cf.vis[c.id] !== false; c.op = cf.op[c.id] != null ? cf.op[c.id] : 1; });
+  return L;
+}
+function camadaVis(id){ if (!NOTEBOOK) return true; const cf = F.config.camadas; return !cf || !cf.vis || cf.vis[id] !== false; }
+function _mexeCamada(id, acao, valor){
+  const L = camadasNB(), cf = F.config.camadas, i = L.findIndex(c => c.id === id); if (i < 0) return;
+  if (acao === 'vis') cf.vis[id] = !!valor;
+  if (acao === 'op') cf.op[id] = Math.max(0, Math.min(1, +valor));
+  if (acao === 'sobe' || acao === 'desce'){
+    const grupo = c => c.tipo === 'gv' || c.tipo === 'vias' ? 'v' : 'r';
+    const j = acao === 'sobe' ? i + 1 : i - 1;                     // a lista na tela vem de cima (topo) para baixo
+    if (L[j] && grupo(L[j]) === grupo(L[i])){ [L[i], L[j]] = [L[j], L[i]]; }
+    cf.ordem = L.map(c => c.id);
+  }
+  if (acao === 'tira'){ const c = L[i];
+    if (c.tipo === 'xyz'){ XYZ = XYZ.filter(q => q !== c.X); _txMapa('readwrite', l => l.delete('xyz:' + c.X.nome)).catch(() => {}); }
+    if (c.tipo === 'gr' || c.tipo === 'gv'){ const A = ARQS_NB.find(a => a.info && a.info.camadas.includes(c.C));
+      if (A && confirm('Tirar o arquivo ' + A.nome + ' (todas as camadas dele) desta folha? O arquivo continua no disco.')){
+        ARQS_NB = ARQS_NB.filter(a => a !== A); _txMapa('readwrite', l => l.delete('arq:' + A.nome)).catch(() => {}); } } }
+  grava(); pedeQuadro(); pintaNotebook(); pintaCamadasNav();
+}
+function htmlCamadas(compacto){
+  const L = camadasNB().slice().reverse();                        // topo primeiro
+  const tipoTxt = {esri: 'imagem (rede)', area: 'imagem do projeto', gr: 'GeoPackage raster', xyz: 'blocos XYZ', gv: 'vetor', vias: 'vetor'};
+  return '<table class="tabcam"><tr><th></th><th>camada</th>' + (compacto ? '' : '<th>tipo</th>') + '<th>transp.</th><th></th></tr>'
+    + L.map(c => '<tr data-cam="' + esc(c.id) + '"><td><input type="checkbox" data-camv' + (c.vis ? ' checked' : '') + '></td>'
+      + '<td>' + (c.C && c.C.cor ? '<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:' + c.C.cor + ';margin-right:4px"></span>' : '')
+      + esc(c.nome) + (c.C && c.C.tipo === 'raster' ? ' <small>(' + esc(c.C.pj.nome) + ', ' + _numBR(c.C.niv[c.C.niv.length - 1].px * (c.C.pj.metro === 1 ? 100 : 111320 * 100), 0) + ' cm)</small>' : '')
+      + (c.C && c.C.tipo === 'vetor' ? ' <small>(' + (c.C.feic ? c.C.feic.length + ' feições' : c.C._carregando ? 'lendo…' : 'ligue para ler') + ')</small>' : '') + '</td>'
+      + (compacto ? '' : '<td><small>' + tipoTxt[c.tipo] + '</small></td>')
+      + '<td><input type="range" min="0" max="1" step="0.05" value="' + c.op + '" data-camo style="width:70px"></td>'
+      + '<td style="white-space:nowrap"><button type="button" class="btn sec peq" data-cama="sobe" title="para cima">↑</button>'
+      + '<button type="button" class="btn sec peq" data-cama="desce" title="para baixo">↓</button>'
+      + (['xyz', 'gr', 'gv'].includes(c.tipo) && !compacto ? '<button type="button" class="btn sec peq" data-cama="tira" title="tirar">×</button>' : '') + '</td></tr>').join('')
+    + '</table>';
+}
+function ligaCamadas(el){
+  el.querySelectorAll('[data-cam]').forEach(tr => { const id = tr.dataset.cam;
+    tr.querySelector('[data-camv]').addEventListener('change', e => _mexeCamada(id, 'vis', e.target.checked));
+    tr.querySelector('[data-camo]').addEventListener('input', e => { F.config.camadas.op[id] = +e.target.value; pedeQuadro(); });
+    tr.querySelector('[data-camo]').addEventListener('change', () => grava());
+    tr.querySelectorAll('[data-cama]').forEach(b => b.addEventListener('click', () => _mexeCamada(id, b.dataset.cama))); });
+}
+function pintaCamadasNav(){ const p = NAV && NAV.el ? NAV.el.querySelector('#nav_camadas') : null; if (!p || p.hidden) return; p.innerHTML = htmlCamadas(true); ligaCamadas(p); }
+
+/* ---- desenho: GeoPackage raster e vetores, numa janela Mercator (a da navegação ou a do croqui) ---- */
+const _GPKG_T = new Map();
+function _pxJ(J, lat, lon){ const p = _n(lat, lon, J.z); return {x: J.ox + J.W / 2 + (p.x - J.c0.x) * TB, y: J.oy + J.H / 2 + (p.y - J.c0.y) * TB}; }
+function _geoJ(J, px, py){ const n = Math.pow(2, J.z), X = J.c0.x + (px - J.ox - J.W / 2) / TB, Y = J.c0.y + (py - J.oy - J.H / 2) / TB;
+  return {lon: X / n * 360 - 180, lat: Math.atan(Math.sinh(Math.PI * (1 - 2 * Y / n))) / RAD}; }
+function _blocosJanela(C, J, rRaio){
+  const cen = _geoJ(J, J.ox + J.W / 2, J.oy + J.H / 2), mpp = 156543.03392 * Math.cos(cen.lat * RAD) / Math.pow(2, J.z);
+  const un = C.pj.metro === 1 ? 1 : 111320 * Math.cos(cen.lat * RAD);
+  const bons = C.niv.filter(v => v.px * un >= mpp * 0.7);
+  const nv = bons.length ? bons[bons.length - 1] : C.niv[0] && C.niv[C.niv.length - 1];
+  if (!nv) return null;
+  const R = rRaio || Math.hypot(J.W, J.H) / 2;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let k = 0; k < 12; k++){ const ang = k * Math.PI / 6, g = _geoJ(J, J.ox + J.W / 2 + R * Math.cos(ang), J.oy + J.H / 2 + R * Math.sin(ang)), q = C.pj.deGeo(g.lat, g.lon);
+    x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y); }
+  const tw = nv.tw * nv.px, th = nv.th * nv.py;
+  const c0 = Math.max(0, Math.floor((x0 - C.minx) / tw)), c1 = Math.min(nv.mw - 1, Math.floor((x1 - C.minx) / tw));
+  const l0 = Math.max(0, Math.floor((C.maxy - y1) / th)), l1 = Math.min(nv.mh - 1, Math.floor((C.maxy - y0) / th));
+  const L = []; for (let c = c0; c <= c1; c++) for (let l = l0; l <= l1; l++) L.push([c, l]);
+  return L.length > 160 ? null : {nv: nv, L: L, tw: tw, th: th};
+}
+function _desenhaBloco(ctx, J, C, nv, c, l, im, tw, th){
+  const xa = C.minx + c * tw, xb = xa + tw, ya = C.maxy - l * th, yb = ya - th;
+  const g0 = C.pj.paraGeo(xa, ya), g1 = C.pj.paraGeo(xb, ya), g2 = C.pj.paraGeo(xa, yb);
+  const p0 = _pxJ(J, g0.lat, g0.lon), p1 = _pxJ(J, g1.lat, g1.lon), p2 = _pxJ(J, g2.lat, g2.lon);
+  const w = im.width, h = im.height;
+  ctx.save(); ctx.transform((p1.x - p0.x) / w, (p1.y - p0.y) / w, (p2.x - p0.x) / h, (p2.y - p0.y) / h, p0.x, p0.y);
+  ctx.drawImage(im, 0, 0); ctx.restore();
+}
+/* navegação: desenha o que já está aberto, pede o resto */
+function desenhaGPKGNav(ctx, J, C){
+  const B = _blocosJanela(C, J); if (!B) return 0;
+  let n = 0; const sm = ctx.imageSmoothingEnabled;
+  for (const [c, l] of B.L){
+    const k = C.id + '/' + B.nv.z + '/' + c + '/' + l; let t = _GPKG_T.get(k);
+    if (!t){ t = {}; _GPKG_T.set(k, t); blocoGPKG(C, B.nv.z, c, l).then(im => { t.im = im; t.ok = true; if (im) pedeQuadro(); });
+      if (_GPKG_T.size > 500){ const k0 = _GPKG_T.keys().next().value; const t0 = _GPKG_T.get(k0); if (t0 && t0.im && t0.im.close) t0.im.close(); _GPKG_T.delete(k0); } }
+    if (t.im){ _desenhaBloco(ctx, J, C, B.nv, c, l, t.im, B.tw, B.th); n++; }
+  }
+  ctx.imageSmoothingEnabled = sm;
+  return n;
+}
+/* croqui: espera os blocos; só vale se a camada cobre o ponto */
+async function mosaicoGPKG(ctx, lat, lon, z, W, Hc, cx, cy, pixel){
+  const R = [];
+  for (const c of camadasNB().slice().reverse()) if (c.tipo === 'gr' && c.vis){
+    const C = c.C, q = C.pj.deGeo(lat, lon);
+    if (q.x < C.minx || q.x > C.maxx || q.y < C.miny || q.y > C.maxy) continue;
+    R.push(C);
+  }
+  if (!R.length) return null;
+  const J = {z: z, c0: _n(lat, lon, z), W: W, H: Hc, ox: cx, oy: cy};
+  const usadas = [];
+  ctx.save(); ctx.beginPath(); ctx.rect(cx, cy, W, Hc); ctx.clip(); ctx.fillStyle = '#E5E7EB'; ctx.fillRect(cx, cy, W, Hc);
+  if (pixel) ctx.imageSmoothingEnabled = false;
+  for (const C of R.slice().reverse()){                           // a de baixo primeiro, a do topo por cima
+    const B = _blocosJanela(C, J); if (!B) continue;
+    const ims = await Promise.all(B.L.map(([c, l]) => blocoGPKG(C, B.nv.z, c, l).then(im => [c, l, im])));
+    let tem = false;
+    for (const [c, l, im] of ims) if (im){ _desenhaBloco(ctx, J, C, B.nv, c, l, im, B.tw, B.th); tem = true; }
+    if (tem) usadas.push({C: C, nv: B.nv});
+  }
+  ctx.restore();
+  if (!usadas.length) return null;
+  const top = usadas[usadas.length - 1];
+  return {nomes: usadas.map(u => u.C.nome), C: top.C, res: top.nv.px * (top.C.pj.metro === 1 ? 1 : 111320 * Math.cos(lat * RAD))};
+}
+async function quadroDetalheGPKG(x, f, lat, lon, ladoM, px, py, lado){
+  const mpp = ladoM / lado, z = Math.log2(156543.03392 * Math.cos(lat * RAD) / mpp);
+  const r = await mosaicoGPKG(x, lat, lon, z, lado, lado, px, py, true); if (!r) return null;
+  const amp = r.res / mpp;
+  x.strokeStyle = '#FFFFFF'; x.lineWidth = 3; x.strokeRect(px - 1.5, py - 1.5, lado + 3, lado + 3);
+  x.strokeStyle = '#26333A'; x.lineWidth = 1; x.strokeRect(px - 3.5, py - 3.5, lado + 7, lado + 7);
+  const cx = px + lado / 2, cy = py + lado / 2;
+  const cruz = () => { x.beginPath(); x.moveTo(cx - 16, cy); x.lineTo(cx - 5, cy); x.moveTo(cx + 5, cy); x.lineTo(cx + 16, cy);
+    x.moveTo(cx, cy - 16); x.lineTo(cx, cy - 5); x.moveTo(cx, cy + 5); x.lineTo(cx, cy + 16); x.stroke(); };
+  x.strokeStyle = 'rgba(255,255,255,0.95)'; x.lineWidth = 4.5; cruz(); x.strokeStyle = '#C01616'; x.lineWidth = 1.8; cruz();
+  const hf = 34; x.fillStyle = 'rgba(255,255,255,0.92)'; x.fillRect(px, py + lado - hf, lado, hf);
+  f(12, '700'); x.fillStyle = C.ESC; x.fillText('DETALHE  ' + _numBR(ladoM) + ' × ' + _numBR(ladoM) + ' m', px + 8, py + lado - hf + 14);
+  f(11); x.fillStyle = C.CZ;
+  x.fillText('imagem original (GPKG) · ' + _numBR(r.res * 100, 1) + ' cm/pixel · ' + (amp >= 1 ? 'ampliado ' : 'reduzido ') + _numBR(amp >= 1 ? amp : 1 / amp, 1) + '×', px + 8, py + lado - hf + 28);
+  return 'Quadro de ' + _numBR(ladoM) + ' × ' + _numBR(ladoM) + ' m centrado no ponto, sobre a imagem original do projeto (' + r.nomes.join(', ')
+    + ', GeoPackage): ' + _numBR(r.res * 100, 1) + ' cm por pixel, ' + (amp >= 1 ? 'ampliado ' : 'reduzido ') + _numBR(amp >= 1 ? amp : 1 / amp, 1) + '× sem suavização.';
+}
+/* vetores (GeoPackage e GeoJSON) na navegação, já com a função de tela dela */
+function desenhaVetorNav(ctx, tela, c, caixa, op){
+  const C = c.C; if (!C.feic){ if (C.tipo === 'vetor' && C.tabela !== 'geojson') _carregaVetor(C); return 0; }
+  let n = 0; ctx.save(); ctx.globalAlpha = op; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = C.cor; ctx.fillStyle = C.cor; ctx.lineWidth = 2;
+  for (const ft of C.feic){
+    const b = ft.b; if (b[2] < caixa[0] || b[0] > caixa[2] || b[3] < caixa[1] || b[1] > caixa[3]) continue;
+    for (const p of ft.g){
+      if (p.t === 'p'){ const q = tela(p.c[0][1], p.c[0][0]); ctx.beginPath(); ctx.arc(q.x, q.y, 4, 0, 6.2832); ctx.fill(); continue; }
+      ctx.beginPath(); p.c.forEach((cc, k) => { const q = tela(cc[1], cc[0]); if (k) ctx.lineTo(q.x, q.y); else ctx.moveTo(q.x, q.y); });
+      if (p.t === 'a'){ ctx.closePath(); ctx.globalAlpha = op * 0.15; ctx.fill(); ctx.globalAlpha = op; }
+      ctx.stroke();
+    }
+    if (++n > 60000) break;
+  }
+  ctx.restore();
+  return n;
+}
+
+/* ---- as fotos: a pasta vigiada ---- */
+const VIGIA = {h: null, nome: '', ok: false, timer: null, sem: new Map(), recentes: [], n: 0, ult: 0};
+async function escolhePastaFotos(){
+  if (!window.showDirectoryPicker) return marca('este navegador não vigia pastas: use o Chrome ou o Edge do computador (ou "Fotos de outro aparelho" no cartão do ponto)');
+  let h; try { h = await window.showDirectoryPicker({id: 'fotos_celular', mode: 'read'}); } catch (e){ if (e.name === 'AbortError') return; throw e; }
+  VIGIA.h = h; VIGIA.nome = h.name; VIGIA.ok = true;
+  await mapaPoeUm('pasta:fotos', {nome: h.name, h: h, quando: new Date().toISOString()});
+  ligaVigia(); await varrePastaFotos(true); pintaNotebook();
+  marca('pasta das fotos: ' + h.name + ' — a folha importa sozinha cada foto que chegar nela');
+}
+function ligaVigia(){ clearInterval(VIGIA.timer); VIGIA.timer = setInterval(() => { if (!document.hidden) varrePastaFotos().catch(() => {}); }, 4000); }
+const _vistas = () => (F.config.fotosVistas = F.config.fotosVistas || []);
+async function varrePastaFotos(avisa){
+  if (!VIGIA.h || !VIGIA.ok || varrePastaFotos._rodando) return;
+  varrePastaFotos._rodando = true;
+  try {
+    const vistas = new Set(_vistas()), novos = [];
+    for await (const [nome, e] of VIGIA.h.entries()){
+      if (e.kind !== 'file' || !_nomeFotoOutro(nome) || !/\.(jpe?g|png|webp|heic)$/i.test(nome)) continue;
+      const f = await e.getFile(), k = nome + '|' + f.size + '|' + f.lastModified;
+      if (vistas.has(k)) continue;
+      novos.push({f: f, k: k});
+    }
+    VIGIA.ult = Date.now();
+    if (!novos.length){ if (avisa) marca('pasta das fotos: nada novo'); pintaVigia(); return; }
+    novos.sort((a, b) => a.f.lastModified - b.f.lastModified);
+    const P = F.dia.pontos || [], feitos = [];
+    for (const {f, k} of novos){
+      const m = _nomeFotoOutro(f.name), p = P.find(q => _idsDoPonto(q).includes(m.p));
+      if (!p){ VIGIA.sem.set(m.p, (VIGIA.sem.get(m.p) || 0) + (VIGIA.sem.has(m.p + '|' + k) ? 0 : 1)); VIGIA.sem.set(m.p + '|' + k, 1); continue; }
+      const c = FOTOS[m.n - 1][0]; p.fotos_az = p.fotos_az || {}; p.fotos_az[c] = m.az;
+      await guardaFoto(p, c, f);
+      const lugar = (p.lat != null && p.lon != null) ? p : (p.chegada || p.planejado || null); p.declinacao = _decl(lugar);
+      _vistas().push(k); feitos.push(m.p + ' F' + m.n + (m.az != null ? ' (' + m.az + '°)' : ''));
+    }
+    if (_vistas().length > 4000) F.config.fotosVistas = _vistas().slice(-3000);
+    if (feitos.length){ VIGIA.n += feitos.length; VIGIA.recentes = feitos.concat(VIGIA.recentes).slice(0, 12);
+      grava(); pintaPontos(); marca('chegaram do celular: ' + feitos.join(', ')); }
+    pintaVigia();
+  } catch (e){ if (e.name === 'NotAllowedError'){ VIGIA.ok = false; pintaNotebook(); } }
+  finally { varrePastaFotos._rodando = false; }
+}
+function pintaVigia(){
+  const e = $('#nb_vigia'); if (!e) return;
+  const sem = [...VIGIA.sem.keys()].filter(k => !k.includes('|'));
+  e.innerHTML = !VIGIA.h ? '<b style="color:#B91C1C">Pasta das fotos não escolhida.</b>'
+    : !VIGIA.ok ? '<b style="color:#B91C1C">Pasta "' + esc(VIGIA.nome) + '" inativa</b> — toque em Reativar.'
+    : '<b style="color:#047857">Vigiando "' + esc(VIGIA.nome) + '"</b> · última olhada ' + (VIGIA.ult ? new Date(VIGIA.ult).toLocaleTimeString('pt-BR') : '—')
+      + ' · ' + VIGIA.n + ' foto(s) importada(s) nesta sessão'
+      + (VIGIA.recentes.length ? '<br>Últimas: ' + VIGIA.recentes.map(esc).join(', ') : '')
+      + (sem.length ? '<br><span style="color:#B45309">Na pasta, de ponto sem cartão hoje: ' + sem.map(esc).join(', ') + ' — abra o cartão do ponto e elas entram sozinhas.</span>' : '');
+}
+/* o ajudante USB: um .cmd com PowerShell dentro (Windows), que copia do celular plugado para a pasta vigiada */
+function baixaAjudanteUSB(){
+  const ps = [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    "$destino = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\\fotos_do_celular'",
+    "New-Item -ItemType Directory -Force -Path $destino | Out-Null",
+    "$sh = New-Object -ComObject Shell.Application",
+    "$dst = $sh.NameSpace($destino)",
+    "$padrao = '^[0-9A-Za-z_-]+_F[1-4]_az\\d{1,3}_\\d{8}_\\d{6}'",
+    "$pastas = @('Download', 'Downloads', 'DCIM', 'Camera', 'Pictures', 'Fotos')",
+    "Write-Host ''",
+    "Write-Host 'AJUDANTE USB - fotos do celular para a folha de coleta (IBGE, GGC/SES-CE)' -ForegroundColor Cyan",
+    "Write-Host ('As fotos vao para: ' + $destino)",
+    "Write-Host 'Plugue o celular no USB e, nele, escolha Transferencia de arquivos. Para sair, feche esta janela.'",
+    "Write-Host ''",
+    "function Procura($pasta, $prof) {",
+    "  foreach ($it in $pasta.Items()) {",
+    "    if ($it.IsFolder) { if ($prof -lt 3 -and ($pastas -contains $it.Name)) { Procura $it.GetFolder ($prof + 1) } }",
+    "    elseif ($it.Name -match $padrao) {",
+    "      $nome = $it.Name; if ($nome -notmatch '\\.(jpe?g|png|webp)$') { $nome = $nome + '.jpg' }",
+    "      if (-not (Test-Path (Join-Path $destino $nome))) { $dst.CopyHere($it, 4 + 16 + 1024); Write-Host ((Get-Date -Format 'HH:mm:ss') + '  copiada: ' + $nome) -ForegroundColor Green; Start-Sleep -Milliseconds 400 }",
+    "    }",
+    "  }",
+    "}",
+    "$visto = $false",
+    "while ($true) {",
+    "  $achou = $false",
+    "  foreach ($d in $sh.NameSpace(17).Items()) {",
+    "    if (-not $d.IsFileSystem -and $d.IsFolder) {",
+    "      $raiz = $d.GetFolder",
+    "      if ($raiz) { foreach ($arm in $raiz.Items()) { if ($arm.IsFolder) { $achou = $true; Procura $arm.GetFolder 1 } } }",
+    "    }",
+    "  }",
+    "  if ($achou -and -not $visto) { Write-Host ((Get-Date -Format 'HH:mm:ss') + '  celular encontrado no USB') -ForegroundColor Yellow }",
+    "  if (-not $achou -and $visto) { Write-Host ((Get-Date -Format 'HH:mm:ss') + '  celular desconectado') }",
+    "  $visto = $achou",
+    "  Start-Sleep -Seconds 5",
+    "}"].join('\r\n');
+  const cmd = '@echo off\r\nchcp 65001 >nul\r\ntitle Ajudante USB - fotos do celular para a folha\r\n'
+    + 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=[IO.File]::ReadAllText(\'%~f0\'); $i=$s.LastIndexOf(\'#INICIO\'); Invoke-Expression $s.Substring($i+7)"\r\n'
+    + 'pause\r\ngoto :eof\r\n#INICIO\r\n' + ps + '\r\n';
+  baixa('ajudante_usb_fotos_celular.cmd', new Blob([cmd], {type: 'application/octet-stream'}));
+  marca('ajudante USB baixado: guarde-o no notebook e dê dois cliques nele antes de plugar o celular');
+}
+
+/* ---- a aba do notebook ---- */
+function montaAbaNotebook(){
+  if (!NOTEBOOK || $('#aba_note')) return;
+  document.body.classList.add('notebook');
+  const bt = document.createElement('button'); bt.type = 'button'; bt.dataset.aba = 'note'; bt.textContent = 'Notebook';
+  const abas = $('.abas'); abas.insertBefore(bt, abas.firstChild);
+  const s = document.createElement('section'); s.className = 'aba oculto'; s.id = 'aba_note';
+  s.innerHTML = '<div class="cart"><h3>Folha do notebook</h3><p class="leg">Esta é a folha da equipe para o <b>notebook</b>: a mesma caderneta da folha do celular, '
+    + 'com a navegação em tela grande, o teclado (Page Up/Page Down na escala, setas no mapa, Home na sua posição) e os recursos do computador — '
+    + 'as imagens originais e os dados auxiliares do projeto. <b>As fotos dos pontos vêm de um dispositivo móvel</b> (celular ou tablet com bússola), '
+    + 'pela página leve das fotos, e chegam aqui sozinhas pela pasta vigiada. <span id="nb_reat"></span></p></div>'
+    + '<div class="cart"><h3>1. O celular das fotos</h3><p class="leg">No celular, abra a página leve das fotos lendo o QR (o do cartão de cada ponto já leva '
+    + 'o ponto e a declinação). Ela tira as 4 fotos pelos rumos, com o azimute no nome do arquivo. <b>Guardar</b> põe as fotos na pasta Download do celular; '
+    + '<b>Enviar</b> abre o compartilhar (Quick Share, Bluetooth). Na primeira vez a página precisa de internet; depois abre sem rede.</p>'
+    + '<div class="acoes"><button type="button" class="btn sec peq" id="nb_qr">QR da página das fotos</button></div></div>'
+    + '<div class="cart"><h3>2. A pasta de chegada das fotos</h3><p class="leg">Escolha <b>uma vez</b> a pasta do notebook onde as fotos do celular chegam — '
+    + 'a do ajudante USB (<code>Downloads\\fotos_do_celular</code>) ou a de recebimento do Quick Share/Bluetooth (em geral, Downloads). Enquanto a folha '
+    + 'estiver aberta, ela olha a pasta a cada 4 segundos e põe cada foto no cartão do ponto do dia pelo nome (ponto, F1 a F4 e o azimute). '
+    + 'Foto de ponto sem cartão hoje espera: entra quando o cartão for aberto.</p><p class="leg" id="nb_vigia"></p>'
+    + '<div class="acoes"><button type="button" class="btn peq" id="nb_pasta">Escolher a pasta de chegada</button>'
+    + '<button type="button" class="btn sec peq" id="nb_varre">Olhar a pasta agora</button></div></div>'
+    + '<div class="cart"><h3>3. O ajudante USB (Windows)</h3><p class="leg">No Windows, o celular plugado no USB aparece como <b>dispositivo portátil</b> '
+    + '(MTP), sem letra de unidade, e nenhum navegador tem acesso a ele. O <b>ajudante</b> é um arquivo de dois cliques: com ele aberto, '
+    + 'plugue o celular (no aviso do celular, escolha <b>Transferência de arquivos</b>) e ele copia sozinho as fotos novas dos pontos — '
+    + 'das pastas Download, DCIM e Pictures do celular — para <code>Downloads\\fotos_do_celular</code>, que a folha vigia. Não instala nada e não apaga nada do celular.</p>'
+    + '<div class="acoes"><button type="button" class="btn sec peq" id="nb_usb">Baixar o ajudante USB</button></div></div>'
+    + '<div class="cart"><h3>4. Camadas: imagens e dados do projeto</h3><p class="leg">Como num SIG: <b>abra os arquivos do projeto</b> — GeoPackage (as '
+    + 'ortofotos originais, em qualquer tamanho, e os vetores) e GeoJSON —, ou a pasta de <b>blocos XYZ</b> gerada no QGIS. A folha lê do disco só o que '
+    + 'aparece na tela. Ligue, desligue, ordene (a de cima cobre a de baixo) e ajuste a transparência; vale na navegação e no croqui do relatório '
+    + '(o croqui usa a imagem do projeto de cima que cobre o ponto). Sistemas aceitos: SIRGAS 2000 e WGS 84 geográficas e UTM, e Pseudo-Mercator.</p>'
+    + '<div class="acoes"><button type="button" class="btn peq" id="nb_arq">Abrir GeoPackage ou GeoJSON</button>'
+    + '<button type="button" class="btn sec peq" id="nb_xyz">Pasta de blocos XYZ do QGIS</button></div>'
+    + '<div id="nb_camadas" style="overflow-x:auto"></div></div>';
+  const ref = $('#aba_campanha'); ref.parentNode.insertBefore(s, ref);
+  const inp = document.createElement('input'); inp.type = 'file'; inp.id = 'f_nbarq'; inp.multiple = true; inp.accept = '.gpkg,.geojson,.json'; inp.className = 'oculto';
+  document.body.appendChild(inp);
+  inp.addEventListener('change', async e => { const L = Array.from(e.target.files || []); e.target.value = '';
+    for (const f of L){ const A = {nome: f.name, file: f, ok: false}; ARQS_NB = ARQS_NB.filter(q => q.nome !== A.nome).concat([A]);
+      try { await _abreArquivoNB(A); } catch (er){ A.erro = er.message; marca(f.name + ': ' + er.message); } }
+    pintaNotebook(); pedeQuadro(); _resumoArquivo(L.length); });
+  $('#nb_qr').addEventListener('click', () => { const u = URL_SITE + 'fotos.html' + (F.campanha.ptcon_lc ? '#lc=' + encodeURIComponent(F.campanha.ptcon_lc) : '');
+    const v = document.createElement('div'); v.style.cssText = 'position:fixed;inset:0;z-index:70;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;text-align:center';
+    v.innerHTML = '<b style="font-size:20px">Página das fotos — leia com a câmera do celular</b>' + QR.svg(u, 320) + '<p class="leg">' + esc(u) + '</p><button type="button" class="btn sec peq">Fechar</button>';
+    v.querySelector('button').addEventListener('click', () => v.remove()); document.body.appendChild(v); });
+  $('#nb_pasta').addEventListener('click', () => escolhePastaFotos().catch(e => marca('pasta das fotos: ' + e.message)));
+  $('#nb_varre').addEventListener('click', () => varrePastaFotos(true));
+  $('#nb_usb').addEventListener('click', baixaAjudanteUSB);
+  $('#nb_arq').addEventListener('click', () => abreArquivosNB().catch(e => marca('arquivos do projeto: ' + e.message)));
+  $('#nb_xyz').addEventListener('click', () => escolhePastaXYZ().catch(e => marca('blocos XYZ: ' + e.message)));
+  bt.addEventListener('click', () => { document.querySelectorAll('.abas button').forEach(b => b.classList.toggle('on', b === bt));
+    document.querySelectorAll('section.aba').forEach(a => a.classList.toggle('oculto', a.id !== 'aba_note')); });
+  pintaNotebook();
+}
+function pintaNotebook(){
+  if (!NOTEBOOK) return;
+  const c = $('#nb_camadas'); if (c){ c.innerHTML = htmlCamadas(false); ligaCamadas(c); }
+  const r = $('#nb_reat'), n = _inativosNB();
+  if (r){ r.innerHTML = n ? '<br><b style="color:#B91C1C">' + n + ' recurso(s) do notebook à espera de liberação do navegador.</b> '
+      + '<button type="button" class="btn peq" id="nb_reat_b">Reativar</button>' : '';
+    const b = $('#nb_reat_b'); if (b) b.addEventListener('click', () => reativaNB()); }
+  pintaVigia(); pintaCamadasNav();
+  const nb = NAV && NAV.el ? NAV.el.querySelector('[data-n="xyz"]') : null; if (nb) nb.style.display = n ? '' : 'none';
+}
+
 /* ---------- o relatório do ponto ----------
    O PRODUTO é o relatório do ponto; o croqui é a parte cartográfica dele, ao
    lado da situação, da posição no Brasil, da ficha do rastreio, da descrição
@@ -3175,15 +3832,17 @@ async function montaRelatorio(p){
   const zP = Math.min(SRV_DETALHE.zmax || 19, 18);
   /* a imagem do projeto primeiro (é nela que a posição se avalia); a Esri só sem ela */
   const pxyz = await mosaicoXYZ(x, p.lat, p.lon, zP, larg, hm, M, y1).catch(() => null);
-  const proj = pxyz ? null : await mosaicoProjeto(x, p.lat, p.lon, zP, larg, hm, M, y1).catch(() => null);
+  const pgp = pxyz ? null : await mosaicoGPKG(x, p.lat, p.lon, zP, larg, hm, M, y1).catch(() => null);
+  const proj = pxyz || pgp || !camadaVis('area') ? null : await mosaicoProjeto(x, p.lat, p.lon, zP, larg, hm, M, y1).catch(() => null);
   if (pxyz) srv = {nome: 'Camadas do projeto QGIS (' + pxyz.nomes.join(' + ') + ')', credito: 'blocos XYZ gerados do projeto, nível ' + pxyz.z};
+  else if (pgp) srv = {nome: 'Imagem original do projeto (' + pgp.nomes.join(' + ') + ', GeoPackage)', credito: _numBR(pgp.res * 100, 1) + ' cm/pixel'};
   else if (proj) srv = {nome: IMG_PROJETO.nome, credito: proj.area.nome + ', ' + _numBR(resDaArea(proj.area, p.lat) * 100, 0) + ' cm/pixel'};
-  const nP = pxyz || proj ? 1 : await mosaico(x, srv.url, p.lat, p.lon, zP, larg, hm, M, y1);
+  const nP = pxyz || pgp || proj ? 1 : await mosaico(x, srv.url, p.lat, p.lon, zP, larg, hm, M, y1);
   x.strokeStyle = '#DCE3E5'; x.lineWidth = 1.5;
   x.strokeRect(M, y1, larg, hm);
   alvoNoMapa(x, M + larg/2, y1 + hm/2);
   rosaEescala(x, M, y1, larg, hm, p.lat, zP, p.lon, dataDoPontoRef(p));
-  _tarjaQuadro(x, f, M, y1, pxyz ? 'CROQUI · PROJETO QGIS' : proj ? 'CROQUI · IMAGEM DO PROJETO' : 'CROQUI · ESRI (SEM IMAGEM DO PROJETO AQUI)');
+  _tarjaQuadro(x, f, M, y1, pxyz ? 'CROQUI · PROJETO QGIS' : pgp ? 'CROQUI · IMAGEM ORIGINAL (GPKG)' : proj ? 'CROQUI · IMAGEM DO PROJETO' : 'CROQUI · ESRI (SEM IMAGEM DO PROJETO AQUI)');
 
   /* Quadros de detalhe na DIAGONAL do croqui: o primeiro da lista no alto à
      esquerda, logo abaixo da tarja, e o segundo embaixo à direita. São dois
@@ -3197,6 +3856,7 @@ async function montaRelatorio(p){
                     [M + larg - 14 - DET.lado, y1 + hm - 14 - DET.lado]];
     for (let i = 0; i < Math.min(lados.length, 2); i++){
       const nota = pxyz ? await quadroDetalheXYZ(x, f, p.lat, p.lon, lados[i], cantos[i][0], cantos[i][1], DET.lado)
+                 : pgp ? await quadroDetalheGPKG(x, f, p.lat, p.lon, lados[i], cantos[i][0], cantos[i][1], DET.lado)
                  : proj ? await quadroDetalheProjeto(x, f, proj.area, p.lat, p.lon, lados[i], cantos[i][0], cantos[i][1], DET.lado)
                         : await quadroDetalhe(x, f, srv.url, p.lat, p.lon, lados[i], cantos[i][0], cantos[i][1], DET.lado);
       if (nota) notasDetalhe.push(nota);
@@ -3766,7 +4426,8 @@ async function formularioCCAR(p, o){
   const quadro = async (srv, z, x0, x1, rot, comFotos) => {
     const top = y + 14, hq = H - 30 - top - 30, cx = x0 + 10 + (x1 - x0 - 20) / 2, cy = top + hq / 2;
     if (c){ try { const qx = srv === SRV_DETALHE ? await mosaicoXYZ(x, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top) : null;
-      const pj = qx ? {area: {nome: 'projeto QGIS: ' + qx.nomes.join(' + ')}} : srv === SRV_DETALHE ? await mosaicoProjeto(x, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top) : null;
+      const qg = !qx && srv === SRV_DETALHE ? await mosaicoGPKG(x, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top) : null;
+      const pj = qx ? {area: {nome: 'projeto QGIS: ' + qx.nomes.join(' + ')}} : qg ? {area: {nome: 'original ' + qg.nomes.join(' + ')}} : srv === SRV_DETALHE ? await mosaicoProjeto(x, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top) : null;
       if (pj) rot = rot.replace('imagem ' + SRV_DETALHE.nome, 'imagem do projeto (' + pj.area.nome + ')');
       else if (srv === SRV_DETALHE) rot = rot.replace('imagem ' + SRV_DETALHE.nome, 'imagem ' + SRV_DETALHE.nome + ' (sem imagem do projeto aqui)');
       const n = pj ? 1 : await mosaico(x, srv.url, c.lat, c.lon, z, x1 - x0 - 20, hq, x0 + 10, top);
@@ -7335,7 +7996,7 @@ const mapaPoeUm = (k, v) => _txMapa('readwrite', l => l.put(v, k));
 const mapaPegaUm = k => _txMapa('readonly', l => l.get(k));
 const mapaChaves = () => _txMapa('readonly', l => l.getAllKeys());
 // as pastas de blocos do projeto QGIS (chaves 'xyz:') são do computador, não do mapa da área: ficam
-const mapaLimpa = async () => { const ks = ((await mapaChaves()) || []).filter(k => !String(k).startsWith('xyz:'));
+const mapaLimpa = async () => { const ks = ((await mapaChaves()) || []).filter(k => !/^(xyz|arq|pasta):/.test(String(k)));
   return _txMapa('readwrite', l => { ks.forEach(k => l.delete(k)); }); };
 // compatibilidade com o nome antigo, chamado ao começar uma folha nova
 function mapaPoe(v){ return v == null ? mapaLimpa() : Promise.resolve(); }
@@ -10637,6 +11298,8 @@ function montaTelaNav(){
     + '<button type="button" class="btn sec" data-n="menos" title="Afastar (tecla Page Down)">−</button>'
     + '<button type="button" class="btn sec" data-n="mais" title="Aproximar (tecla Page Up)">+</button>'
     + '<button type="button" class="btn sec" data-n="fundo">Fundo: projeto + Esri</button>'
+    + '<button type="button" class="btn sec" data-n="cam" style="display:none">Camadas</button>'
+    + '<div id="nav_camadas" hidden style="max-height:40vh;overflow:auto;background:var(--fundo,#fff);border:1px solid #c9d2d6;border-radius:8px;padding:6px"></div>'
     + '<button type="button" class="btn sec" data-n="bussola">Bússola</button>'
     + '<button type="button" class="btn sec" data-n="modo">Modo: direção</button>'
     + '<select class="btn sec" data-n="app" title="app de navegação por voz"><option value="gmaps">Abrir no Google Maps</option><option value="waze">Abrir no Waze</option><option value="geo">Abrir em outro app de mapas</option></select>'
@@ -10681,8 +11344,10 @@ function montaTelaNav(){
   q('hosp').addEventListener('click', () => NAV.volta ? proximoNavegar(null) : abreNavHospedagem());
   q('bloq').addEventListener('click', marcaSemPassagem);
   q('perto').addEventListener('click', () => navegaMaisPerto().catch(e => marca('pendente mais perto: ' + e.message)));
-  q('xyz').addEventListener('click', () => reativaXYZ());
-  q('xyz').style.display = XYZ.some(L => !L.ok) ? '' : 'none';
+  q('xyz').addEventListener('click', () => NOTEBOOK ? reativaNB() : reativaXYZ());
+  q('xyz').style.display = (NOTEBOOK ? _inativosNB() : XYZ.some(L => !L.ok)) ? '' : 'none';
+  if (NOTEBOOK){ q('fundo').style.display = 'none'; q('cam').style.display = '';
+    q('cam').addEventListener('click', () => { const pnl = NAV.el.querySelector('#nav_camadas'); pnl.hidden = !pnl.hidden; pintaCamadasNav(); }); }
   q('rotaoff').addEventListener('click', calculaRotaOffline);
   q('rotanova').addEventListener('click', () => rotaNovaDaqui().catch(e => marca('nova rota: ' + e.message)));
   q('mapsdir').addEventListener('click', () => { const a = alvoNav(); if (a) abreNoMaps(a, 'direto'); });
@@ -11374,8 +12039,8 @@ function desenhaNav(){
   x.save();
   x.translate(W / 2, H / 2); x.rotate(giro); x.translate(-W / 2, -H / 2);
   // a imagem Esri por baixo e a ortofoto da campanha por cima, onde houver
-  NAV.nBlocos = 0;
-  if (usaEsri){
+  NAV.nBlocos = 0; NAV.nArea = 0; NAV.nXYZ = 0; NAV.nGPKG = 0;
+  const desEsri = () => {
     let n = 0;
     const zt = Math.min(z, SRV_DETALHE.zmax);
     const k = Math.pow(2, z - zt);                  // ampliação além do nível do serviço
@@ -11400,9 +12065,9 @@ function desenhaNav(){
     x.imageSmoothingEnabled = true;
     if (n) credito = SRV_DETALHE.nome + ' — ' + SRV_DETALHE.credito;
     NAV.nBlocos = n;
-  }
-  NAV.nArea = 0;
-  if (usaArea){
+  };
+  const desArea = () => {
+    if (!temArea) return;
     const usados = [];
     for (const r of noQuadro){
       const pNO = _n(r.n, r.o, z), pSE = _n(r.s, r.l, z);
@@ -11418,11 +12083,10 @@ function desenhaNav(){
     NAV.nArea = usados.length;
     if (usados.length) credito = 'imagem do projeto: ' + (aProj && usados.includes(aProj.nome) ? aProj.nome.replace(/_recorte\.jpg$/i, '')
       : usados.length > 1 ? usados.length + ' imagens' : usados[0]);
-  }
-  // camadas do projeto QGIS (blocos XYZ no notebook): por cima de tudo, onde houver bloco
-  NAV.nXYZ = 0;
-  if (fundo === 'auto' || fundo === 'area') for (const L of xyzAtivas()){
-    if (z < L.zmin) continue;
+  };
+  // camadas do projeto QGIS (blocos XYZ no notebook): por cima, onde houver bloco
+  const desXYZ = L => {
+    if (z < L.zmin) return;
     const zt = Math.min(z, L.zmax), k = Math.pow(2, z - zt), ct = _n(cen.lat, cen.lon, zt), R = Math.hypot(W, H) / 2 / k;
     const i0 = Math.floor((ct.x * TB - R) / TB), i1 = Math.floor((ct.x * TB + R) / TB), j0 = Math.floor((ct.y * TB - R) / TB), j1 = Math.floor((ct.y * TB + R) / TB);
     let n = 0; x.imageSmoothingEnabled = k <= 1;
@@ -11431,18 +12095,39 @@ function desenhaNav(){
       x.drawImage(im, W / 2 + (i * TB - ct.x * TB) * k, H / 2 + (j * TB - ct.y * TB) * k, TB * k + 0.5, TB * k + 0.5); n++;
     }
     x.imageSmoothingEnabled = true;
-    if (n){ NAV.nXYZ += n; credito = 'projeto QGIS: ' + xyzAtivas().filter(q => z >= q.zmin).map(q => q.nome).join(' + ') + ' · nível ' + zt; }
+    if (n){ NAV.nXYZ += n; credito = 'projeto QGIS: ' + L.nome + ' · nível ' + zt; }
+  };
+  if (NOTEBOOK){
+    /* no notebook, a pilha de camadas do painel (como num SIG): de baixo para cima, com a transparência de cada uma */
+    const J = {z: z, c0: c0, W: W, H: H, ox: 0, oy: 0};
+    for (const c of camadasNB()){
+      if (!c.vis || c.tipo === 'gv' || c.tipo === 'vias') continue;
+      x.globalAlpha = c.op;
+      if (c.tipo === 'esri') desEsri();
+      else if (c.tipo === 'area') desArea();
+      else if (c.tipo === 'xyz'){ if (c.X.ok) desXYZ(c.X); }
+      else if (c.tipo === 'gr'){ const n = desenhaGPKGNav(x, J, c.C); if (n){ NAV.nGPKG += n; credito = 'imagem original: ' + c.C.nome; } }
+    }
+    x.globalAlpha = 1;
+  } else {
+    if (usaEsri) desEsri();
+    if (usaArea) desArea();
+    if (fundo === 'auto' || fundo === 'area') for (const L of xyzAtivas()) desXYZ(L);
   }
   x.restore();
   if (!volta && g && g.s <= 600){
-    if (!aProj && !NAV.nXYZ) credito = 'SEM IMAGEM DO PROJETO NESTE PONTO — ' + (credito || 'sem fundo');
-    else if (!NAV.nXYZ && (!NAV.nArea || !usaArea)) credito = 'imagem do projeto ' + (usaArea ? 'abrindo…' : 'desligada em Fundo') + ' — ' + (credito || 'sem fundo');
+    if (!aProj && !NAV.nXYZ && !NAV.nGPKG) credito = 'SEM IMAGEM DO PROJETO NESTE PONTO — ' + (credito || 'sem fundo');
+    else if (!NAV.nXYZ && !NAV.nGPKG && (!NAV.nArea || (!usaArea && !NOTEBOOK))) credito = 'imagem do projeto ' + (usaArea ? 'abrindo…' : 'desligada em Fundo') + ' — ' + (credito || 'sem fundo');
   }
 
   // ruas do OpenStreetMap guardadas: por cima quando não há imagem no quadro,
   // ou finas sobre a imagem
-  if (VIAS.length){
-    const sem = !(NAV.nBlocos || NAV.nArea);
+  if (NOTEBOOK){                                    // vetores do projeto (GeoPackage, GeoJSON), na ordem do painel
+    const cx = [cen.lon - meiaGraus, cen.lat - meiaGraus, cen.lon + meiaGraus, cen.lat + meiaGraus];
+    for (const c of camadasNB()) if (c.vis && c.tipo === 'gv') desenhaVetorNav(x, tela, c, cx, c.op);
+  }
+  if (VIAS.length && camadaVis('vias')){
+    const sem = !(NAV.nBlocos || NAV.nArea || NAV.nGPKG || NAV.nXYZ);
     const o = cen.lon - meiaGraus, l = cen.lon + meiaGraus, s0 = cen.lat - meiaGraus, n0 = cen.lat + meiaGraus;
     const grande = /^(motorway|trunk|primary|secondary)/;
     x.save(); x.lineJoin = 'round'; x.lineCap = 'round';
@@ -16807,7 +17492,12 @@ async function geraKit(i){
   out = out.replace(/<title>[^<]*<\/title>/, '<title>' + esc(tit) + '</title>');
   const nome = nomeSaida('folha_' + e.nome.replace(/\s+/g, '_'), '') + '.html';
   baixa(nome, new Blob([out], {type: 'text/html'}));
-  marca('folha da ' + e.nome + ' gerada: ' + nome + ' (' + _numBR(out.length / 1048576, 1) + ' MB — ' + meus.length + ' pontos, '
+  /* a folha do notebook da mesma equipe (09/11/2026): o mesmo kit, marcada para o notebook */
+  const outNb = out.replace(/<html lang="pt-BR"/, '<html lang="pt-BR" data-dispositivo="notebook"')
+    .replace(/<title>[^<]*<\/title>/, '<title>' + esc('Folha do notebook da ' + e.nome + ' — ' + (F.campanha.nome || 'campanha')) + '</title>');
+  await new Promise(r => setTimeout(r, 800));
+  baixa(nomeSaida('folha_notebook_' + e.nome.replace(/\s+/g, '_'), '') + '.html', new Blob([outNb], {type: 'text/html'}));
+  marca('folhas da ' + e.nome + ' geradas (celular e notebook): ' + nome + ' (' + _numBR(out.length / 1048576, 1) + ' MB — ' + meus.length + ' pontos, '
     + mapa.length + ' peça(s) do mapa, ' + blocos.length + ' blocos, ' + (traj ? Object.keys(traj.por).length : 0) + ' com trechos)');
 }
 
@@ -16956,6 +17646,8 @@ async function inicia(){
   try { await arrumaDiasMisturados(); } catch (e){}
   carregaArea();
   carregaXYZ().catch(() => {});
+  try { montaAbaNotebook(); } catch (e){ console.error(e); }
+  carregaArquivosNB().catch(() => {});
   contaBlocos();
   carregaTrajetos();
   carregaTrilha().then(() => { if (F.dia.trilha_ligada) ligaTrilha(false); });

@@ -3600,6 +3600,7 @@ async function carregaArquivosNB(){
     const A = {nome: m.nome, h: m.h, hx: m.hx || [], ok: false}; ARQS_NB.push(A);
     let ok = false; try { ok = (await m.h.queryPermission({mode: 'read'})) === 'granted'; } catch (e){}
     if (ok) try { await _abreArquivoNB(A); } catch (e){ A.erro = e.message; } }
+  try { const m = await mapaPegaUm('pasta:campanha'); if (m && m.h){ PASTA.h = m.h; PASTA.nome = m.nome; await _permPasta(false); } } catch (e){}
   try { const m = await mapaPegaUm('pasta:fotos'); if (m && m.h){ VIGIA.h = m.h; VIGIA.nome = m.nome;
     let ok = false; try { ok = (await m.h.queryPermission({mode: 'read'})) === 'granted'; } catch (e){}
     VIGIA.ok = ok; if (ok) ligaVigia(); } } catch (e){}
@@ -3613,10 +3614,11 @@ async function reativaNB(){
     await _abreArquivoNB(A); n++; } } catch (e){ A.erro = e.message; } }
   for (const L of XYZ) if (!L.ok && L.h){ try { L.ok = (await L.h.requestPermission({mode: 'read'})) === 'granted'; if (L.ok) n++; } catch (e){} }
   if (VIGIA.h && !VIGIA.ok){ try { VIGIA.ok = (await VIGIA.h.requestPermission({mode: 'read'})) === 'granted'; if (VIGIA.ok){ n++; ligaVigia(); } } catch (e){} }
+  if (PASTA.h && !PASTA.ok){ if (await _permPasta(true)) n++; pintaPastaLocal(); }
   _XYZ_T.clear(); pintaXYZEstado(); pintaNotebook(); pedeQuadro();
   marca(n ? n + ' recurso(s) do notebook reativado(s)' : 'nada reativado (o navegador não deu acesso)');
 }
-const _inativosNB = () => ARQS_NB.filter(A => !A.ok && A.h).length + XYZ.filter(L => !L.ok && L.h).length + (VIGIA.h && !VIGIA.ok ? 1 : 0);
+const _inativosNB = () => ARQS_NB.filter(A => !A.ok && A.h).length + XYZ.filter(L => !L.ok && L.h).length + (VIGIA.h && !VIGIA.ok ? 1 : 0) + (PASTA.h && !PASTA.ok ? 1 : 0);
 
 /* ---- camadas: a pilha, como num SIG ---- */
 function camadasNB(){
@@ -3778,6 +3780,68 @@ function desenhaVetorNav(ctx, tela, c, caixa, op){
   }
   ctx.restore();
   return n;
+}
+
+/* ---- a pasta da campanha neste notebook (10/11/2026) ----
+   O notebook grava, numa pasta que o usuário escolhe, a MESMA estrutura padrão que vai ao Google Drive (LCnnn/Equipe_nn/
+   Dia_ddd/…, Dados_campo.gpkg, PONTOS_COLETADOS, TRACKING, relatórios e fotos — o pacote PTCON). Grava ao fechar cada dia e
+   quando se toca em "Gravar agora"; só regrava o arquivo que mudou (tamanho e assinatura FNV-1a, como no envio ao Drive).
+   O registro bruto e as trilhas (_registros) não vão para o disco: ficam na cópia completa protegida (.fcp). */
+const PASTA = {h: null, nome: '', ok: false, rodando: false};
+async function escolhePastaCampanha(){
+  if (!window.showDirectoryPicker) return marca('este navegador não grava em pasta: use o Chrome ou o Edge do computador');
+  let h; try { h = await window.showDirectoryPicker({id: 'pasta_campanha', mode: 'readwrite'}); } catch (e){ if (e.name === 'AbortError') return; throw e; }
+  PASTA.h = h; PASTA.nome = h.name; PASTA.ok = true;
+  await mapaPoeUm('pasta:campanha', {nome: h.name, h: h, quando: new Date().toISOString()});
+  pintaPastaLocal(); await gravaPastaLocal(true);
+}
+async function _permPasta(pede){
+  if (!PASTA.h) return false;
+  try { if ((await PASTA.h.queryPermission({mode: 'readwrite'})) === 'granted') return (PASTA.ok = true); } catch (e){}
+  if (!pede) return (PASTA.ok = false);
+  try { PASTA.ok = (await PASTA.h.requestPermission({mode: 'readwrite'})) === 'granted'; } catch (e){ PASTA.ok = false; }
+  return PASTA.ok;
+}
+async function gravaPastaLocal(pede){
+  if (!PASTA.h) return marca('pasta da campanha não escolhida (aba Notebook)');
+  if (PASTA.rodando) return;
+  if (!(await _permPasta(pede))){ pintaPastaLocal(); return marca('pasta da campanha: o navegador pede confirmação — aba Notebook, "Gravar agora"'); }
+  PASTA.rodando = true; pintaPastaLocal();
+  try {
+    marca('pasta da campanha: montando os arquivos…');
+    const P = await exportaLC({soItens: true}); if (!P || !P.itens) return;
+    const cfg = F.config.pastaLocal = F.config.pastaLocal || {m: {}}; cfg.m = cfg.m || {};
+    const pre = PASTA.nome + '|'; let n = 0, ig = 0, bytes = 0; const falhas = [];
+    for (const it of P.itens){
+      const partes = String(it.nome).split('/').filter(Boolean);
+      if (!partes.length || partes.some(x => x === '..' || x === '.' || /[\\:*?"<>|]/.test(x))){ falhas.push(it.nome + ': nome inválido'); continue; }
+      let u; try { u = await _bytesDe(it.dados); } catch (e){ falhas.push(it.nome + ': ' + e.message); continue; }
+      const ass = u.length + ':' + _fnv(u);
+      if (cfg.m[pre + it.nome] === ass){ ig++; continue; }
+      try {
+        let d = PASTA.h; for (const x of partes.slice(0, -1)) d = await d.getDirectoryHandle(x, {create: true});
+        const w = await (await d.getFileHandle(partes[partes.length - 1], {create: true})).createWritable();
+        await w.write(u); await w.close();
+        cfg.m[pre + it.nome] = ass; n++; bytes += u.length;
+        if (n % 10 === 0) marca('pasta da campanha: ' + n + ' arquivo(s) gravado(s)…');
+      } catch (e){ falhas.push(it.nome + ': ' + e.message); }
+    }
+    cfg.ult = {quando: new Date().toISOString(), n: n, ig: ig, mb: Math.round(bytes / 1e5) / 10, total: P.itens.length, lc: P.lc, eq: P.equipeN,
+      faltas: (P.faltas || []).slice(0, 8), falhas: falhas.slice(0, 8)};
+    grava();
+    marca('pasta da campanha (' + PASTA.nome + '): ' + n + ' arquivo(s) gravado(s), ' + ig + ' sem mudança' + (falhas.length ? ', ' + falhas.length + ' com erro' : ''));
+  } finally { PASTA.rodando = false; pintaPastaLocal(); }
+}
+function pintaPastaLocal(){
+  const e = $('#nb_pastalocal'); if (!e) return;
+  const u = (F.config.pastaLocal || {}).ult;
+  e.innerHTML = !PASTA.h ? '<b style="color:#B91C1C">Pasta da campanha não escolhida.</b>'
+    : PASTA.rodando ? '<b>Gravando em "' + esc(PASTA.nome) + '"…</b>'
+    : !PASTA.ok ? '<b style="color:#B91C1C">Pasta "' + esc(PASTA.nome) + '" à espera de liberação</b> — toque em Gravar agora.'
+    : '<b style="color:#047857">Pasta da campanha: "' + esc(PASTA.nome) + '"</b>' + (u ? ' · última gravação ' + new Date(u.quando).toLocaleString('pt-BR')
+      + ' (' + esc(u.lc || '') + '/Equipe_' + esc(u.eq || '') + '): ' + u.n + ' arquivo(s) gravado(s), ' + u.ig + ' sem mudança, de ' + u.total
+      + (u.falhas && u.falhas.length ? '<br><span style="color:#B91C1C">Com erro: ' + u.falhas.map(esc).join('; ') + '</span>' : '')
+      + (u.faltas && u.faltas.length ? '<br><span style="color:#B45309">Pendências do pacote: ' + u.faltas.map(esc).join('; ') + '</span>' : '') : ' · ainda sem gravação');
 }
 
 /* ---- a posição do ponto, do celular das fotos (09/11/2026) ----
@@ -4031,7 +4095,14 @@ function montaAbaNotebook(){
   s.innerHTML = '<div class="cart"><h3>Folha do notebook</h3><p class="leg">Esta é a folha da equipe para o <b>notebook</b>: a mesma caderneta da folha do celular, '
     + 'com a navegação em tela grande, o teclado (Page Up/Page Down na escala, setas no mapa, Home na sua posição) e os recursos do computador — '
     + 'as imagens originais e os dados auxiliares do projeto. <b>As fotos dos pontos vêm de um dispositivo móvel</b> (celular ou tablet com bússola), '
-    + 'pela página leve das fotos, e chegam aqui sozinhas pela pasta vigiada. <span id="nb_reat"></span></p></div>'
+    + 'pela página leve das fotos, e chegam aqui sozinhas pela pasta vigiada. <span id="nb_reat"></span></p>'
+    + '<table class="tabcam"><tr><th></th><th>Celular</th><th>Notebook</th></tr>'
+    + '<tr><td><b>Fotos dos pontos</b></td><td>a câmera do próprio celular, com a bússola</td><td>vêm do celular das fotos (página leve), pela pasta vigiada ou pelo ajudante USB</td></tr>'
+    + '<tr><td><b>Posição</b></td><td>o GNSS do celular</td><td>a do celular das fotos, que vai com as fotos; ou o GPS externo (botão GPS)</td></tr>'
+    + '<tr><td><b>Navegação no carro</b></td><td>Google Maps ou Waze no celular (Android Auto)</td><td>a folha mostra um QR: o celular lê e leva a rota ao Android Auto</td></tr>'
+    + '<tr><td><b>Imagens do projeto</b></td><td>recortes do kit</td><td>também GeoPackage, GeoTIFF, GeoJSON e blocos XYZ do QGIS, como camadas</td></tr>'
+    + '<tr><td><b>Pasta da campanha</b></td><td>só no Drive</td><td>também numa pasta deste notebook, gravada a cada dia fechado</td></tr>'
+    + '<tr><td><b>Igual nas duas</b></td><td colspan="2">a caderneta, os relatórios (ponto, dia, campanha), o pacote PTCON e o envio ao Google Drive na pasta padrão</td></tr></table></div>'
     + '<div class="cart"><h3>1. O celular das fotos</h3><p class="leg">No celular, abra a página leve das fotos lendo o QR (o do cartão de cada ponto já leva '
     + 'o ponto e a declinação). Ela tira as 4 fotos pelos rumos, com o azimute no nome do arquivo. <b>Guardar</b> põe as fotos na pasta Download do celular; '
     + '<b>Enviar</b> abre o compartilhar (Quick Share, Bluetooth). Na primeira vez a página precisa de internet; depois abre sem rede.</p>'
@@ -4063,7 +4134,14 @@ function montaAbaNotebook(){
     + '<div class="acoes"><button type="button" class="btn peq" id="nb_arq">Abrir arquivos do projeto</button>'
     + '<button type="button" class="btn sec peq" id="nb_cog">Conversor de imagens (.img, .ecw)</button>'
     + '<button type="button" class="btn sec peq" id="nb_xyz">Pasta de blocos XYZ do QGIS</button></div>'
-    + '<div id="nb_camadas" style="overflow-x:auto"></div></div>';
+    + '<div id="nb_camadas" style="overflow-x:auto"></div></div>'
+    + '<div class="cart"><h3>5. A pasta da campanha neste notebook</h3><p class="leg">Escolha <b>uma vez</b> onde fica a pasta da campanha no notebook. '
+    + 'A folha grava nela a <b>mesma estrutura padrão do Google Drive</b> — <code>LCnnn\\Equipe_nn\\Dia_ddd</code>, <code>Dados_campo.gpkg</code>, '
+    + 'PONTOS_COLETADOS, TRACKING, os relatórios e as fotos — <b>a cada dia fechado</b> (Fechar o dia ▸ Limpar o dia de campo) e quando você toca em '
+    + '"Gravar agora". Só regrava o que mudou. O envio ao Drive continua igual; a pasta local é a cópia de trabalho do notebook.</p>'
+    + '<p class="leg" id="nb_pastalocal"></p>'
+    + '<div class="acoes"><button type="button" class="btn peq" id="nb_pastac">Escolher a pasta da campanha</button>'
+    + '<button type="button" class="btn sec peq" id="nb_pastag">Gravar agora</button></div></div>';
   const ref = $('#aba_campanha'); ref.parentNode.insertBefore(s, ref);
   const inp = document.createElement('input'); inp.type = 'file'; inp.id = 'f_nbarq'; inp.multiple = true; inp.accept = '.gpkg,.tif,.tiff,.ovr,.tfw,.tifw,.wld,.prj,.img,.ecw,.jp2,.sid,.geojson,.json'; inp.className = 'oculto';
   document.body.appendChild(inp);
@@ -4082,6 +4160,8 @@ function montaAbaNotebook(){
   $('#nb_varre').addEventListener('click', () => varrePastaFotos(true));
   $('#nb_usb').addEventListener('click', baixaAjudanteUSB);
   $('#nb_cog').addEventListener('click', baixaConversorCOG);
+  $('#nb_pastac').addEventListener('click', () => escolhePastaCampanha().catch(e => marca('pasta da campanha: ' + e.message)));
+  $('#nb_pastag').addEventListener('click', () => gravaPastaLocal(true).catch(e => marca('pasta da campanha: ' + e.message)));
   $('#nb_arq').addEventListener('click', () => abreArquivosNB().catch(e => marca('arquivos do projeto: ' + e.message)));
   $('#nb_xyz').addEventListener('click', () => escolhePastaXYZ().catch(e => marca('blocos XYZ: ' + e.message)));
   bt.addEventListener('click', () => { document.querySelectorAll('.abas button').forEach(b => b.classList.toggle('on', b === bt));
@@ -4095,7 +4175,7 @@ function pintaNotebook(){
   if (r){ r.innerHTML = n ? '<br><b style="color:#B91C1C">' + n + ' recurso(s) do notebook à espera de liberação do navegador.</b> '
       + '<button type="button" class="btn peq" id="nb_reat_b">Reativar</button>' : '';
     const b = $('#nb_reat_b'); if (b) b.addEventListener('click', () => reativaNB()); }
-  pintaVigia(); pintaCamadasNav();
+  pintaVigia(); pintaPastaLocal(); pintaCamadasNav();
   const nb = NAV && NAV.el ? NAV.el.querySelector('[data-n="xyz"]') : null; if (nb) nb.style.display = n ? '' : 'none';
 }
 
@@ -7665,6 +7745,7 @@ $('#b_limpa_dia').addEventListener('click', async () => {
       : 'dia arquivado (' + F.dias.length + ' na campanha) — a tela está limpa'), 700);
   window.scrollTo({top: 0, behavior: 'smooth'});
   // dia fechado: a folha propõe refazer os dias que faltam (passo 5), se houver o que redistribuir
+  if (NOTEBOOK && !vazio && PASTA.h) setTimeout(() => gravaPastaLocal(true).catch(e => marca('pasta da campanha: ' + e.message)), 2400);
   if (!vazio && !pend){ const RR = redistPossivel();
     if (RR && !RR.motivo && RR.U.length && RR.datas.length && navigator.onLine) setTimeout(() => propoeRedist(), 1800); }
 });
@@ -11479,10 +11560,39 @@ function _ll(c){ return c[1].toFixed(6) + '%2C' + c[0].toFixed(6); }
 /* Waze e outros apps recebem só o destino (o ponto ou a saída da BR): não seguem o caminho do plano.
    Waze: link universal https://waze.com/ul?ll=lat,lon&navigate=yes; outros: URI geo (RFC 5870),
    que no Android abre a lista de apps de mapas instalados (OsmAnd, Organic Maps, Waze, Google Maps…). */
-function _abreApp(app, lat, lon, rot){
+function _urlApp(app, lat, lon, rot){
   const ll = lat.toFixed(6) + ',' + lon.toFixed(6);
-  if (app === 'waze'){ window.open('https://waze.com/ul?ll=' + encodeURIComponent(ll) + '&navigate=yes', '_blank'); return; }
-  location.href = 'geo:' + ll + '?q=' + ll + '(' + encodeURIComponent(rot || 'ponto') + ')';
+  if (app === 'waze') return 'https://waze.com/ul?ll=' + encodeURIComponent(ll) + '&navigate=yes';
+  if (app === 'gmaps') return 'https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate&destination=' + lat.toFixed(7) + '%2C' + lon.toFixed(7);
+  return 'geo:' + ll + '?q=' + ll + '(' + encodeURIComponent(rot || 'ponto') + ')';
+}
+function _abreApp(app, lat, lon, rot){ _vaiNav(_urlApp(app, lat, lon, rot), rot, {lat: lat, lon: lon, id: rot}); }
+/* 10/11/2026 — no notebook, o Google Maps e o Waze vão para o CELULAR, por QR: o celular ligado ao Android Auto (ou ao
+   CarPlay) leva a navegação para a tela do carro. O Android Auto só aceita o celular como fonte; o notebook não se conecta
+   à central do carro. Na tela do QR dá para trocar de app e, se preciso, abrir no próprio notebook. */
+function _vaiNav(url, rot, dest){
+  if (NOTEBOOK) return mostraQrNav(url, rot, dest);
+  if (/^geo:/.test(url)) location.href = url; else window.open(url, '_blank');
+}
+function mostraQrNav(url, rot, dest){
+  const ant = document.getElementById('qr_nav'); if (ant) ant.remove();
+  const v = document.createElement('div'); v.id = 'qr_nav'; v.className = 'naoimprime';
+  v.style.cssText = 'position:fixed;inset:0;z-index:90;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;text-align:center;overflow:auto';
+  const app = /waze\.com/.test(url) ? 'Waze' : /google\.com\/maps/.test(url) ? 'Google Maps' : 'app de mapas';
+  let svg = ''; try { svg = QR.svg(url, Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.55)); } catch (e){ svg = '<p class="leg">QR: ' + esc(e.message) + '</p>'; }
+  v.innerHTML = '<b style="font-size:21px">Navegar pelo celular — ' + esc(app) + (rot ? ' até ' + esc(rot) : '') + '</b>' + svg
+    + '<p class="leg" style="max-width:640px">Leia com a câmera do celular que vai no carro: o ' + esc(app) + ' abre já navegando e, com o celular no '
+    + '<b>Android Auto</b> (ou CarPlay), a rota vai para a tela do carro. ' + (/waypoints=/.test(url) ? 'O link leva o destino e até 3 pontos do caminho do plano.' : 'O link leva só o destino.') + '</p>'
+    + '<div class="acoes" style="justify-content:center;flex-wrap:wrap">'
+    + (dest && app !== 'Waze' ? '<button type="button" class="btn sec peq" data-q="waze">Waze em vez disso</button>' : '')
+    + (dest && app !== 'Google Maps' ? '<button type="button" class="btn sec peq" data-q="gmaps">Google Maps em vez disso</button>' : '')
+    + '<button type="button" class="btn sec peq" data-q="aqui">Abrir neste notebook</button>'
+    + '<button type="button" class="btn peq" data-q="fecha">Fechar</button></div>';
+  v.querySelectorAll('[data-q]').forEach(b => b.addEventListener('click', () => { const q = b.dataset.q;
+    if (q === 'fecha') return v.remove();
+    if (q === 'aqui'){ v.remove(); if (/^geo:/.test(url)) location.href = url; else window.open(url, '_blank'); return; }
+    mostraQrNav(_urlApp(q, dest.lat, dest.lon, dest.id), rot, dest); }));
+  document.body.appendChild(v);
 }
 function abreNoMaps(a, modo){
   const app = (F.config && F.config.appNav) || 'gmaps';
@@ -11515,7 +11625,7 @@ function abreNoMaps(a, modo){
       if (wpu.length) url += '&waypoints=' + wpu.join('%7C');
     }
   }
-  window.open(url, '_blank');
+  _vaiNav(url, modo === 'saida' && g ? 'saída da BR — ' + a.id : a.id, {lat: a.lat, lon: a.lon, id: a.id});
 }
 
 /* =====================================================================
@@ -12335,8 +12445,8 @@ function desenhaNav(){
   q('rotaoff').style.display = carro && VIAS.length ? '' : 'none';
   { const Tg = _trajetoAtual(a); q('mapsbr').style.display = Tg && Tg.g && Tg.g.length > 1 && Tg.fonte !== 'plano' && Tg.fonte !== 'campanha' ? '' : 'none';
     const app = (F.config && F.config.appNav) || 'gmaps', an = {gmaps: 'Google Maps', waze: 'Waze', geo: 'Outro app'}[app] || 'Google Maps';
-    q('maps').textContent = app === 'gmaps' && Tg && Tg.g && Tg.g.length > 1 ? 'Google Maps até o ponto (pelo trajeto)' : an + ' até o ponto';
-    q('mapsbr').textContent = an + ' até a saída da BR';
+    q('maps').textContent = (NOTEBOOK ? 'QR p/ celular: ' : '') + (app === 'gmaps' && Tg && Tg.g && Tg.g.length > 1 ? 'Google Maps até o ponto (pelo trajeto)' : an + ' até o ponto');
+    q('mapsbr').textContent = (NOTEBOOK ? 'QR p/ celular: ' : '') + an + ' até a saída da BR';
     q('mapsdir').style.display = app === 'gmaps' ? '' : 'none'; }
   q('modo').textContent = carro ? 'Modo: carro' : 'Modo: direção';
   q('modo').classList.toggle('on', carro);
@@ -15234,7 +15344,9 @@ function urlFotosPonto(p){
   const base = /^https:$/.test(location.protocol) && /github\.io$/.test(location.hostname) ? location.href.replace(/[^/]*$/, '') : URL_SITE;
   const lugar = (p.lat != null && p.lon != null) ? p : (p.chegada || p.planejado || null), d = _decl(lugar);
   const id = _idsDoPonto(p)[0] || '';
-  return base + 'fotos.html#p=' + encodeURIComponent(id) + (d != null ? '&d=' + d.toFixed(1) : '') + (F.campanha.ptcon_lc ? '&lc=' + encodeURIComponent(F.campanha.ptcon_lc) : '');
+  const alvo = p.planejado && p.planejado.lat != null ? p.planejado : lugar;
+  return base + 'fotos.html#p=' + encodeURIComponent(id) + (d != null ? '&d=' + d.toFixed(1) : '') + (F.campanha.ptcon_lc ? '&lc=' + encodeURIComponent(F.campanha.ptcon_lc) : '')
+    + (alvo && alvo.lat != null ? '&ll=' + (+alvo.lat).toFixed(6) + ',' + (+alvo.lon).toFixed(6) : '');
 }
 /* Sem leitor de QR (09/11/2026): o que digitar no celular, em letra grande */
 const _endFotos = () => (URL_SITE + 'fotos.html').replace(/^https?:\/\//, '');

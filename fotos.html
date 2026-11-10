@@ -65,6 +65,10 @@ input,select{width:100%;padding:12px;font:inherit;border:1.5px solid #B7C2C8;bor
   <p class="leg" id="origem">Sem QR, três caminhos: (1) <b>digite o ponto</b> — a declinação, o celular calcula pelo GPS; (2) <b>carregue a lista de pontos</b> que a folha do notebook gera (vem por Bluetooth, Quick Share ou cabo) e escolha o ponto nela — o mais perto vem sugerido; (3) leia o QR da folha, se o celular tiver leitor.</p>
   <div class="prog" id="prog"></div>
   <p class="leg" id="posinfo"></p>
+  <div class="lin" id="navlin" hidden>
+    <a class="btn sec peq" id="nav_gm" target="_blank" rel="noopener" style="text-align:center;text-decoration:none">Navegar: Google Maps</a>
+    <a class="btn sec peq" id="nav_wz" target="_blank" rel="noopener" style="text-align:center;text-decoration:none">Navegar: Waze</a>
+  </div>
   <button type="button" class="btn sec peq" id="b_pos">Medir a posição do ponto (20 s, junto à antena)</button>
   <button type="button" class="btn" id="b_tirar">Tirar as 4 fotos — F1 norte, F2 sul, F3 oeste, F4 leste</button>
   <div class="msg" id="msg">Fotos reduzidas a 2048 px, com os dados da câmera (EXIF) e a posição do GPS; nome: ponto_F1_az012.jpg. A posição do ponto vai junto, no arquivo ponto_POS_….txt: o notebook a usa sem digitar.</div>
@@ -93,6 +97,7 @@ function leHash(){
   if (q.p) $('#pid').value = q.p.toUpperCase();
   if (q.d != null && q.d !== '') $('#decl').value = String(q.d).replace('.', ',');
   if (q.p) $('#origem').textContent = 'Ponto e declinação vieram do QR da folha' + (q.lc ? ' (' + q.lc + ')' : '') + '.';
+  if (q.p && q.ll){ const [a, b] = q.ll.split(',').map(Number); if (isFinite(a) && isFinite(b)) try { localStorage.setItem('fotos_dest', JSON.stringify({p: q.p.toUpperCase(), lat: a, lon: b})); } catch (e){} }
   try { localStorage.setItem('fotos_ult', JSON.stringify({p: $('#pid').value, d: $('#decl').value})); } catch (e){}
 }
 try { const u = JSON.parse(localStorage.getItem('fotos_ult') || 'null'); if (u){ $('#pid').value = u.p || ''; $('#decl').value = u.d || ''; } } catch (e){}
@@ -329,7 +334,25 @@ async function pintaLista(){
     : '<div><span><b>' + x.p + '</b> F' + x.n + (x.az != null ? ' · az ' + x.az + '°' : ' · sem azimute') + (x.pos ? '' : ' · sem GPS') + (x.enviada ? ' · enviada' : '') + '</span>'
     + '<span>' + Math.round(x.blob.size / 1024) + ' KB</span></div>').join('');
 }
-async function pintaProg(){ const p = ponto(), T = p ? (await todas()).filter(x => x.p === p) : [], L = T.filter(x => x.tipo !== 'pos').map(x => x.n), ps = T.find(x => x.tipo === 'pos');
+/* navegar até o ponto (10/11/2026): o destino vem do QR da folha (ll=) ou da lista de pontos; o Google Maps ou o Waze abrem
+   neste celular e, com ele no Android Auto (ou CarPlay), a rota vai para a tela do carro */
+function destinoDoPonto(p){
+  if (!p) return null;
+  const q = (typeof LISTA !== 'undefined' && LISTA && LISTA.pontos || []).find(x => String(x.id).toUpperCase() === p);
+  if (q && isFinite(q.lat) && isFinite(q.lon)) return {lat: +q.lat, lon: +q.lon};
+  try { const d = JSON.parse(localStorage.getItem('fotos_dest') || 'null'); if (d && d.p === p) return d; } catch (e){}
+  return null;
+}
+function pintaNav(){
+  const p = ponto(), d = destinoDoPonto(p), el = $('#navlin'); if (!el) return;
+  el.hidden = !d; if (!d) return;
+  const lat = d.lat.toFixed(6), lon = d.lon.toFixed(6);
+  $('#nav_gm').href = 'https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate&destination=' + lat + '%2C' + lon;
+  $('#nav_wz').href = 'https://waze.com/ul?ll=' + lat + '%2C' + lon + '&navigate=yes';
+  $('#nav_gm').textContent = 'Navegar até ' + p + ': Google Maps'; $('#nav_wz').textContent = 'Navegar até ' + p + ': Waze';
+}
+async function pintaProg(){
+  pintaNav(); const p = ponto(), T = p ? (await todas()).filter(x => x.p === p) : [], L = T.filter(x => x.tipo !== 'pos').map(x => x.n), ps = T.find(x => x.tipo === 'pos');
   $('#prog').innerHTML = p ? [1, 2, 3, 4].map(i => '<span class="' + (L.includes(i) ? 'ja' : '') + '">' + (L.includes(i) ? '✓ ' : '') + 'F' + i + '</span>').join('')
     + '<span class="' + (ps ? 'ja' : '') + '">' + (ps ? '✓ posição ± ' + String(ps.pos.acc).replace('.', ',') + ' m' : 'posição') + '</span>' : '';
   $('#posinfo').textContent = !p ? '' : ps ? 'Posição do ' + p + ': ' + ps.pos.lat.toFixed(6) + ', ' + ps.pos.lon.toFixed(6) + ' · ± ' + String(ps.pos.acc).replace('.', ',') + ' m · '

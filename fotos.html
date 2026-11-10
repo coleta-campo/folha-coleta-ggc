@@ -64,8 +64,10 @@ input,select{width:100%;padding:12px;font:inherit;border:1.5px solid #B7C2C8;bor
   <input type="file" id="f_lista" accept=".json,application/json,text/plain" hidden>
   <p class="leg" id="origem">Sem QR, três caminhos: (1) <b>digite o ponto</b> — a declinação, o celular calcula pelo GPS; (2) <b>carregue a lista de pontos</b> que a folha do notebook gera (vem por Bluetooth, Quick Share ou cabo) e escolha o ponto nela — o mais perto vem sugerido; (3) leia o QR da folha, se o celular tiver leitor.</p>
   <div class="prog" id="prog"></div>
+  <p class="leg" id="posinfo"></p>
+  <button type="button" class="btn sec peq" id="b_pos">Medir a posição do ponto (20 s, junto à antena)</button>
   <button type="button" class="btn" id="b_tirar">Tirar as 4 fotos — F1 norte, F2 sul, F3 oeste, F4 leste</button>
-  <div class="msg" id="msg">Fotos reduzidas a 2048 px, com os dados da câmera (EXIF); nome: ponto_F1_az012.jpg.</div>
+  <div class="msg" id="msg">Fotos reduzidas a 2048 px, com os dados da câmera (EXIF) e a posição do GPS; nome: ponto_F1_az012.jpg. A posição do ponto vai junto, no arquivo ponto_POS_….txt: o notebook a usa sem digitar.</div>
 </div>
 <div class="cart">
   <b>Fotos guardadas neste celular</b>
@@ -74,7 +76,7 @@ input,select{width:100%;padding:12px;font:inherit;border:1.5px solid #B7C2C8;bor
     <button type="button" class="btn peq" id="b_envia">Enviar as fotos</button>
     <button type="button" class="btn sec peq" id="b_baixa">Guardar em Downloads</button>
   </div>
-  <p class="leg">Enviar abre o compartilhar do celular (Bluetooth, Quick Share, Drive, WhatsApp). Guardar deixa os arquivos em Downloads, para o cabo USB. No notebook, no cartão do ponto: "Fotos de outro aparelho".</p>
+  <p class="leg">Envie as fotos <b>e o arquivo da posição</b> (ponto_POS_….txt) juntos. Enviar abre o compartilhar do celular (Bluetooth, Quick Share, Drive, WhatsApp). Guardar deixa os arquivos em Downloads, para o cabo USB. No notebook, no cartão do ponto: "Fotos de outro aparelho".</p>
   <button type="button" class="btn sec peq" id="b_limpa">Apagar as fotos já enviadas</button>
 </div>
 <p class="leg">GGC/SES-CE · página leve da folha de coleta de pontos · a bússola do celular dá o azimute magnético; a declinação (do QR, da lista ou calculada aqui pelo GPS com o WMM2025) o converte em verdadeiro.</p>
@@ -159,19 +161,104 @@ function azAgora(){ return FD.rumo != null && Date.now() - FD.ultimo < 2500 ? Ma
 function nomeArq(p, n, az){ const d = new Date(), q = x => String(x).padStart(2, '0');
   return p + '_F' + n + (az != null ? '_az' + String(az).padStart(3, '0') : '') + '_' + d.getFullYear() + q(d.getMonth() + 1) + q(d.getDate()) + '_' + q(d.getHours()) + q(d.getMinutes()) + q(d.getSeconds()) + '.jpg'; }
 async function guarda(p, n, blob, az){
-  const r = await reduzida(blob), nome = nomeArq(p, n, az);
-  await poe(p + '|F' + n, {p: p, n: n, az: az, nome: nome, blob: r, quando: Date.now(), decl: declinacao()});
+  const pos = geoUltima(), r = await comPosicao(await reduzida(blob), pos, new Date()), nome = nomeArq(p, n, az);
+  await poe(p + '|F' + n, {p: p, n: n, az: az, nome: nome, blob: r, quando: Date.now(), decl: declinacao(),
+    pos: pos ? {lat: pos.lat, lon: pos.lon, acc: pos.acc} : null});
   await pintaLista(); pintaProg();
+}
+/* ---------- posição do ponto pelo GNSS deste celular (09/11/2026) ----------
+   No notebook não há GNSS confiável; quem está no ponto é o celular das fotos. Enquanto a câmera dirigida está aberta, a
+   página lê o GNSS sem parar: cada foto leva no EXIF a posição do momento (GPSLatitude/GPSLongitude/GPSAltitude,
+   GPSHPositioningError, datum WGS-84 — CIPA DC-008-2023, Exif 3.0) e, ao fim, a média das melhores leituras da sessão
+   (as de precisão até 1,5× a melhor, como na folha) vira a posição do ponto. As 4 fotos se tiram de lados opostos da
+   antena, a 3–5 m: a média das posições cai perto dela. "Medir junto à antena" (20 s parado ao lado do tripé) é melhor e,
+   feita, prevalece. A posição vai num arquivo de texto (JSON) ponto_POS_aaaammdd_hhmmss.txt, enviado com as fotos; a
+   folha do notebook o lê sozinha e grava a coordenada PROVISÓRIA do ponto, que o RINEX/PPP substitui. */
+const GEO = {id: null, L: [], ini: 0};
+function geoLiga(){ if (!navigator.geolocation || GEO.id != null) return;
+  GEO.L = []; GEO.ini = Date.now();
+  GEO.id = navigator.geolocation.watchPosition(q => { const c = q.coords; if (!(c.accuracy > 0)) return;
+    GEO.L.push({lat: c.latitude, lon: c.longitude, acc: c.accuracy, h: c.altitude, hacc: c.altitudeAccuracy, t: q.timestamp || Date.now()}); },
+    () => {}, {enableHighAccuracy: true, maximumAge: 0, timeout: 30000}); }
+function geoDesliga(){ if (GEO.id != null){ navigator.geolocation.clearWatch(GEO.id); GEO.id = null; } }
+function geoUltima(){ const u = GEO.L[GEO.L.length - 1]; return u && Date.now() - u.t < 15000 ? u : null; }
+function geoMedia(L){
+  L = (L || []).filter(x => isFinite(x.lat) && isFinite(x.lon)); if (!L.length) return null;
+  const melhor = Math.min(...L.map(x => x.acc)), B = L.filter(x => x.acc <= melhor * 1.5), BH = B.filter(x => x.h != null && isFinite(x.h));
+  const m = a => a.reduce((s, x) => s + x, 0) / a.length;
+  return {lat: Math.round(m(B.map(x => x.lat)) * 1e7) / 1e7, lon: Math.round(m(B.map(x => x.lon)) * 1e7) / 1e7, acc: Math.round(m(B.map(x => x.acc)) * 10) / 10,
+    n: B.length, lidas: L.length, h: BH.length ? Math.round(m(BH.map(x => x.h)) * 10) / 10 : null,
+    hacc: BH.some(x => x.hacc) ? Math.round(m(BH.filter(x => x.hacc).map(x => x.hacc)) * 10) / 10 : null,
+    inicio: new Date(L[0].t).toISOString(), fim: new Date(L[L.length - 1].t).toISOString()};
+}
+function _stamp(d){ const q = x => String(x).padStart(2, '0'); return d.getFullYear() + q(d.getMonth() + 1) + q(d.getDate()) + '_' + q(d.getHours()) + q(d.getMinutes()) + q(d.getSeconds()); }
+async function guardaPos(p, r, origem){
+  if (!p || !r) return null;
+  const k = p + '|POS', ant = (await todas()).find(x => x.k === k);
+  if (ant && ant.origem === 'junto à antena' && origem !== 'junto à antena') return ant;      // a medida parada prevalece
+  const d = new Date(), j = Object.assign({tipo: 'posicao_do_ponto', versao: 1, ponto: p, origem: origem,
+    fonte: 'GNSS do celular das fotos (navegador), média das leituras de precisão até 1,5× a melhor',
+    datum: 'WGS 84 (o do GNSS do celular); altitude elipsoidal', gerado: d.toISOString()}, r);
+  const v = {p: p, tipo: 'pos', n: 0, nome: p + '_POS_' + _stamp(d) + '.txt', quando: d.getTime(), origem: origem, pos: j};
+  await poe(k, v); await pintaLista(); pintaProg(); return v;
+}
+async function medePosicao(){
+  const p = ponto(); if (!p) return msg('digite o ponto (ou escolha na lista) antes de medir', true);
+  if (!navigator.geolocation) return msg('este navegador não dá a posição', true);
+  const b = $('#b_pos'); b.disabled = true; geoDesliga(); geoLiga();
+  for (let s = 20; s > 0; s--){ const u = geoUltima();
+    b.textContent = 'medindo… ' + s + ' s · ' + GEO.L.length + ' leitura(s)' + (u ? ' · ± ' + Math.round(u.acc) + ' m' : ''); await new Promise(r => setTimeout(r, 1000)); }
+  const r = geoMedia(GEO.L); geoDesliga(); b.disabled = false; b.textContent = 'Medir a posição do ponto (20 s, junto à antena)';
+  if (!r) return msg('sem posição do GPS: ao ar livre, com a localização liberada, tente de novo', true);
+  await guardaPos(p, r, 'junto à antena');
+  msg('posição do ' + p + ' guardada: ± ' + String(r.acc).replace('.', ',') + ' m (média de ' + r.n + ' leitura(s)) — vai com as fotos');
+}
+/* EXIF mínimo com data e GPS, para a foto da câmera da página (o quadro do vídeo não traz EXIF) */
+function exifGPS(pos, d){
+  const B = [], u16 = v => B.push(v & 255, (v >> 8) & 255), u32 = v => { B.push(v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255); };
+  const q = x => String(x).padStart(2, '0'), dt = d.getFullYear() + ':' + q(d.getMonth() + 1) + ':' + q(d.getDate()) + ' ' + q(d.getHours()) + ':' + q(d.getMinutes()) + ':' + q(d.getSeconds()) + '\0';
+  const gms = v => { v = Math.abs(v); const g = Math.floor(v), m = Math.floor((v - g) * 60), s = Math.round(((v - g) * 60 - m) * 60 * 10000); return [[g, 1], [m, 1], [s, 10000]]; };
+  const G = [[0x0000, 1, 4, [2, 3, 0, 0]], [0x0001, 2, 2, pos.lat < 0 ? 'S' : 'N'], [0x0002, 5, 3, gms(pos.lat)], [0x0003, 2, 2, pos.lon < 0 ? 'W' : 'E'], [0x0004, 5, 3, gms(pos.lon)]];
+  if (pos.h != null && isFinite(pos.h)){ G.push([0x0005, 1, 1, [pos.h < 0 ? 1 : 0]]); G.push([0x0006, 5, 1, [[Math.round(Math.abs(pos.h) * 100), 100]]]); }
+  G.push([0x0012, 2, 7, 'WGS-84']);
+  if (pos.acc > 0) G.push([0x001F, 5, 1, [[Math.round(pos.acc * 100), 100]]]);
+  // leiaute: cabeçalho(8) IFD0(2+2*12+4) ExifIFD(2+12+4) data(20) GPSIFD(2+n*12+4) dados do GPS
+  const o0 = 8, oE = o0 + 30, oDt = oE + 18, oG = oDt + 20, nG = G.length; let od = oG + 2 + nG * 12 + 4;
+  B.push(0x49, 0x49, 42, 0); u32(o0);
+  u16(2); u16(0x8769); u16(4); u32(1); u32(oE); u16(0x8825); u16(4); u32(1); u32(oG); u32(0);
+  u16(1); u16(0x9003); u16(2); u32(20); u32(oDt); u32(0);
+  for (const c of dt) B.push(c.charCodeAt(0));
+  const dados = [];
+  u16(nG);
+  for (const [tag, tp, n, v] of G){ u16(tag); u16(tp); u32(n);
+    if (tp === 1){ const b = v.concat([0, 0, 0, 0]).slice(0, 4); B.push(...b); }
+    else if (tp === 2 && n <= 4){ const b = (v + '\0').split('').map(c => c.charCodeAt(0)).concat([0, 0, 0, 0]).slice(0, 4); B.push(...b); }
+    else { u32(od); const bytes = []; if (tp === 2){ for (const c of v + '\0') bytes.push(c.charCodeAt(0)); }
+      else for (const [a, b] of v){ bytes.push(a & 255, (a >>> 8) & 255, (a >>> 16) & 255, (a >>> 24) & 255, b & 255, (b >>> 8) & 255, (b >>> 16) & 255, (b >>> 24) & 255); }
+      if (bytes.length % 2) bytes.push(0); dados.push(...bytes); od += bytes.length; } }
+  u32(0); B.push(...dados);
+  const tiff = new Uint8Array(B), seg = new Uint8Array(10 + tiff.length);
+  seg.set([0xFF, 0xE1, ((tiff.length + 8) >> 8) & 255, (tiff.length + 8) & 255, 0x45, 0x78, 0x69, 0x66, 0, 0]); seg.set(tiff, 10);
+  return seg;
+}
+async function comPosicao(blob, pos, d){
+  const u8 = new Uint8Array(await blob.arrayBuffer());
+  if (!pos || _segmentosApp1(u8).some(s => s[4] === 0x45 && s[5] === 0x78)) return blob;     // a câmera do sistema já pôs o EXIF dela
+  let k = 2; if (u8[2] === 0xFF && u8[3] === 0xE0) k = 4 + ((u8[4] << 8) | u8[5]);            // depois do APP0 (JFIF)
+  const seg = exifGPS(pos, d), out = new Uint8Array(u8.length + seg.length);
+  out.set(u8.subarray(0, k)); out.set(seg, k); out.set(u8.subarray(k), k + seg.length);
+  return new Blob([out], {type: 'image/jpeg'});
 }
 /* ---------- câmera dirigida: F1 a F4 em sequência ---------- */
 async function tirarSequencia(){
   const p = ponto(); if (!p) return msg('digite o ponto (ou leia o QR da folha)', true);
   if (declinacao() == null && !confirm('Sem declinação: o azimute gravado será MAGNÉTICO. Continuar assim?')) return;
-  const feitas = (await todas()).filter(x => x.p === p).map(x => x.n);
+  const feitas = (await todas()).filter(x => x.p === p && x.tipo !== 'pos').map(x => x.n);
   let fila = [1, 2, 3, 4].filter(n => !feitas.includes(n));
   if (!fila.length){ if (!confirm('As 4 fotos do ' + p + ' já estão guardadas. Refazer as quatro?')) return; fila = [1, 2, 3, 4]; }
   try { if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') await DeviceOrientationEvent.requestPermission(); } catch (e){}
   FD.rumo = FD.bruto = null; FD.ultimo = 0;
+  geoDesliga(); geoLiga();
   window.addEventListener('deviceorientationabsolute', _rumo); window.addEventListener('deviceorientation', _rumo);
   const cx = document.createElement('div'); cx.className = 'fotodir';
   cx.innerHTML = '<div class="tela"><video playsinline muted autoplay></video><div class="topo"></div>'
@@ -201,13 +288,17 @@ async function tirarSequencia(){
       dica.textContent = FD.inclinado ? 'levante o celular: a câmera precisa olhar para a frente'
         : ok ? 'alinhado com o ' + fo[2].toLowerCase() + ' — pode tirar' : 'gire ' + Math.abs(Math.round(dlt)) + '° para a ' + (dlt > 0 ? 'direita' : 'esquerda');
       if (declinacao() == null) dica.textContent += ' · norte MAGNÉTICO (sem declinação)';
+      const u = geoUltima(); dica.textContent += u ? ' · GPS ± ' + Math.round(u.acc) + ' m' : ' · GPS procurando…';
       mira.classList.toggle('ok', ok); if (ok && !alinhado && navigator.vibrate) navigator.vibrate(80); alinhado = ok;
     }
     requestAnimationFrame(pinta);
   };
   requestAnimationFrame(pinta);
   const fecha = () => { window.removeEventListener('deviceorientationabsolute', _rumo); window.removeEventListener('deviceorientation', _rumo);
-    if (fluxo) fluxo.getTracks().forEach(t => t.stop()); cx.remove(); };
+    if (fluxo) fluxo.getTracks().forEach(t => t.stop()); cx.remove();
+    const r = geoMedia(GEO.L); geoDesliga();
+    if (r) guardaPos(p, r, 'durante as fotos').then(v => { if (v && v.origem === 'durante as fotos')
+      msg('fotos do ' + p + ' guardadas, com a posição do ponto (± ' + String(r.acc).replace('.', ',') + ' m, ' + r.n + ' leitura(s)): envie ou guarde em Downloads'); }); };
   const segue = () => { feitas.push(n); if (!fila.length){ fecha(); msg('fotos F1 a F4 do ' + p + ' guardadas: envie ou guarde em Downloads'); return; }
     n = fila.shift(); fo = FOTOS[n - 1]; alinhado = false; pintaTopo(); if (navigator.vibrate) navigator.vibrate([60, 80, 60]); };
   const mostraFeito = t => { feito.textContent = t; feito.hidden = false; setTimeout(() => { feito.hidden = true; }, 1600); };
@@ -228,33 +319,40 @@ async function tirarSequencia(){
   });
 }
 /* ---------- lista, envio, Downloads ---------- */
-function _arq(x){ return new File([x.blob], x.nome, {type: 'image/jpeg', lastModified: x.quando}); }
+function _arq(x){ return x.tipo === 'pos' ? new File([JSON.stringify(x.pos, null, 1)], x.nome, {type: 'text/plain', lastModified: x.quando})
+  : new File([x.blob], x.nome, {type: 'image/jpeg', lastModified: x.quando}); }
 async function pintaLista(){
   const L = (await todas()).sort((a, b) => a.p.localeCompare(b.p) || a.n - b.n), el = $('#lista');
   if (!L.length){ el.innerHTML = '<p class="leg">nenhuma ainda</p>'; return; }
-  el.innerHTML = L.map(x => '<div><span><b>' + x.p + '</b> F' + x.n + (x.az != null ? ' · az ' + x.az + '°' : ' · sem azimute') + (x.enviada ? ' · enviada' : '') + '</span>'
+  el.innerHTML = L.map(x => x.tipo === 'pos'
+    ? '<div><span><b>' + x.p + '</b> posição · ± ' + String(x.pos.acc).replace('.', ',') + ' m (' + x.origem + ')' + (x.enviada ? ' · enviada' : '') + '</span><span>texto</span></div>'
+    : '<div><span><b>' + x.p + '</b> F' + x.n + (x.az != null ? ' · az ' + x.az + '°' : ' · sem azimute') + (x.pos ? '' : ' · sem GPS') + (x.enviada ? ' · enviada' : '') + '</span>'
     + '<span>' + Math.round(x.blob.size / 1024) + ' KB</span></div>').join('');
 }
-async function pintaProg(){ const p = ponto(), L = p ? (await todas()).filter(x => x.p === p).map(x => x.n) : [];
-  $('#prog').innerHTML = p ? [1, 2, 3, 4].map(i => '<span class="' + (L.includes(i) ? 'ja' : '') + '">' + (L.includes(i) ? '✓ ' : '') + 'F' + i + '</span>').join('') : ''; }
+async function pintaProg(){ const p = ponto(), T = p ? (await todas()).filter(x => x.p === p) : [], L = T.filter(x => x.tipo !== 'pos').map(x => x.n), ps = T.find(x => x.tipo === 'pos');
+  $('#prog').innerHTML = p ? [1, 2, 3, 4].map(i => '<span class="' + (L.includes(i) ? 'ja' : '') + '">' + (L.includes(i) ? '✓ ' : '') + 'F' + i + '</span>').join('')
+    + '<span class="' + (ps ? 'ja' : '') + '">' + (ps ? '✓ posição ± ' + String(ps.pos.acc).replace('.', ',') + ' m' : 'posição') + '</span>' : '';
+  $('#posinfo').textContent = !p ? '' : ps ? 'Posição do ' + p + ': ' + ps.pos.lat.toFixed(6) + ', ' + ps.pos.lon.toFixed(6) + ' · ± ' + String(ps.pos.acc).replace('.', ',') + ' m · '
+    + ps.pos.n + ' leitura(s) ' + ps.origem + '.' : 'A posição do ponto se mede sozinha durante as fotos; parado junto à antena por 20 s, sai melhor.'; }
 async function envia(){
   const L = await todas(); if (!L.length) return msg('nenhuma foto guardada', true);
   const arqs = L.map(_arq);
   if (navigator.canShare && navigator.canShare({files: arqs})){
     try { await navigator.share({files: arqs, title: 'Fotos dos pontos', text: 'Fotos dos pontos ' + [...new Set(L.map(x => x.p))].join(', ')});
-      for (const x of L) await poe(x.k, Object.assign(x, {enviada: true}));
-      await pintaLista(); return msg(arqs.length + ' foto(s) enviada(s)'); }
+      for (const x of L){ const v = Object.assign({}, x, {enviada: true}); delete v.k; await poe(x.k, v); }
+      await pintaLista(); return msg(L.filter(x => x.tipo !== 'pos').length + ' foto(s) e ' + L.filter(x => x.tipo === 'pos').length + ' posição(ões) enviada(s)'); }
     catch (e){ if (e.name === 'AbortError') return msg('envio cancelado'); msg('compartilhar falhou (' + e.message + '); guardando em Downloads', true); }
   }
   baixa(L);
 }
 async function baixa(L){
   L = L || await todas(); if (!L.length) return msg('nenhuma foto guardada', true);
-  for (const x of L){ const u = URL.createObjectURL(x.blob), a = document.createElement('a'); a.href = u; a.download = x.nome; document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(u), 30000); await new Promise(r => setTimeout(r, 400)); await poe(x.k, Object.assign(x, {enviada: true})); }
+  for (const x of L){ const u = URL.createObjectURL(_arq(x)), a = document.createElement('a'); a.href = u; a.download = x.nome; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 30000); await new Promise(r => setTimeout(r, 400)); const v = Object.assign({}, x, {enviada: true}); delete v.k; await poe(x.k, v); }
   await pintaLista(); msg(L.length + ' arquivo(s) em Downloads — ligue o cabo e, no notebook, use "Fotos de outro aparelho" (a pasta Download do celular)');
 }
 $('#b_tirar').addEventListener('click', () => tirarSequencia().catch(e => msg('câmera: ' + e.message, true)));
+$('#b_pos').addEventListener('click', () => medePosicao().catch(e => msg('posição: ' + e.message, true)));
 /* ---------- sem QR (09/11/2026): declinação pelo GPS do celular e lista de pontos da equipe ----------
    Modelo Magnético Mundial 2025 (WMM2025, NOAA/NCEI e BGS), o mesmo da folha: declinação no lugar e na data. */
 const WMM2025 = {epoca: 2025.0, nome: "WMM-2025", c: [-29351.8,0.0,12.0,0.0,-1410.8,4545.4,9.7,-21.5,-2556.6,0.0,-11.6,0.0,2951.1,-3133.6,-5.2,-27.7,1649.3,-815.1,-8.0,-12.1,1361.0,0.0,-1.3,0.0,-2404.1,-56.6,-4.2,4.0,1243.8,237.5,0.4,-0.3,453.6,-549.5,-15.6,-4.1,895.0,0.0,-1.6,0.0,799.5,278.6,-2.4,-1.1,55.7,-133.9,-6.0,4.1,-281.1,212.0,5.6,1.6,12.1,-375.6,-7.0,-4.4,-233.2,0.0,0.6,0.0,368.9,45.4,1.4,-0.5,187.2,220.2,0.0,2.2,-138.7,-122.9,0.6,0.4,-142.0,43.0,2.2,1.7,20.9,106.1,0.9,1.9,64.4,0.0,-0.2,0.0,63.8,-18.4,-0.4,0.3,76.9,16.8,0.9,-1.6,-115.7,48.8,1.2,-0.4,-40.9,-59.8,-0.9,0.9,14.9,10.9,0.3,0.7,-60.7,72.7,0.9,0.9,79.5,0.0,-0.0,0.0,-77.0,-48.9,-0.1,0.6,-8.8,-14.4,-0.1,0.5,59.3,-1.0,0.5,-0.8,15.8,23.4,-0.1,0.0,2.5,-7.4,-0.8,-1.0,-11.1,-25.1,-0.8,0.6,14.2,-2.3,0.8,-0.2,23.2,0.0,-0.1,0.0,10.8,7.1,0.2,-0.2,-17.5,-12.6,0.0,0.5,2.0,11.4,0.5,-0.4,-21.7,-9.7,-0.1,0.4,16.9,12.7,0.3,-0.5,15.0,0.7,0.2,-0.6,-16.8,-5.2,-0.0,0.3,0.9,3.9,0.2,0.2,4.6,0.0,-0.0,0.0,7.8,-24.8,-0.1,-0.3,3.0,12.2,0.1,0.3,-0.2,8.3,0.3,-0.3,-2.5,-3.3,-0.3,0.3,-13.1,-5.2,0.0,0.2,2.4,7.2,0.3,-0.1,8.6,-0.6,-0.1,-0.2,-8.7,0.8,0.1,0.4,-12.9,10.0,-0.1,0.1,-1.3,0.0,0.1,0.0,-6.4,3.3,0.0,0.0,0.2,0.0,0.1,-0.0,2.0,2.4,0.1,-0.2,-1.0,5.3,-0.0,0.1,-0.6,-9.1,-0.3,-0.1,-0.9,0.4,0.0,0.1,1.5,-4.2,-0.1,0.0,0.9,-3.8,-0.1,-0.1,-2.7,0.9,-0.0,0.2,-3.9,-9.1,-0.0,-0.0,2.9,0.0,0.0,0.0,-1.5,0.0,-0.0,-0.0,-2.5,2.9,0.0,0.1,2.4,-0.6,0.0,-0.0,-0.6,0.2,0.0,0.1,-0.1,0.5,-0.1,-0.0,-0.6,-0.3,0.0,-0.0,-0.1,-1.2,-0.0,0.1,1.1,-1.7,-0.1,-0.0,-1.0,-2.9,-0.1,0.0,-0.2,-1.8,-0.1,0.0,2.6,-2.3,-0.1,0.0,-2.0,0.0,0.0,0.0,-0.2,-1.3,0.0,-0.0,0.3,0.7,-0.0,0.0,1.2,1.0,-0.0,-0.1,-1.3,-1.4,-0.0,0.1,0.6,-0.0,-0.0,-0.0,0.6,0.6,0.1,-0.0,0.5,-0.1,-0.0,-0.0,-0.1,0.8,0.0,0.0,-0.4,0.1,0.0,-0.0,-0.2,-1.0,-0.1,-0.0,-1.3,0.1,-0.0,0.0,-0.7,0.2,-0.1,-0.1]};

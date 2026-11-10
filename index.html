@@ -269,6 +269,8 @@ body.equipe #b_alvos, body.equipe #b_traj, body.equipe #b_alvos_tira, body.equip
 #nav .trechonav button[data-rev=mais]{flex:0 0 40px;font-size:18px;border-bottom-color:var(--lin)}
 #nav .trechonav button.on{background:var(--c);color:#fff;border-color:var(--c)}
 #nav .trechonav .estado{flex-basis:100%;font-size:12.5px;color:var(--cz);line-height:1.3}
+@keyframes piscaGps{50%{opacity:.25}}
+#painel_gps{z-index:80}
 .painel_trecho{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center}
 .painel_trecho .caixa{background:var(--bg);width:100%;max-width:560px;max-height:92vh;overflow:auto;padding:14px 16px 18px;border-radius:14px 14px 0 0}
 .painel_trecho h4{margin:0 0 8px;font-size:16px}
@@ -753,7 +755,7 @@ você cabe o que nenhum arquivo registra.</p>
     </div>
     <p class="leg" id="hotel_res"></p>
     <input type="file" id="f_rinex_lote" multiple class="oculto">
-    <input type="file" id="f_fotos_outro" accept="image/*" multiple class="oculto">
+    <input type="file" id="f_fotos_outro" accept="image/*,.txt,.json" multiple class="oculto">
     <div class="acoes"><button type="button" class="btn sec peq" id="b_fotos_outro_dia">Fotos de outro aparelho — todas do dia</button></div>
     <p class="leg">Fotos tiradas pela página leve no celular (nome <span class="marca">ponto_F1_az012.jpg</span>): escolha todas de uma vez;
     cada uma vai para o seu ponto pelo nome. Pelo cabo USB, a pasta é Download do celular; pelo Bluetooth, Documentos do notebook.</p>
@@ -1007,6 +1009,7 @@ você cabe o que nenhum arquivo registra.</p>
 
 <div class="barra naoimprime">
   <span id="estado">pronta</span>
+  <button type="button" class="btn sec peq" id="b_gpsrap" hidden>GPS</button>
   <button type="button" class="btn sec peq" id="b_trancar" title="Trancar a folha (pede o PIN para abrir)">Trancar</button>
   <button type="button" class="btn sec peq" id="b_salvar">Cópia completa</button>
 </div>
@@ -3777,6 +3780,51 @@ function desenhaVetorNav(ctx, tela, c, caixa, op){
   return n;
 }
 
+/* ---- a posição do ponto, do celular das fotos (09/11/2026) ----
+   O celular que tira as fotos está no ponto; o notebook, não necessariamente, e a localização dele é a da rede. A página leve
+   mede o GNSS do celular durante as fotos (ou parada junto à antena, 20 s) e manda a posição num texto JSON
+   ponto_POS_aaaammdd_hhmmss.txt, com as fotos; cada foto também a leva no EXIF. A folha grava essa posição como a
+   coordenada PROVISÓRIA do ponto (coord_cel), a mesma que o celular da equipe grava sozinho — o RINEX/PPP a substitui.
+   Ordem de preferência: medida junto à antena > durante as fotos ≈ GPS externo do notebook (vale a de menor erro) >
+   média do EXIF das fotos > localização do notebook. */
+const _nomePos = n => { const m = String(n || '').match(/^([0-9A-Za-z_-]+?)_POS_(\d{8})_(\d{6})(?:\s*\(\d+\))?\.(txt|json)$/i); return m ? {p: m[1].toUpperCase()} : null; };
+function _grauCoord(c){ if (!c) return -1; const f = String(c.fonte || '');
+  return /junto à antena/.test(f) ? 4 : /durante as fotos|GPS externo/.test(f) ? 3 : /EXIF/.test(f) ? 2 : NOTEBOOK ? 0 : 3; }
+function aplicaPosCelular(p, r, fonte){
+  if (!p || !r || !isFinite(r.lat) || !isFinite(r.lon)) return null;
+  const novo = {lat: Math.round(r.lat * 1e7) / 1e7, lon: Math.round(r.lon * 1e7) / 1e7, acc: r.acc != null ? Math.round(r.acc * 10) / 10 : null,
+    n: r.n || 1, quando: r.fim || r.quando || new Date().toISOString(), fonte: fonte};
+  if (r.h != null && isFinite(r.h)) novo.h = Math.round(r.h * 10) / 10;
+  if (r.hacc != null && isFinite(r.hacc)) novo.hacc = Math.round(r.hacc * 10) / 10;
+  const v = p.coord_cel, gn = _grauCoord(novo), gv = _grauCoord(v);
+  if (v && (gv > gn || (gv === gn && v.acc != null && novo.acc != null && v.acc < novo.acc))) return null;   // a que já há é melhor
+  p.coord_cel = novo;
+  if (p.declinacao == null) p.declinacao = declinacaoEm(novo.lat, novo.lon);
+  if (p.relatorio && p.lat == null && p.relatorio_coord !== 'ppp'){ p.relatorio = ''; delete p.relatorio_coord; }   // refaz com a coordenada nova
+  const ref = p.planejado && p.planejado.lat != null ? p.planejado : null;
+  const dd = ref ? geodInversa(novo.lat, novo.lon, ref.lat, ref.lon).s : null;
+  return {r: novo, longe: dd != null && dd > Math.max(100, 3 * (novo.acc || 0)) ? dd : null};
+}
+async function lePosArquivo(f){
+  const j = JSON.parse(await f.text());
+  if (!j || j.tipo !== 'posicao_do_ponto' || !isFinite(j.lat) || !isFinite(j.lon)) throw new Error(f.name + ' não é a posição de um ponto');
+  return j;
+}
+function _msgPos(p, a){
+  return (p.id || 'ponto') + ': posição do celular das fotos (± ' + _numBR(a.r.acc || 0, 1) + ' m, ' + a.r.n + ' leitura(s))'
+    + (a.longe ? ' — ATENÇÃO: a ' + _metros(a.longe) + ' do planejado, confira o ponto' : '');
+}
+/* fotos com GPS no EXIF e sem o arquivo da posição: a média delas (as 4 se tiram em volta da antena) */
+async function posDoExif(p, files){
+  const M = [];
+  for (const f of files){ try { const m = await leMetaARP(f); if (m && isFinite(m.lat) && isFinite(m.lon) && (m.lat || m.lon)) M.push(m); } catch (e){} }
+  if (!M.length) return null;
+  const err = M.filter(m => m.gpsErr > 0);
+  const r = {lat: M.reduce((s, m) => s + m.lat, 0) / M.length, lon: M.reduce((s, m) => s + m.lon, 0) / M.length, n: M.length,
+    acc: err.length ? err.reduce((s, m) => s + m.gpsErr, 0) / err.length : 15};
+  return aplicaPosCelular(p, r, 'celular das fotos · EXIF de ' + M.length + ' foto(s)');
+}
+
 /* ---- as fotos: a pasta vigiada ---- */
 const VIGIA = {h: null, nome: '', ok: false, timer: null, sem: new Map(), recentes: [], n: 0, ult: 0};
 async function escolhePastaFotos(){
@@ -3793,9 +3841,11 @@ async function varrePastaFotos(avisa){
   if (!VIGIA.h || !VIGIA.ok || varrePastaFotos._rodando) return;
   varrePastaFotos._rodando = true;
   try {
-    const vistas = new Set(_vistas()), novos = [], semNome = [];
+    const vistas = new Set(_vistas()), novos = [], semNome = [], poss = [];
     for await (const [nome, e] of VIGIA.h.entries()){
-      if (e.kind !== 'file' || !/\.(jpe?g|png|webp|heic)$/i.test(nome)) continue;
+      if (e.kind !== 'file') continue;
+      if (_nomePos(nome)){ const f = await e.getFile(), k = nome + '|' + f.size + '|' + f.lastModified; if (!vistas.has(k)) poss.push({f: f, k: k}); continue; }
+      if (!/\.(jpe?g|png|webp|heic)$/i.test(nome)) continue;
       const f = await e.getFile(), k = nome + '|' + f.size + '|' + f.lastModified;
       if (vistas.has(k)) continue;
       if (_nomeFotoOutro(nome)) novos.push({f: f, k: k});
@@ -3804,7 +3854,16 @@ async function varrePastaFotos(avisa){
     }
     if (semNome.length) await _fotosSemNome(semNome);
     VIGIA.ult = Date.now();
-    if (!novos.length){ if (avisa) marca('pasta das fotos: nada novo'); pintaVigia(); return; }
+    const msgPos = [];
+    for (const {f, k} of poss.sort((a, b) => a.f.lastModified - b.f.lastModified)){
+      const m = _nomePos(f.name), p = (F.dia.pontos || []).find(q => _idsDoPonto(q).includes(m.p));
+      if (!p){ VIGIA.sem.set(m.p, (VIGIA.sem.get(m.p) || 0) + (VIGIA.sem.has(m.p + '|' + k) ? 0 : 1)); VIGIA.sem.set(m.p + '|' + k, 1); continue; }
+      let j = null; try { j = await lePosArquivo(f); } catch (e){ _vistas().push(k); continue; }
+      const a = aplicaPosCelular(p, j, 'celular das fotos · ' + (j.origem || 'durante as fotos'));
+      _vistas().push(k); if (a){ msgPos.push(_msgPos(p, a)); VIGIA.recentes = [(p.id || '') + ' posição ± ' + _numBR(a.r.acc || 0, 1) + ' m'].concat(VIGIA.recentes).slice(0, 12); }
+    }
+    if (msgPos.length){ grava(); pintaPontos(); try { pintaAlvos(); } catch (e){} marca(msgPos.join(' · ')); }
+    if (!novos.length){ if (avisa && !msgPos.length) marca('pasta das fotos: nada novo'); pintaVigia(); return; }
     novos.sort((a, b) => a.f.lastModified - b.f.lastModified);
     const P = F.dia.pontos || [], feitos = [];
     for (const {f, k} of novos){
@@ -3816,8 +3875,11 @@ async function varrePastaFotos(avisa){
       _vistas().push(k); feitos.push(m.p + ' F' + m.n + (m.az != null ? ' (' + m.az + '°)' : ''));
     }
     if (_vistas().length > 4000) F.config.fotosVistas = _vistas().slice(-3000);
+    const exifPos = [];
+    for (const p of new Set(novos.map(x => { const m = _nomeFotoOutro(x.f.name); return P.find(q => _idsDoPonto(q).includes(m.p)); }).filter(Boolean))){
+      const a = await posDoExif(p, novos.filter(x => _idsDoPonto(p).includes(_nomeFotoOutro(x.f.name).p)).map(x => x.f)); if (a) exifPos.push(_msgPos(p, a)); }
     if (feitos.length){ VIGIA.n += feitos.length; VIGIA.recentes = feitos.concat(VIGIA.recentes).slice(0, 12);
-      grava(); pintaPontos(); marca('chegaram do celular: ' + feitos.join(', ')); }
+      grava(); pintaPontos(); marca('chegaram do celular: ' + feitos.join(', ') + (msgPos.concat(exifPos).length ? ' · ' + msgPos.concat(exifPos).join(' · ') : '')); }
     pintaVigia();
   } catch (e){ if (e.name === 'NotAllowedError'){ VIGIA.ok = false; pintaNotebook(); } }
   finally { varrePastaFotos._rodando = false; }
@@ -3871,6 +3933,7 @@ function baixaAjudanteUSB(){
     "$sh = New-Object -ComObject Shell.Application",
     "$dst = $sh.NameSpace($destino)",
     "$padrao = '^[0-9A-Za-z_-]+_F[1-4]_az\\d{1,3}_\\d{8}_\\d{6}'",
+    "$padraoPos = '^[0-9A-Za-z_-]+_POS_\\d{8}_\\d{6}'",
     "$pastas = @('Download', 'Downloads', 'DCIM', 'Camera', 'Pictures', 'Fotos')",
     "Write-Host ''",
     "Write-Host 'AJUDANTE USB - fotos do celular para a folha de coleta (IBGE, GGC/SES-CE)' -ForegroundColor Cyan",
@@ -3883,6 +3946,10 @@ function baixaAjudanteUSB(){
     "    elseif ($pasta.Title -eq 'Camera' -and $it.Name -match '\\.(jpe?g)$|^IMG_|^\\d{8}_' -and $it.ModifyDate -gt (Get-Date).AddHours(-24)) {",
     "      $nome = $it.Name; if ($nome -notmatch '\\.jpe?g$') { $nome = $nome + '.jpg' }",
     "      if (-not (Test-Path (Join-Path $destino $nome))) { $dst.CopyHere($it, 4 + 16 + 1024); Write-Host ((Get-Date -Format 'HH:mm:ss') + '  camera: ' + $nome) -ForegroundColor Green; Start-Sleep -Milliseconds 400 }",
+    "    }",
+    "    elseif ($it.Name -match $padraoPos) {",
+    "      $nome = $it.Name; if ($nome -notmatch '\\.(txt|json)$') { $nome = $nome + '.txt' }",
+    "      if (-not (Test-Path (Join-Path $destino $nome))) { $dst.CopyHere($it, 4 + 16 + 1024); Write-Host ((Get-Date -Format 'HH:mm:ss') + '  posicao: ' + $nome) -ForegroundColor Green; Start-Sleep -Milliseconds 400 }",
     "    }",
     "    elseif ($it.Name -match $padrao) {",
     "      $nome = $it.Name; if ($nome -notmatch '\\.(jpe?g|png|webp)$') { $nome = $nome + '.jpg' }",
@@ -4031,7 +4098,8 @@ function coordPonto(p){
   if (k && k.lat != null && k.lon != null) return {lat: k.lat, lon: k.lon, h: k.h, fonte: 'ppp', rotulo: 'IBGE-PPP (processada)'};
   if (p.lat != null && p.lon != null) return {lat: p.lat, lon: p.lon, h: p.h, fonte: 'rinex', rotulo: 'RINEX, cabeçalho (aproximada)'};
   if (p.coord_cel && p.coord_cel.lat != null) return {lat: p.coord_cel.lat, lon: p.coord_cel.lon, h: p.coord_cel.h, hacc: p.coord_cel.hacc, fonte: 'celular',
-    rotulo: 'PROVISÓRIA do celular medida no ponto (média de ' + p.coord_cel.n + ' leitura(s), ± ' + Math.round(p.coord_cel.acc) + ' m) — substituir pela do RINEX/PPP'};
+    rotulo: 'PROVISÓRIA ' + (/fotos/.test(p.coord_cel.fonte || '') ? 'do celular das fotos' : p.coord_cel.fonte === 'GPS externo' ? 'do GPS externo' : 'do celular')
+      + ' medida no ponto (média de ' + p.coord_cel.n + ' leitura(s), ± ' + Math.round(p.coord_cel.acc) + ' m) — substituir pela do RINEX/PPP'};
   // a posição de campo na chegada ao ponto (boa precisão) vale mais que a do gabinete
   const chOk = p.chegada && p.chegada.lat != null && (p.chegada.precisao_m == null || p.chegada.precisao_m <= 15);
   if (chOk && p.planejado) return {lat: p.chegada.lat, lon: p.chegada.lon, fonte: 'celular',
@@ -11550,7 +11618,7 @@ function montaTelaNav(){
     + '<button type="button" class="btn sec" data-n="prox" aria-label="próximo ponto">›</button>'
     + '<button type="button" class="btn sec" data-n="cheia" aria-label="tela cheia, deitada">⛶</button>'
     + '<button type="button" class="btn sec" data-n="fecha">Fechar</button></div>'
-    + '<div class="trilhanav"><button type="button" class="btn sec peq" data-n="trilha">trilha</button></div>'
+    + '<div class="trilhanav"><button type="button" class="btn sec peq" data-n="gps" hidden style="margin-right:6px">GPS</button><button type="button" class="btn sec peq" data-n="trilha">trilha</button></div>'
     + '<div class="trechonav" data-n="trechos"></div>'
     + '<div class="leitura"><svg class="seta" viewBox="-32 -32 64 64" data-n="seta">'
     + '<circle r="30" fill="none" stroke="var(--lin)" stroke-width="2"/>'
@@ -11633,6 +11701,7 @@ function montaTelaNav(){
   });
   q('gpsde').addEventListener('click', () => religaGps(true));
   q('trilha').addEventListener('click', alternaTrilha);
+  q('gps').addEventListener('click', abrePainelGps); setTimeout(pintaAtalhoGps, 0);
   q('gpscomo').addEventListener('click', () => {
     const p = q('gpspassos'); p.classList.toggle('oculto');
     if (!p.classList.contains('oculto')) passosGps(p);
@@ -12638,6 +12707,7 @@ const _UERE = {1: 5, 2: 1, 3: 5, 4: 0.02, 5: 0.5, 6: 10, 8: 5, 9: 1};      // m,
 function nmeaLinha(l){
   const c = _nmeaOk(l.trim()); if (!c){ if (l.trim().startsWith('$')) GPS_EXT.erros++; return; }
   const f = c.split(','), tipo = f[0].slice(2);
+  GPS_EXT.tLinha = Date.now();
   if (tipo === 'RMC') GPS_EXT.rmc = {ok: f[2] === 'A', vel: f[7] !== '' ? parseFloat(f[7]) * 0.514444 : null,
                                      rumo: f[8] !== '' ? parseFloat(f[8]) : null, data: f[9], t: Date.now()};
   else if (tipo === 'GST'){
@@ -12664,20 +12734,30 @@ function nmeaLinha(l){
     pintaGpsExt();
   }
 }
-async function ligaGpsExt(porta){
+/* 09/11/2026 — atalho do GPS e reconexão. No notebook, o GPS externo (celular com app de "GPS por Bluetooth" ou
+   receptor) liga e desliga num toque, pelo botão GPS da barra de baixo e da navegação, que mostra o estado em cor. Se a
+   conexão cai (Bluetooth fora de alcance, app do celular parado, porta fechada pelo Windows) ou as sentenças param por
+   mais de 20 s, a folha reabre sozinha a mesma porta, a cada 5 s no primeiro minuto e a cada 15 s depois, até voltar ou
+   até o usuário desligar; "Reconectar" força a reabertura na hora. */
+const GPS_RECON = {timer: null, tent: 0, desde: 0};
+const _infoPorta = p => { try { const i = p.getInfo(); return {v: i.usbVendorId || null, pr: i.usbProductId || null, bt: i.bluetoothServiceClassId || null}; } catch (e){ return {}; } };
+async function ligaGpsExt(porta, auto){
   if (!_GEO_NAT) return marca('GPS externo: este navegador não abre porta serial (use o Chrome ou o Edge no computador)');
-  const baud = parseInt(($('#gpsext_baud') || {}).value, 10) || 9600;
+  const baud = parseInt(($('#gpsext_baud') || {}).value, 10) || (F.config.gps_ext || {}).baud || 9600;
   if (!porta){
     try { porta = await navigator.serial.requestPort({allowedBluetoothServiceClassIds: ['00001101-0000-1000-8000-00805f9b34fb']}); }
     catch (e){ return marca('GPS externo: nenhuma porta escolhida'); }
   }
   try { await porta.open({baudRate: baud}); }
-  catch (e){ if (!/already open/i.test(e.message || '')) return marca('GPS externo: a porta não abriu — ' + (e.message || e)); }
+  catch (e){ if (!/already open/i.test(e.message || '')){ if (!auto) marca('GPS externo: a porta não abriu — ' + (e.message || e)); pintaGpsExt(); return false; } }
   GPS_EXT.porta = porta; GPS_EXT.ativo = true; GPS_EXT.desde = Date.now(); GPS_EXT.n = 0; GPS_EXT.erros = 0; GPS_EXT.ult = null;
+  GPS_EXT.gga = null; GPS_EXT.tLinha = Date.now(); GPS_EXT.ultPorta = porta;
   for (const w of _GEO_VIG.values()) if (w.nat != null){ _GEO_NAT.clear(w.nat); w.nat = null; }
-  F.config.gps_ext = {ligado: true, baud: baud}; grava();
-  pintaGpsExt(); marca('GPS externo ligado: esperando as sentenças NMEA…');
+  F.config.gps_ext = {ligado: true, baud: baud, porta: _infoPorta(porta)}; grava();
+  const recon = GPS_RECON.tent > 0; _paraRecon();
+  pintaGpsExt(); marca(recon ? 'GPS externo reconectado' : 'GPS externo ligado: esperando as sentenças NMEA…');
   _leGpsExt(porta);
+  return true;
 }
 async function _leGpsExt(porta){
   let resto = '';
@@ -12692,9 +12772,9 @@ async function _leGpsExt(porta){
         if (resto.length > 4096) resto = '';
         L.forEach(nmeaLinha);
       }
-    } catch (e){ if (GPS_EXT.ativo) marca('GPS externo: leitura interrompida — ' + (e.message || e)); }
+    } catch (e){ if (GPS_EXT.ativo && GPS_EXT.porta === porta){ desligaGpsExt(true); return; } }
     finally { try { leitor.releaseLock(); } catch (e){} }
-    if (!GPS_EXT.ativo) break;
+    if (!GPS_EXT.ativo || GPS_EXT.porta !== porta) break;
     await new Promise(r => setTimeout(r, 500));                    // fluxo encerrado sem erro: não gira em falso
     if (!porta.readable){ desligaGpsExt(true); break; }
   }
@@ -12707,39 +12787,135 @@ async function desligaGpsExt(caiu){
   for (const w of _GEO_VIG.values()) if (w.nat == null) w.nat = _GEO_NAT.watch(w.ok, w.er, w.op);
   for (const x of GPS_EXT.espera){ clearTimeout(x.t); try { x.er && x.er({code: 2, message: 'GPS externo desligado'}); } catch (e){} }
   GPS_EXT.espera = [];
-  if (!caiu){ F.config.gps_ext = Object.assign({}, F.config.gps_ext, {ligado: false}); grava(); }
+  if (!caiu){ _paraRecon(); F.config.gps_ext = Object.assign({}, F.config.gps_ext, {ligado: false}); grava(); }
+  else if ((F.config.gps_ext || {}).ligado) _agendaRecon();
   pintaGpsExt();
-  marca(caiu ? 'GPS externo: a conexão caiu — a folha voltou à localização do navegador' : 'GPS externo desligado');
+  if (!caiu) marca('GPS externo desligado');
+  else if (GPS_RECON.tent <= 1) marca('GPS externo: a conexão caiu — reconectando sozinho (a folha usa a localização do navegador enquanto isso)');
+}
+function _paraRecon(){ clearTimeout(GPS_RECON.timer); GPS_RECON.timer = null; GPS_RECON.tent = 0; GPS_RECON.desde = 0; }
+function _agendaRecon(){
+  clearTimeout(GPS_RECON.timer);
+  if (!GPS_RECON.desde) GPS_RECON.desde = Date.now();
+  GPS_RECON.tent++;
+  const espera = Date.now() - GPS_RECON.desde < 60000 ? 5000 : 15000;
+  GPS_RECON.timer = setTimeout(_tentaRecon, GPS_RECON.tent === 1 ? 1500 : espera);
+  pintaGpsExt();
+}
+async function _tentaRecon(){
+  GPS_RECON.timer = null;
+  if (GPS_EXT.ativo || !(F.config.gps_ext || {}).ligado) return _paraRecon();
+  const porta = await _portaConhecida();
+  if (porta && await ligaGpsExt(porta, true)) return;
+  _agendaRecon();
+}
+/* a porta de antes: o mesmo objeto, ou a autorizada com o mesmo USB/Bluetooth, ou a única autorizada */
+async function _portaConhecida(){
+  let P = []; try { P = await navigator.serial.getPorts(); } catch (e){ return null; }
+  if (GPS_EXT.ultPorta && P.includes(GPS_EXT.ultPorta)) return GPS_EXT.ultPorta;
+  const i = (F.config.gps_ext || {}).porta || {};
+  const igual = P.filter(p => { const j = _infoPorta(p); return (i.v && j.v === i.v && j.pr === i.pr) || (i.bt && j.bt === i.bt); });
+  if (igual.length === 1) return igual[0];
+  return P.length === 1 ? P[0] : null;
+}
+async function reconectaGpsExt(){
+  if (GPS_EXT.ativo){ await desligaGpsExt(true); }
+  F.config.gps_ext = Object.assign({}, F.config.gps_ext, {ligado: true});
+  _paraRecon(); GPS_RECON.tent = 1; GPS_RECON.desde = Date.now();
+  marca('GPS externo: reconectando…');
+  const porta = await _portaConhecida();
+  if (porta && await ligaGpsExt(porta, true)) return;
+  if (!porta) marca('GPS externo: nenhuma porta conhecida — toque em "Escolher o aparelho"');
+  _agendaRecon();
 }
 const _SOL = {1: 'autônoma', 2: 'DGNSS', 3: 'PPS', 4: 'RTK fixo', 5: 'RTK flutuante', 6: 'estimada', 8: 'simulada', 9: 'SBAS'};
-function pintaGpsExt(){
-  const c = $('#cart_gpsext'); if (!c) return;
-  if (!_GEO_NAT){ c.style.display = 'none'; return; }
-  c.style.display = '';
-  const b = $('#b_gpsext'), e = $('#gpsext_estado');
-  b.textContent = GPS_EXT.ativo ? 'Desligar o GPS externo' : 'Ligar o GPS externo';
-  b.classList.toggle('on', GPS_EXT.ativo);
-  if (!GPS_EXT.ativo){ e.textContent = 'Desligado: a folha usa a localização do navegador.'; return; }
-  const g = GPS_EXT.gga, u = GPS_EXT.ult;
-  if (!g){ e.textContent = '● ligado — esperando as sentenças NMEA' + (GPS_EXT.erros ? ' (' + GPS_EXT.erros + ' linha(s) com erro de checksum: confira a velocidade da porta)' : '') + '…'; return; }
-  e.innerHTML = '<b style="color:var(--ok)">● GPS externo</b> · ' + (g.q ? 'solução ' + (_SOL[g.q] || g.q) : '<b style="color:var(--mau)">sem solução</b>')
-    + ' · ' + g.sat + ' satélites' + (g.hdop != null ? ' · HDOP ' + _numBR(g.hdop, 1) : '')
-    + (u ? ' · ± ' + _numBR(u.coords.accuracy, u.coords.accuracy < 1 ? 2 : 1) + ' m (95%)' + (GPS_EXT.gst && Date.now() - GPS_EXT.gst.t < 5000 ? ', pela GST' : ', pelo HDOP') : '')
-    + ' · ' + GPS_EXT.n + ' posições';
+/* estado resumido: {cor, curto, longo} — o mesmo no botão GPS, no painel e no cartão */
+function estadoGps(){
+  const recon = !GPS_EXT.ativo && GPS_RECON.timer != null;
+  if (recon) return {cor: '#B45309', classe: 'aviso', curto: 'GPS: reconectando…', longo: 'A conexão caiu: tentando reabrir a porta (tentativa ' + GPS_RECON.tent + '). '
+    + 'Confira o Bluetooth do notebook e se o app de GPS do celular está enviando.'};
+  if (!GPS_EXT.ativo) return {cor: '#6B7280', classe: 'des', curto: 'GPS: desligado', longo: 'GPS externo desligado: a folha usa a localização do navegador (no notebook, em geral a da rede, de dezenas a milhares de metros).'};
+  const g = GPS_EXT.gga, u = GPS_EXT.ult, mudo = Date.now() - (GPS_EXT.tLinha || GPS_EXT.desde) > 15000;
+  if (mudo) return {cor: '#B91C1C', classe: 'mau', curto: 'GPS: parado', longo: 'Sem sentenças há ' + Math.round((Date.now() - (GPS_EXT.tLinha || GPS_EXT.desde)) / 1000)
+    + ' s — o app do celular ou o Bluetooth parou? A folha reabre a porta sozinha aos 20 s.'};
+  if (!g) return {cor: '#B45309', classe: 'aviso', curto: 'GPS: esperando', longo: 'Ligado, esperando as sentenças NMEA'
+    + (GPS_EXT.erros ? ' (' + GPS_EXT.erros + ' linha(s) com erro de checksum: confira a velocidade da porta)' : '') + '…'};
+  if (!g.q || !u || Date.now() - u.timestamp > 10000) return {cor: '#B45309', classe: 'aviso', curto: 'GPS: sem posição', longo: 'Ligado, sem solução: ' + g.sat + ' satélite(s). Ao ar livre, espere a posição.'};
+  const a = u.coords.accuracy;
+  return {cor: '#15803D', classe: 'ok', curto: 'GPS ± ' + _numBR(a, a < 1 ? 2 : a < 10 ? 1 : 0) + ' m',
+    longo: 'GPS externo · solução ' + (_SOL[g.q] || g.q) + ' · ' + g.sat + ' satélites' + (g.hdop != null ? ' · HDOP ' + _numBR(g.hdop, 1) : '')
+      + ' · ± ' + _numBR(a, a < 1 ? 2 : 1) + ' m (95%)' + (GPS_EXT.gst && Date.now() - GPS_EXT.gst.t < 5000 ? ', pela GST' : ', pelo HDOP') + ' · ' + GPS_EXT.n + ' posições'};
 }
-setInterval(() => { if (GPS_EXT.ativo){
-  if (GPS_EXT.gga && Date.now() - GPS_EXT.gga.t > 15000) $('#gpsext_estado').innerHTML = '<b style="color:var(--mau)">● GPS externo sem sentenças há '
-    + Math.round((Date.now() - GPS_EXT.gga.t) / 1000) + ' s</b> — o app do celular ou o Bluetooth parou?';
-} }, 5000);
+function pintaGpsExt(){
+  const c = $('#cart_gpsext');
+  if (c && !_GEO_NAT){ c.style.display = 'none'; }
+  else if (c){
+    c.style.display = '';
+    const b = $('#b_gpsext'), e = $('#gpsext_estado'), st = estadoGps();
+    b.textContent = GPS_EXT.ativo || GPS_RECON.timer ? 'Desligar o GPS externo' : 'Ligar o GPS externo';
+    b.classList.toggle('on', GPS_EXT.ativo);
+    e.innerHTML = '<b style="color:' + st.cor + '">● ' + esc(st.curto) + '</b> — ' + esc(st.longo);
+  }
+  pintaAtalhoGps();
+}
+function _mostraAtalhoGps(){ return !!_GEO_NAT && !MODO_PLAN && (NOTEBOOK || !/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)); }
+function pintaAtalhoGps(){
+  const st = estadoGps(), vis = _mostraAtalhoGps();
+  for (const b of [$('#b_gpsrap'), NAV && NAV.el ? NAV.el.querySelector('[data-n=gps]') : null]){
+    if (!b) continue;
+    b.hidden = !vis; if (!vis) continue;
+    b.innerHTML = '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:0;background:' + st.cor
+      + (st.curto.includes('reconectando') ? ';animation:piscaGps 1s steps(2) infinite' : '') + '"></span>' + esc(st.curto);
+    b.title = st.longo + ' (toque para ligar, desligar ou reconectar)';
+  }
+  const pn = document.getElementById('painel_gps'); if (pn) _pintaPainelGps(pn);
+}
+function abrePainelGps(){
+  if (document.getElementById('painel_gps')) return;
+  const v = document.createElement('div'); v.className = 'painel_trecho naoimprime'; v.id = 'painel_gps';
+  v.innerHTML = '<div class="caixa"><h4>GPS do notebook</h4><p class="leg" data-g="estado"></p>'
+    + '<div class="acoes"><button type="button" class="btn" data-g="liga"></button>'
+    + '<button type="button" class="btn sec" data-g="recon">Reconectar</button>'
+    + '<button type="button" class="btn sec" data-g="outro">Escolher o aparelho</button></div>'
+    + '<label>Velocidade da porta (baud)<select data-g="baud">' + [4800, 9600, 19200, 38400, 57600, 115200].map(x => '<option>' + x + '</option>').join('') + '</select></label>'
+    + '<p class="leg">Celular como GPS: um app de "GPS por Bluetooth" (NMEA) ligado e o celular pareado no Windows. Caiu a conexão? A folha reabre a porta '
+    + 'sozinha; "Reconectar" força na hora. Desligado, a folha usa a localização do navegador. As fotos e a posição do ponto vêm do celular das fotos, '
+    + 'pela página leve, sem o GPS do notebook.</p>'
+    + '<div class="acoes"><button type="button" class="btn sec" data-g="fecha">Fechar</button></div></div>';
+  v.addEventListener('click', e => { if (e.target === v) v.remove(); });
+  const g = k => v.querySelector('[data-g=' + k + ']');
+  g('baud').value = String((F.config.gps_ext || {}).baud || ($('#gpsext_baud') || {}).value || 9600);
+  g('baud').addEventListener('change', e => { if ($('#gpsext_baud')) $('#gpsext_baud').value = e.target.value;
+    F.config.gps_ext = Object.assign({}, F.config.gps_ext, {baud: +e.target.value}); grava(); if (GPS_EXT.ativo) reconectaGpsExt(); });
+  g('liga').addEventListener('click', async () => { if (GPS_EXT.ativo || GPS_RECON.timer) await desligaGpsExt(false);
+    else { const p = await _portaConhecida(); await ligaGpsExt(p, false); } pintaGpsExt(); });
+  g('recon').addEventListener('click', () => reconectaGpsExt());
+  g('outro').addEventListener('click', async () => { if (GPS_EXT.ativo) await desligaGpsExt(false); await ligaGpsExt(null, false); });
+  g('fecha').addEventListener('click', () => v.remove());
+  document.body.appendChild(v); _pintaPainelGps(v);
+}
+function _pintaPainelGps(v){
+  const st = estadoGps(), g = k => v.querySelector('[data-g=' + k + ']');
+  g('estado').innerHTML = '<b style="color:' + st.cor + '">● ' + esc(st.curto) + '</b><br>' + esc(st.longo);
+  g('liga').textContent = GPS_EXT.ativo || GPS_RECON.timer ? 'Desligar o GPS' : 'Ligar o GPS';
+}
+setInterval(() => {
+  if (GPS_EXT.ativo && Date.now() - (GPS_EXT.tLinha || GPS_EXT.desde) > 20000 && !GPS_EXT._reabrindo){   // mudo: reabre a porta
+    GPS_EXT._reabrindo = true; desligaGpsExt(true).finally(() => { GPS_EXT._reabrindo = false; });
+  }
+  pintaGpsExt();
+}, 5000);
 async function iniciaGpsExt(){
   pintaGpsExt();
   const b = $('#b_gpsext'); if (!b || !_GEO_NAT) return;
   const cfg = F.config.gps_ext || {};
   if (cfg.baud && $('#gpsext_baud')) $('#gpsext_baud').value = String(cfg.baud);
-  b.onclick = () => GPS_EXT.ativo ? desligaGpsExt(false) : ligaGpsExt(null);
+  b.onclick = async () => { if (GPS_EXT.ativo || GPS_RECON.timer) desligaGpsExt(false); else ligaGpsExt(await _portaConhecida(), false); };
+  const r = $('#b_gpsrap'); if (r) r.onclick = abrePainelGps;
   // porta já autorizada e ligada da última vez: liga sozinha
-  if (cfg.ligado && !GPS_EXT.ativo) try { const P = await navigator.serial.getPorts(); if (P.length === 1) ligaGpsExt(P[0]); } catch (e){}
+  if (cfg.ligado && !GPS_EXT.ativo) try { const p = await _portaConhecida(); if (p && !(await ligaGpsExt(p, true))) _agendaRecon(); } catch (e){}
   navigator.serial.addEventListener('disconnect', ev => { if (GPS_EXT.porta && ev.target === GPS_EXT.porta) desligaGpsExt(true); });
+  navigator.serial.addEventListener('connect', () => { if (!GPS_EXT.ativo && (F.config.gps_ext || {}).ligado){ clearTimeout(GPS_RECON.timer); GPS_RECON.timer = setTimeout(_tentaRecon, 800); } });
 }
 let ULTIMA_POS = null;
 function _anotaPos(p){ const c = p.coords;
@@ -12836,6 +13012,7 @@ function apagaCoordCelular(p){
    é a coordenada provisória do croqui e a de término, se a do receptor não for anotada.
    Não redesenha o cartão (quem digita não perde o campo); longe do planejado, não grava. */
 async function coordCelularAuto(p, d){
+  if (NOTEBOOK && !GPS_EXT.ativo) return;            // a localização do notebook é a da rede: a posição vem do celular das fotos
   let r = null;
   try { r = await mediaPosicaoCelular(10);
         if (!r){ const q = await posicaoAgora(10);                    // nenhuma leitura nova: a última recente
@@ -14574,11 +14751,13 @@ async function leMetaARP(file){
         const g = {};
         ifd(gps, (tag, tp, n, v) => {
           if (tag === 1 || tag === 3) g[tag] = String.fromCharCode(b[v]);
+          if (tag === 0x1F) g.err = rat(t0 + u32(v));
           if (tag === 2 || tag === 4){ const o = t0 + u32(v);
             g[tag] = rat(o) + rat(o + 8) / 60 + rat(o + 16) / 3600; }
         });
         if (g[2] != null) meta.lat = g[1] === 'S' ? -g[2] : g[2];
         if (g[4] != null) meta.lon = g[3] === 'W' ? -g[4] : g[4];
+        if (g.err != null) meta.gpsErr = g.err;
       }
       break;
     }
@@ -15079,6 +15258,10 @@ function pedeFotosOutro(p){
 /* No cartão: os arquivos deste ponto (pelo nome) ou, sem nome, todos, na ordem do horário, para as fotos que faltam. */
 async function importaFotosOutro(p, L){
   const ids = _idsDoPonto(p), msgs = [];
+  const LP = L.filter(f => _nomePos(f.name) || /\.(txt|json)$/i.test(f.name)); L = L.filter(f => !LP.includes(f));
+  for (const f of LP){ try { const j = await lePosArquivo(f);
+    if (!ids.includes(String(j.ponto || '').toUpperCase())) { msgs.push(f.name + ' é de outro ponto (' + j.ponto + '), ignorado'); continue; }
+    const a = aplicaPosCelular(p, j, 'celular das fotos · ' + (j.origem || 'durante as fotos')); if (a) msgs.push(_msgPos(p, a)); } catch (e){ msgs.push(e.message); } }
   const nom = L.map(f => ({f: f, m: _nomeFotoOutro(f.name)}));
   const deste = nom.filter(x => x.m && ids.includes(x.m.p)), outro = nom.filter(x => x.m && !ids.includes(x.m.p)), sem = nom.filter(x => !x.m);
   if (outro.length) msgs.push(outro.length + ' de outro ponto (' + [...new Set(outro.map(x => x.m.p))].join(', ') + '), ignorada(s) — use "todas do dia" na aba Fechar');
@@ -15092,6 +15275,7 @@ async function importaFotosOutro(p, L){
     for (const o of ord){ if (!faltam.length) break; const k = faltam.shift(); p.fotos_az = p.fotos_az || {}; p.fotos_az[k] = null; await guardaFoto(p, k, o.f); n++; }
     if (ord.length > n - deste.length) msgs.push((ord.length - (n - deste.length)) + ' sem nome e sem rumo livre, ignorada(s)');
   }
+  if (n && !LP.length){ const a = await posDoExif(p, deste.map(x => x.f).concat(sem.map(x => x.f))); if (a) msgs.push(_msgPos(p, a)); }
   const lugar = (p.lat != null && p.lon != null) ? p : (p.chegada || p.planejado || null); if (n) p.declinacao = _decl(lugar);
   grava(); pintaPontos();
   setTimeout(() => marca(n + ' foto(s) de outro aparelho no ponto ' + (ids[0] || '') + (msgs.length ? ' — ' + msgs.join('; ') : '')), 700);
@@ -15099,12 +15283,19 @@ async function importaFotosOutro(p, L){
 /* Na aba Fechar: todas de uma vez; cada arquivo vai ao ponto do dia que tem o seu identificador. */
 async function importaFotosOutroDia(L){
   const P = F.dia.pontos || [], msgs = [], semNome = [], semPonto = new Set(); let n = 0;
+  const LP = L.filter(f => _nomePos(f.name)); L = L.filter(f => !LP.includes(f));
+  const comPos = new Set();
+  for (const f of LP){ const m = _nomePos(f.name), p = P.find(q => _idsDoPonto(q).includes(m.p)); if (!p){ semPonto.add(m.p); continue; }
+    try { const j = await lePosArquivo(f), a = aplicaPosCelular(p, j, 'celular das fotos · ' + (j.origem || 'durante as fotos')); comPos.add(p); if (a) msgs.push(_msgPos(p, a)); } catch (e){ msgs.push(e.message); } }
+  const porPonto = new Map();
   for (const f of L){
     const m = _nomeFotoOutro(f.name); if (!m){ semNome.push(f.name); continue; }
     const p = P.find(q => _idsDoPonto(q).includes(m.p)); if (!p){ semPonto.add(m.p); continue; }
     const k = FOTOS[m.n - 1][0]; p.fotos_az = p.fotos_az || {}; p.fotos_az[k] = m.az; await guardaFoto(p, k, f); n++;
     const lugar = (p.lat != null && p.lon != null) ? p : (p.chegada || p.planejado || null); p.declinacao = _decl(lugar);
+    if (!porPonto.has(p)) porPonto.set(p, []); porPonto.get(p).push(f);
   }
+  for (const [p, fs] of porPonto) if (!comPos.has(p)){ const a = await posDoExif(p, fs); if (a) msgs.push(_msgPos(p, a)); }
   if (semPonto.size) msgs.push('sem ponto na caderneta de hoje: ' + [...semPonto].join(', '));
   if (semNome.length) msgs.push(semNome.length + ' sem nome de ponto (entram pelo cartão do ponto)');
   grava(); pintaPontos();

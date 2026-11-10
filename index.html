@@ -25,6 +25,7 @@ body{margin:0;background:var(--bg);color:var(--esc);
  font:17px/1.45 "IBM Plex Sans","Segoe UI",system-ui,-apple-system,sans-serif}
 .wrap{max-width:860px;margin:0 auto;padding:16px 14px 90px}
 body.notebook .wrap{max-width:1180px}
+body.notebook .so_cel, body:not(.notebook) .so_nb{display:none}
 .tabcam{border-collapse:collapse;width:100%;font-size:14px}
 .tabcam th,.tabcam td{padding:3px 5px;border-bottom:1px solid var(--lin);text-align:left;vertical-align:middle}
 .tabcam .btn.peq{padding:2px 8px;min-width:0;width:auto;display:inline-block;margin:1px}
@@ -261,7 +262,8 @@ body.equipe #b_alvos, body.equipe #b_traj, body.equipe #b_alvos_tira, body.equip
 #nav.oculto{display:none}
 #nav{position:fixed;inset:0;z-index:40;background:var(--bg);display:flex;
  flex-direction:column;overscroll-behavior:contain}
-#nav .trilhanav{padding:0 12px 4px;text-align:right}
+#nav .trilhanav{padding:0 12px 4px;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+#nav .trilhanav button[hidden]{display:none}
 #nav .trilhanav button{width:auto;margin:0;padding:3px 10px;font-size:12.5px}
 #nav .trilhanav button.on{color:var(--ok,#15803D);border-color:var(--ok,#15803D);background:transparent}
 #nav .trechonav{display:flex;gap:4px;flex-wrap:wrap;padding:0 10px 6px}
@@ -620,6 +622,21 @@ você cabe o que nenhum arquivo registra.</p>
       <div class="acoes"><button type="button" class="btn sec peq" id="b_trecho_hora">Inserir mudança de trecho numa hora do dia</button></div>
     </details>
     <input type="file" id="f_trilha" accept=".gpx" class="oculto">
+    <h4 style="margin:12px 0 4px">Trajetos já percorridos — os desta equipe e os das outras</h4>
+    <p class="leg">No mapa da navegação, os dias anteriores aparecem por baixo da trilha de hoje, mais claros, na cor do
+    revestimento (tracejado fino: sem trecho marcado); os de outra equipe, tracejados na cor dela.
+    <span class="so_cel">Botão <b>dias anteriores</b>, no alto do mapa, liga e desliga.</span>
+    <span class="so_nb">No notebook, cada um é uma camada em <b>Camadas</b>.</span>
+    A menos de 1 km da hospedagem e dos pousos nada aparece nem sai do aparelho.</p>
+    <p class="leg" id="perc_estado"></p>
+    <p class="leg"><b>Para as outras equipes verem os seus:</b> <b>Enviar minhas ocupações e trajetos</b> (WhatsApp, Quick Share,
+    e-mail); quem recebe toca em <b>Juntar de outra equipe</b> e escolhe o arquivo. Os dois botões ficam em Hoje ▸ Plano da campanha,
+    e aqui:</p>
+    <div class="acoes">
+      <button type="button" class="btn sec peq" id="b_perc_env">Enviar minhas ocupações e trajetos</button>
+      <button type="button" class="btn sec peq" id="b_perc_junta">Juntar de outra equipe</button>
+      <button type="button" class="btn sec peq" id="b_perc_qgis">Trajetos para o QGIS (GeoJSON)</button>
+    </div>
   </div>
 
   <div class="cart naoimprime" id="cart_gpsext" style="display:none">
@@ -724,7 +741,7 @@ você cabe o que nenhum arquivo registra.</p>
       </details>
       <div id="plano_camp"></div>
       <div id="plano_dia"></div>
-      <input type="file" id="f_ocup" accept=".fcp,.json,.zip,application/json,application/zip,application/octet-stream" multiple class="oculto">
+      <input type="file" id="f_ocup" accept=".fcp,.json,.geojson,.txt,.zip,application/json,application/geo+json,text/plain,application/zip,application/octet-stream" multiple class="oculto">
       <div id="alvos"></div>
     </div>
   </details>
@@ -1010,6 +1027,7 @@ você cabe o que nenhum arquivo registra.</p>
 <div class="barra naoimprime">
   <span id="estado">pronta</span>
   <button type="button" class="btn sec peq" id="b_gpsrap" hidden>GPS</button>
+  <button type="button" class="btn sec peq" id="b_visao" title="o que já foi feito e o que falta, numa guia à parte">Visão geral</button>
   <button type="button" class="btn sec peq" id="b_trancar" title="Trancar a folha (pede o PIN para abrir)">Trancar</button>
   <button type="button" class="btn sec peq" id="b_salvar">Cópia completa</button>
 </div>
@@ -1346,7 +1364,8 @@ function pontoNovo(){
 /* ---------- gravação no aparelho ---------- */
 let TIMER = null;
 function grava(){
-  EXPORTADO = false;                 // mudou: o que foi exportado já está velho
+  EXPORTADO = false;
+  try { VISAO.ver = (VISAO.ver || 0) + 1; } catch (e){}                 // mudou: o que foi exportado já está velho
   clearTimeout(TIMER);
   TIMER = setTimeout(() => {
     // todo ponto com coordenada leva a sua declinação (WMM2025), sem preencher nada
@@ -3628,9 +3647,11 @@ function camadasNB(){
   for (const X of XYZ) L.push({id: 'x:' + X.nome, tipo: 'xyz', nome: 'Blocos do QGIS: ' + X.nome, X: X});
   for (const A of ARQS_NB) if (A.ok) for (const c of A.info.camadas) if (c.tipo === 'vetor') L.push({id: c.id, tipo: 'gv', nome: c.nome + ' · ' + A.nome, C: c});
   L.push({id: 'vias', tipo: 'vias', nome: 'Ruas (OpenStreetMap)'});
+  L.push({id: 'perc_ant', tipo: 'perc', nome: 'Trajetos dos dias anteriores (esta equipe)'});
+  for (const o of PERC.outras) L.push({id: o.k, tipo: 'perc', nome: 'Trajetos: ' + o.equipe, C: {cor: o.cor}, O: o});
   const cf = (F.config.camadas = F.config.camadas || {ordem: [], vis: {}, op: {}});
   const pos = new Map(cf.ordem.map((id, i) => [id, i]));
-  L.forEach((c, i) => { c.rank = (c.tipo === 'gv' || c.tipo === 'vias' ? 2000 : 0) + (pos.has(c.id) ? pos.get(c.id) : 1000 + i); });
+  L.forEach((c, i) => { c.rank = (c.tipo === 'gv' || c.tipo === 'vias' || c.tipo === 'perc' ? 2000 : 0) + (pos.has(c.id) ? pos.get(c.id) : 1000 + i); });
   L.sort((a, b) => a.rank - b.rank);
   L.forEach(c => { c.vis = cf.vis[c.id] !== false; c.op = cf.op[c.id] != null ? cf.op[c.id] : 1; });
   return L;
@@ -3641,12 +3662,13 @@ function _mexeCamada(id, acao, valor){
   if (acao === 'vis') cf.vis[id] = !!valor;
   if (acao === 'op') cf.op[id] = Math.max(0, Math.min(1, +valor));
   if (acao === 'sobe' || acao === 'desce'){
-    const grupo = c => c.tipo === 'gv' || c.tipo === 'vias' ? 'v' : 'r';
+    const grupo = c => c.tipo === 'gv' || c.tipo === 'vias' || c.tipo === 'perc' ? 'v' : 'r';
     const j = acao === 'sobe' ? i + 1 : i - 1;                     // a lista na tela vem de cima (topo) para baixo
     if (L[j] && grupo(L[j]) === grupo(L[i])){ [L[i], L[j]] = [L[j], L[i]]; }
     cf.ordem = L.map(c => c.id);
   }
   if (acao === 'tira'){ const c = L[i];
+    if (c.tipo === 'perc' && c.O && confirm('Tirar os trajetos de ' + c.O.equipe + ' desta folha?')){ tiraPercOutra(c.O.k).then(() => { pintaNotebook(); pintaCamadasNav(); }); }
     if (c.tipo === 'xyz'){ XYZ = XYZ.filter(q => q !== c.X); _txMapa('readwrite', l => l.delete('xyz:' + c.X.nome)).catch(() => {}); }
     if (c.tipo === 'gr' || c.tipo === 'gv'){ const A = ARQS_NB.find(a => a.info && a.info.camadas.includes(c.C));
       if (A && confirm('Tirar o arquivo ' + A.nome + ' (todas as camadas dele) desta folha? O arquivo continua no disco.')){
@@ -3655,7 +3677,7 @@ function _mexeCamada(id, acao, valor){
 }
 function htmlCamadas(compacto){
   const L = camadasNB().slice().reverse();                        // topo primeiro
-  const tipoTxt = {esri: 'imagem (rede)', area: 'imagem do projeto', gr: 'GeoPackage raster', xyz: 'blocos XYZ', gv: 'vetor', vias: 'vetor'};
+  const tipoTxt = {esri: 'imagem (rede)', area: 'imagem do projeto', gr: 'GeoPackage raster', xyz: 'blocos XYZ', gv: 'vetor', vias: 'vetor', perc: 'trajetos percorridos'};
   const tipoDe = c => c.tipo === 'gr' && c.C.fmt ? c.C.fmt + (c.C.nOvr ? ' (' + c.C.nOvr + ' visões gerais)' : ' (sem visões gerais)') : tipoTxt[c.tipo];
   return '<table class="tabcam"><tr><th></th><th>camada</th>' + (compacto ? '' : '<th>tipo</th>') + '<th>transp.</th><th></th></tr>'
     + L.map(c => '<tr data-cam="' + esc(c.id) + '"><td><input type="checkbox" data-camv' + (c.vis ? ' checked' : '') + '></td>'
@@ -3666,7 +3688,7 @@ function htmlCamadas(compacto){
       + '<td><input type="range" min="0" max="1" step="0.05" value="' + c.op + '" data-camo style="width:70px"></td>'
       + '<td style="white-space:nowrap"><button type="button" class="btn sec peq" data-cama="sobe" title="para cima">↑</button>'
       + '<button type="button" class="btn sec peq" data-cama="desce" title="para baixo">↓</button>'
-      + (['xyz', 'gr', 'gv'].includes(c.tipo) && !compacto ? '<button type="button" class="btn sec peq" data-cama="tira" title="tirar">×</button>' : '') + '</td></tr>').join('')
+      + ((['xyz', 'gr', 'gv'].includes(c.tipo) || c.O) && !compacto ? '<button type="button" class="btn sec peq" data-cama="tira" title="tirar">×</button>' : '') + '</td></tr>').join('')
     + '</table>';
 }
 function ligaCamadas(el){
@@ -4074,15 +4096,36 @@ function mostraDigitar(){
   sel.addEventListener('change', pinta); v.querySelector('button').addEventListener('click', () => v.remove());
   document.body.appendChild(v); pinta();
 }
-/* lista dos pontos da equipe para o aparelho das fotos (identificador, coordenada planejada e declinação) */
+/* lista dos pontos da equipe para o aparelho das fotos (identificador, coordenada planejada e declinação)
+   10/11/2026: leva também o plano do dia (a ordem das paradas e, de cada trecho, até 3 pontos do caminho, pela mesma regra do
+   link do Google Maps da navegação). É o caminho principal da navegação no notebook: o arquivo vai UMA vez por dia ao celular
+   das fotos, por Bluetooth (o navegador não manda link ao celular por Bluetooth; o Windows manda o arquivo), Quick Share ou
+   cabo; no celular, "Próximo ponto do plano" abre o Google Maps ou o Waze já navegando, e o Android Auto leva à tela do carro.
+   O QR de cada ponto fica como alternativa. */
+function _wpTrecho(g){
+  if (!g || g.length < 2) return [];
+  const L = [0];
+  for (let i = 1; i < g.length; i++) L.push(L[i - 1] + geodInversa(g[i - 1][1], g[i - 1][0], g[i][1], g[i][0]).s);
+  const tot = L[L.length - 1]; if (tot <= 1500) return [];
+  const em = f => g[L.findIndex(v => v >= f * tot)];
+  const W = [em(0.25), em(0.4), em(0.75)].filter(Boolean).map(c => [+c[1].toFixed(6), +c[0].toFixed(6)]);
+  return W.filter((c, i) => W.findIndex(d => d[0] === c[0] && d[1] === c[1]) === i);
+}
+function planoParaCelular(){
+  const P = F.dia && F.dia.plano; if (!P || !(P.paradas || []).length) return null;
+  return {data: F.dia.data || '', criado: P.criado || '', paradas: P.paradas.map(x => ({id: x.id,
+    wp: x.g && x.g.length > 1 && !trajetoBloqueado({g: x.g}) ? _wpTrecho(x.g) : []}))};
+}
 function arquivoPontosCelular(){
   const A = (F.campanha.alvos || []).filter(a => !equipeDoPlano() || daMinhaEquipe(a));
   if (!A.length) return marca('sem pontos planejados desta equipe');
   const j = {tipo: 'pontos_para_fotos', v: 1, campanha: F.campanha.nome || '', equipe: (F.config.kit && F.config.kit.equipe) || '',
     gerado: new Date().toISOString(),
     pontos: A.map(a => { const d = _decl(a); return {id: a.id, lat: +(+a.lat).toFixed(5), lon: +(+a.lon).toFixed(5), d: d != null ? Math.round(d * 10) / 10 : null}; })};
+  try { const pl = planoParaCelular(); if (pl) j.plano = pl; } catch (e){}
   baixa(nomeSaida('pontos_para_fotos' + (j.equipe ? '_' + j.equipe.replace(/\s+/g, '_') : ''), '') + '.json', new Blob([JSON.stringify(j)], {type: 'application/json'}));
-  marca(A.length + ' pontos no arquivo: mande-o ao aparelho das fotos (Bluetooth, Quick Share ou cabo) e, na página das fotos, "Carregar a lista de pontos"');
+  marca(A.length + ' pontos' + (j.plano ? ' e o plano do dia (' + j.plano.paradas.length + ' parada(s))' : ' (sem plano do dia: planeje em Hoje para levar a ordem)')
+    + ' no arquivo: no Windows, botão direito no arquivo ▸ Enviar para ▸ Dispositivo Bluetooth (ou Quick Share) até o celular das fotos; lá, "Carregar a lista de pontos"');
 }
 
 /* ---- a aba do notebook ---- */
@@ -4099,28 +4142,44 @@ function montaAbaNotebook(){
     + '<table class="tabcam"><tr><th></th><th>Celular</th><th>Notebook</th></tr>'
     + '<tr><td><b>Fotos dos pontos</b></td><td>a câmera do próprio celular, com a bússola</td><td>vêm do celular das fotos (página leve), pela pasta vigiada ou pelo ajudante USB</td></tr>'
     + '<tr><td><b>Posição</b></td><td>o GNSS do celular</td><td>a do celular das fotos, que vai com as fotos; ou o GPS externo (botão GPS)</td></tr>'
-    + '<tr><td><b>Navegação no carro</b></td><td>Google Maps ou Waze no celular (Android Auto)</td><td>a folha mostra um QR: o celular lê e leva a rota ao Android Auto</td></tr>'
+    + '<tr><td><b>Navegação no carro</b></td><td>Google Maps ou Waze no celular (Android Auto)</td><td>a lista de pontos com o plano do dia vai uma vez ao celular das fotos, por Bluetooth; nele, "Próximo ponto do plano" leva a rota ao Android Auto. O QR de cada ponto fica como alternativa</td></tr>'
     + '<tr><td><b>Imagens do projeto</b></td><td>recortes do kit</td><td>também GeoPackage, GeoTIFF, GeoJSON e blocos XYZ do QGIS, como camadas</td></tr>'
     + '<tr><td><b>Pasta da campanha</b></td><td>só no Drive</td><td>também numa pasta deste notebook, gravada a cada dia fechado</td></tr>'
     + '<tr><td><b>Igual nas duas</b></td><td colspan="2">a caderneta, os relatórios (ponto, dia, campanha), o pacote PTCON e o envio ao Google Drive na pasta padrão</td></tr></table></div>'
-    + '<div class="cart"><h3>1. O celular das fotos</h3><p class="leg">No celular, abra a página leve das fotos lendo o QR (o do cartão de cada ponto já leva '
+    + '<div class="cart" style="border:2px solid #0A2E52"><h3>Fotos e posição: o notebook precisa de um celular</h3>'
+    + '<p class="leg"><b>O notebook não tira foto nem mede a posição do ponto.</b> Cada equipe com a folha do notebook leva um <b>celular das fotos</b> '
+    + '(com câmera, bússola e GPS), que usa a página das fotos. O caminho é sempre o mesmo:</p>'
+    + '<table class="tabcam"><tr><th>Quando</th><th>No notebook</th><th>No celular das fotos</th></tr>'
+    + '<tr><td><b>Antes do campo</b> (uma vez, com internet)</td><td>Passo 2: escolher a pasta de chegada (<code>Downloads\\fotos_do_celular</code>). '
+    + 'Passo 3: baixar o ajudante USB e deixá-lo à mão.</td><td>Abrir a página das fotos (QR do passo 1) — fica guardada e abre sem rede.</td></tr>'
+    + '<tr><td><b>Todo dia</b>, depois de planejar o dia</td><td>"Lista de pontos e plano do dia para o celular" (cartão 1) e mandar o arquivo por Bluetooth: '
+    + 'no Windows, botão direito ▸ Enviar para ▸ Dispositivo Bluetooth (ou Quick Share). Mudou o plano? Mande de novo.</td>'
+    + '<td>"Carregar a lista de pontos". Daí em diante, "Próximo ponto do plano" navega (Google Maps ou Waze, no Android Auto) e escolhe o ponto, sem QR.</td></tr>'
+    + '<tr><td><b>Em cada ponto</b>, enquanto o receptor rastreia</td><td>"Cheguei — começar o ponto" (a tela mostra o QR do ponto, para quem não usa a lista). Deixe o ajudante USB aberto.</td>'
+    + '<td>1. O ponto já vem do "Próximo ponto do plano" (ou do QR) · 2. Medir a posição (20 s junto ao tripé) · 3. Tirar as 4 fotos · 4. Mandar: a página guarda tudo em Downloads; plugue o cabo '
+    + '(Transferência de arquivos) ou toque em Enviar.</td></tr>'
+    + '<tr><td><b>Antes de desmontar</b></td><td colspan="2">No cartão do ponto: "fotos 4 de 4" e "posição ✓". Se faltar, mande de novo ou refaça no celular, ainda no ponto.</td></tr>'
+    + '<tr><td><b>Sem como mandar no ponto</b></td><td colspan="2">Tudo fica guardado no celular. No fim do dia, cabo com o ajudante aberto (ou Enviar): '
+    + 'cada arquivo vai ao seu ponto pelo nome. Confira os cartões antes de fechar o dia.</td></tr></table>'
+    + '<p class="leg" id="nb_prontos"></p></div>'
+    + '<div class="cart"><h3>1. O celular das fotos (antes do campo)</h3><p class="leg">No celular, abra a página leve das fotos lendo o QR (o do cartão de cada ponto já leva '
     + 'o ponto e a declinação). Ela tira as 4 fotos pelos rumos, com o azimute no nome do arquivo. <b>Guardar</b> põe as fotos na pasta Download do celular; '
     + '<b>Enviar</b> abre o compartilhar (Quick Share, Bluetooth). Na primeira vez a página precisa de internet; depois abre sem rede.</p>'
     + '<p class="leg"><b>Aparelho sem leitor de QR</b>, três caminhos: (a) <b>Dados para digitar</b> mostra em letra grande o endereço da página, '
-    + 'o ponto e a declinação — e a declinação nem precisa: a página a calcula pelo GPS do aparelho (WMM2025); (b) o <b>arquivo de pontos</b> vai uma vez '
-    + 'ao aparelho (Bluetooth, Quick Share ou cabo) e, nele, em "Carregar a lista de pontos", o ponto se escolhe numa lista, com o mais perto sugerido; '
+    + 'o ponto e a declinação — e a declinação nem precisa: a página a calcula pelo GPS do aparelho (WMM2025); (b) a <b>lista de pontos e plano do dia</b> vai '
+    + 'ao aparelho uma vez por dia (Bluetooth, Quick Share ou cabo) e, nele, em "Carregar a lista de pontos", o ponto vem pelo "Próximo ponto do plano" ou se escolhe na lista, com o mais perto sugerido; '
     + '(c) <b>aparelho que só tem a câmera comum</b>: tire as 4 fotos na ordem F1 norte, F2 sul, F3 oeste, F4 leste, durante a ocupação — na pasta '
     + 'vigiada, a folha casa cada foto sem nome com o ponto ocupado naquela hora (pela hora gravada na foto) e põe na ordem, sem azimute.</p>'
     + '<div class="acoes"><button type="button" class="btn sec peq" id="nb_qr">QR da página das fotos</button>'
     + '<button type="button" class="btn sec peq" id="nb_digitar">Dados para digitar</button>'
-    + '<button type="button" class="btn sec peq" id="nb_lista">Arquivo de pontos para o celular</button></div></div>'
-    + '<div class="cart"><h3>2. A pasta de chegada das fotos</h3><p class="leg">Escolha <b>uma vez</b> a pasta do notebook onde as fotos do celular chegam — '
+    + '<button type="button" class="btn peq" id="nb_lista">Lista de pontos e plano do dia para o celular</button></div></div>'
+    + '<div class="cart"><h3>2. A pasta de chegada das fotos (antes do campo, uma vez)</h3><p class="leg">Escolha <b>uma vez</b> a pasta do notebook onde as fotos do celular chegam — '
     + 'a do ajudante USB (<code>Downloads\\fotos_do_celular</code>) ou a de recebimento do Quick Share/Bluetooth (em geral, Downloads). Enquanto a folha '
     + 'estiver aberta, ela olha a pasta a cada 4 segundos e põe cada foto no cartão do ponto do dia pelo nome (ponto, F1 a F4 e o azimute). '
     + 'Foto de ponto sem cartão hoje espera: entra quando o cartão for aberto.</p><p class="leg" id="nb_vigia"></p>'
     + '<div class="acoes"><button type="button" class="btn peq" id="nb_pasta">Escolher a pasta de chegada</button>'
     + '<button type="button" class="btn sec peq" id="nb_varre">Olhar a pasta agora</button></div></div>'
-    + '<div class="cart"><h3>3. O ajudante USB (Windows)</h3><p class="leg">No Windows, o celular plugado no USB aparece como <b>dispositivo portátil</b> '
+    + '<div class="cart"><h3>3. O ajudante USB (Windows) — aberto durante a coleta</h3><p class="leg">No Windows, o celular plugado no USB aparece como <b>dispositivo portátil</b> '
     + '(MTP), sem letra de unidade, e nenhum navegador tem acesso a ele. O <b>ajudante</b> é um arquivo de dois cliques: com ele aberto, '
     + 'plugue o celular (no aviso do celular, escolha <b>Transferência de arquivos</b>) e ele copia sozinho as fotos novas dos pontos — '
     + 'das pastas Download, DCIM e Pictures do celular — para <code>Downloads\\fotos_do_celular</code>, que a folha vigia. Não instala nada e não apaga nada do celular.</p>'
@@ -4176,6 +4235,9 @@ function pintaNotebook(){
       + '<button type="button" class="btn peq" id="nb_reat_b">Reativar</button>' : '';
     const b = $('#nb_reat_b'); if (b) b.addEventListener('click', () => reativaNB()); }
   pintaVigia(); pintaPastaLocal(); pintaCamadasNav();
+  const pr = $('#nb_prontos');
+  if (pr) pr.innerHTML = 'Preparo deste notebook: pasta de chegada ' + (VIGIA.h && VIGIA.ok ? '<b style="color:#047857">✓ ' + esc(VIGIA.nome) + '</b>'
+    : '<b style="color:#B91C1C">' + (VIGIA.h ? 'inativa — Reativar' : 'não escolhida — passo 2') + '</b>') + '; ajudante USB: baixe no passo 3 e dê dois cliques antes de plugar o celular.';
   const nb = NAV && NAV.el ? NAV.el.querySelector('[data-n="xyz"]') : null; if (nb) nb.style.display = n ? '' : 'none';
 }
 
@@ -5439,11 +5501,11 @@ function cartaoPonto(p, k){
     + '</div>'
     // ---- 2. enquanto rastreia
     + _ptn(2, 'Enquanto o receptor rastreia')
-    + (function(){ const L = filaFotos(p), nome = {norte: 'norte', sul: 'sul', oeste: 'oeste', leste: 'leste'};
+    + (NOTEBOOK ? htmlFotosNotebook(p) : '') + (NOTEBOOK ? '' : (function(){ const L = filaFotos(p), nome = {norte: 'norte', sul: 'sul', oeste: 'oeste', leste: 'leste'};
         return '<button type="button" class="btn' + (L.length ? '' : ' sec') + '" data-fotoseq style="margin:4px 0 10px">'
           + (L.length === 4 ? 'Tirar as 4 fotos — F1 norte, F2 sul, F3 oeste, F4 leste'
              : L.length ? 'Continuar as fotos — falta' + (L.length > 1 ? 'm' : '') + ' ' + L.map(k => nome[k]).join(', ')
-             : '✓ 4 fotos tiradas — refazer em sequência') + '</button>'; })()
+             : '✓ 4 fotos tiradas — refazer em sequência') + '</button>'; })())
     + '<div class="fotos3">'
     + FOTOS_CARTAO.map(fo => '<div><label class="c">' + (fo[2] != null
         ? 'F' + (FOTOS.indexOf(fo) + 1) + ' · ' + String(fo[1]).replace(/^voltada para o /, '') : 'Vista de cima')
@@ -5452,18 +5514,18 @@ function cartaoPonto(p, k){
         + '<div class="miniat" data-mini="' + fo[0] + '">'
         + (p.fotos[fo[0]] ? '<span class="carregando">carregando…</span>'
                           : '<span class="sem">sem foto</span>') + '</div>'
-        + '<button type="button" class="btn sec peq" style="width:100%" '
+        + (NOTEBOOK && fo[2] != null ? '' : '<button type="button" class="btn sec peq" style="width:100%" '
         + 'data-foto="' + fo[0] + '">'
-        + (p.fotos[fo[0]] ? 'trocar' : 'foto') + '</button></div>').join('')
+        + (p.fotos[fo[0]] ? 'trocar' : (NOTEBOOK ? 'arquivo da ARP' : 'foto')) + '</button>') + '</div>').join('')
     + '</div>'
-    + '<p class="leg">Um toque e a câmera pede as quatro, uma depois da outra: de onde ficar e para onde apontar; '
+    + (NOTEBOOK ? '' : '<p class="leg">Um toque e a câmera pede as quatro, uma depois da outra: de onde ficar e para onde apontar; '
     + 'o círculo fica verde no rumo certo. Cada foto se refaz no seu botão. A vista de cima é opcional: marcado o ponto nela, vira o croqui.</p>'
     + '<details class="ajuda naoimprime"><summary>Fotos tiradas por outro celular (folha no notebook)</summary>'
     + '<p class="leg">Quem fotografa abre a página leve <span class="marca">fotos.html</span> no celular (pelo QR abaixo, já com o ponto e a declinação), '
     + 'tira as 4 fotos pelos rumos e manda os arquivos para cá (cabo USB, Bluetooth, Quick Share). O nome do arquivo traz o ponto, a foto e o azimute '
     + '(<span class="marca">0026A_F1_az012.jpg</span>); fotos sem esse nome entram pela ordem do horário.</p>'
     + '<div class="acoes"><button type="button" class="btn sec peq" data-qrfotos>QR para o celular das fotos</button>'
-    + '<button type="button" class="btn sec peq" data-fotosoutro>Fotos de outro aparelho</button></div></details>'
+    + '<button type="button" class="btn sec peq" data-fotosoutro>Fotos de outro aparelho</button></div></details>')
     + '<div class="acoes"><button type="button" class="btn sec peq" data-marcaarp>'
     + (p.arp_alvo ? 'Ajustar o ponto na vista de cima' : 'Marcar o ponto na vista de cima')
     + '</button></div><p class="leg" data-arpinfo>' + textoArp(p) + '</p>'
@@ -5707,6 +5769,7 @@ function cartaoPonto(p, k){
   });
   const bqr = d.querySelector('[data-qrfotos]'); if (bqr) bqr.addEventListener('click', () => mostraQrFotos(p));
   const bfo = d.querySelector('[data-fotosoutro]'); if (bfo) bfo.addEventListener('click', () => pedeFotosOutro(p));
+  const bvr = d.querySelector('[data-varre]'); if (bvr) bvr.addEventListener('click', () => VIGIA.h ? varrePastaFotos(true) : marca('escolha antes a pasta de chegada das fotos (aba Notebook, passo 2)'));
   d.querySelectorAll('[data-foto]').forEach(b => b.addEventListener('click', () => {
     if (FOTOS.some(f => f[0] === b.dataset.foto)){
       abreFotoDirigida._seq = false;
@@ -8219,12 +8282,13 @@ async function enviaOcupacoes(){
   const j = {tipo: 'ocupacoes_folha_pontos', aparelho: idAparelho(), equipe: nomeEquipe(),
              campanha: F.campanha.nome || '', gerado: new Date().toISOString(),
              ocup: minhasOcupacoes(), remedir: (F.campanha.remedir || []).slice()};
+  try { j.percorridos = await meusPercorridos(); } catch (e){ j.percorridos = []; }
   const nome = nomeSaida('ocupacoes_' + j.equipe.replace(/[^A-Za-z0-9]+/g, '_')) + '.json';
   const arq = new File([JSON.stringify(j)], nome, {type: 'application/json'});
   grava();
-  const info = j.ocup.length + ' ocupação(ões) de ' + j.equipe;
+  const info = j.ocup.length + ' ocupação(ões)' + (j.percorridos.length ? ' e ' + j.percorridos.length + ' dia(s) de trajeto' : '') + ' de ' + j.equipe;
   if (navigator.canShare && navigator.canShare({files: [arq]})){
-    try { await navigator.share({files: [arq], title: nome, text: 'Ocupações da folha de coleta — ' + info}); return marca('enviado: ' + info); }
+    try { await navigator.share({files: [arq], title: nome, text: 'Ocupações e trajetos da folha de coleta — ' + info + '. Na folha da outra equipe: Juntar de outra equipe.'}); return marca('enviado: ' + info); }
     catch (e){ if (e.name === 'AbortError') return marca('envio cancelado'); }
   }
   baixa(nome, arq); marca('arquivo gravado: ' + info);
@@ -8245,6 +8309,12 @@ async function juntaOcupacoes(files){
       } else j = JSON.parse(await f.text());
     } catch (e){ msgs.push(f.name + ': ilegível (' + e.message + ')'); continue; }
     let e;
+    if (j.type === 'FeatureCollection'){                          // só trajetos (GeoJSON desta folha ou de um SIG)
+      const o = percDeGeoJSON(j, f.name);
+      if (o.aparelho === idAparelho()){ msgs.push(f.name + ': são os trajetos deste mesmo aparelho'); continue; }
+      const r = await guardaPercOutra(o);
+      msgs.push(r ? o.equipe + ': ' + r : f.name + ': sem linhas de trajeto'); continue;
+    }
     if (j.tipo === 'ocupacoes_folha_pontos') e = j;
     else if (j.tipo === 'folha_pontos_ibge'){
       const salvo = F; F = Object.assign(folhaNova(), j);       // lê as ocupações com as regras da própria folha
@@ -8262,7 +8332,9 @@ async function juntaOcupacoes(files){
     const fora = e.ocup.filter(o => !ids.has(o.id)).length;
     F.campanha.externas[e.aparelho] = {equipe: e.equipe, gerado: e.gerado, recebido: new Date().toISOString(),
                                        ocup: e.ocup, remedir: e.remedir || []};
-    msgs.push(e.equipe + ': ' + e.ocup.length + ' ocupação(ões)'
+    let rp = '';
+    if ((e.percorridos || []).length) try { rp = await guardaPercOutra({equipe: e.equipe, aparelho: e.aparelho, gerado: e.gerado, dias: e.percorridos}); } catch (err){}
+    msgs.push(e.equipe + ': ' + e.ocup.length + ' ocupação(ões)' + (rp ? ', ' + rp : '')
       + (fora ? ' (' + fora + ' fora da lista de planejados)' : '')
       + ((e.remedir || []).length ? ', ' + e.remedir.length + ' a remedir por ela' : ''));
   }
@@ -8435,7 +8507,7 @@ const mapaPoeUm = (k, v) => _txMapa('readwrite', l => l.put(v, k));
 const mapaPegaUm = k => _txMapa('readonly', l => l.get(k));
 const mapaChaves = () => _txMapa('readonly', l => l.getAllKeys());
 // as pastas de blocos do projeto QGIS (chaves 'xyz:') são do computador, não do mapa da área: ficam
-const mapaLimpa = async () => { const ks = ((await mapaChaves()) || []).filter(k => !/^(xyz|arq|pasta):/.test(String(k)));
+const mapaLimpa = async () => { const ks = ((await mapaChaves()) || []).filter(k => !/^(xyz|arq|pasta|perc):/.test(String(k)));
   return _txMapa('readwrite', l => { ks.forEach(k => l.delete(k)); }); };
 // compatibilidade com o nome antigo, chamado ao começar uma folha nova
 function mapaPoe(v){ return v == null ? mapaLimpa() : Promise.resolve(); }
@@ -9426,7 +9498,8 @@ async function planejaDia(){
   const nr = r.paradas.filter(x => x.remedir).length;
   marca('plano do dia: ' + r.paradas.length + ' ponto(s)' + (nr ? ' (' + nr + ' a remedir)' : '') + ', '
     + _numBR(r.paradas.reduce((s, x) => s + x.km, 0) + (r.volta ? r.volta.km : 0), 1) + ' km com a volta'
-    + (r.avisos.length ? ' — ' + r.avisos.join('; ') : '') + (r.rede ? '' : ' — sem internet: ordem em linha reta, sem rotas'));
+    + (r.avisos.length ? ' — ' + r.avisos.join('; ') : '') + (r.rede ? '' : ' — sem internet: ordem em linha reta, sem rotas')
+    + (NOTEBOOK ? ' — mande a lista de pontos e o plano ao celular das fotos (aba Notebook, cartão 1)' : ''));
 }
 /* ajuste da equipe: subir, descer, tirar ou incluir um ponto; as rotas se refazem */
 async function ajustaPlanoDia(acao, id){
@@ -9446,7 +9519,8 @@ async function ajustaPlanoDia(acao, id){
   Object.assign(p, {paradas: r.paradas, volta: r.volta, avisos: r.avisos, ajustado: true, ajustadoEm: new Date().toISOString(),
     fonte: r.rede ? 'OSRM, até 3 caminhos por trecho — dados © colaboradores do OpenStreetMap' : 'linha reta (sem internet)'});
   grava(); pintaPlano();
-  marca('plano do dia ajustado: ' + r.paradas.length + ' ponto(s)' + (r.rede ? '' : ' — sem internet: trechos em linha reta'));
+  marca('plano do dia ajustado: ' + r.paradas.length + ' ponto(s)' + (r.rede ? '' : ' — sem internet: trechos em linha reta')
+    + (NOTEBOOK ? ' — mande de novo a lista de pontos e o plano ao celular das fotos' : ''));
 }
 /* Partida e pouso do dia. Com o plano da campanha, as bases dele: a prevista vem marcada
    "(plano)", e a equipe pode escolher outra base ou outro lugar — a mudança pede o motivo e
@@ -9531,7 +9605,7 @@ function pintaPlano(){
             + ' <button type="button" class="btn sec peq" data-tiraeq="' + esc(k) + '">tirar</button>').join(' · ')
         : 'nenhuma juntada ainda')
     + '. Esta equipe: <b>' + esc(nomeEquipe()) + '</b>.'
-    + '<div class="lin" style="margin-top:6px"><button type="button" class="btn sec peq" id="b_ocup_env">Enviar minhas ocupações</button>'
+    + '<div class="lin" style="margin-top:6px"><button type="button" class="btn sec peq" id="b_ocup_env">Enviar minhas ocupações e trajetos</button>'
     + '<button type="button" class="btn sec peq" id="b_ocup_junta">Juntar de outra equipe</button></div></div>'
     + '<div class="remedir"><b>Pontos a remedir</b> — entram com certeza no próximo plano, junto com as A pendentes.'
     + (R.length ? '<ul>' + R.map(r => '<li><b>' + esc(r.id) + '</b>' + (r.motivo ? ' — ' + esc(r.motivo) : '')
@@ -11582,7 +11656,8 @@ function mostraQrNav(url, rot, dest){
   let svg = ''; try { svg = QR.svg(url, Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.55)); } catch (e){ svg = '<p class="leg">QR: ' + esc(e.message) + '</p>'; }
   v.innerHTML = '<b style="font-size:21px">Navegar pelo celular — ' + esc(app) + (rot ? ' até ' + esc(rot) : '') + '</b>' + svg
     + '<p class="leg" style="max-width:640px">Leia com a câmera do celular que vai no carro: o ' + esc(app) + ' abre já navegando e, com o celular no '
-    + '<b>Android Auto</b> (ou CarPlay), a rota vai para a tela do carro. ' + (/waypoints=/.test(url) ? 'O link leva o destino e até 3 pontos do caminho do plano.' : 'O link leva só o destino.') + '</p>'
+    + '<b>Android Auto</b> (ou CarPlay), a rota vai para a tela do carro. ' + (/waypoints=/.test(url) ? 'O link leva o destino e até 3 pontos do caminho do plano.' : 'O link leva só o destino.')
+    + '<br><b>Sem QR:</b> com a lista de pontos e o plano do dia carregados no celular das fotos (aba Notebook, cartão 1, por Bluetooth), lá o botão <b>Próximo ponto do plano</b> faz o mesmo.</p>'
     + '<div class="acoes" style="justify-content:center;flex-wrap:wrap">'
     + (dest && app !== 'Waze' ? '<button type="button" class="btn sec peq" data-q="waze">Waze em vez disso</button>' : '')
     + (dest && app !== 'Google Maps' ? '<button type="button" class="btn sec peq" data-q="gmaps">Google Maps em vez disso</button>' : '')
@@ -11747,7 +11822,7 @@ function montaTelaNav(){
     + '<button type="button" class="btn sec" data-n="prox" aria-label="próximo ponto">›</button>'
     + '<button type="button" class="btn sec" data-n="cheia" aria-label="tela cheia, deitada">⛶</button>'
     + '<button type="button" class="btn sec" data-n="fecha">Fechar</button></div>'
-    + '<div class="trilhanav"><button type="button" class="btn sec peq" data-n="gps" hidden style="margin-right:6px">GPS</button><button type="button" class="btn sec peq" data-n="trilha">trilha</button></div>'
+    + '<div class="trilhanav"><button type="button" class="btn sec peq" data-n="gps" hidden>GPS</button><button type="button" class="btn sec peq" data-n="visao" title="o que já foi feito e o que falta, numa guia à parte">visão geral</button><button type="button" class="btn sec peq" data-n="perc" hidden>dias anteriores</button><button type="button" class="btn sec peq" data-n="trilha">trilha</button></div>'
     + '<div class="trechonav" data-n="trechos"></div>'
     + '<div class="leitura"><svg class="seta" viewBox="-32 -32 64 64" data-n="seta">'
     + '<circle r="30" fill="none" stroke="var(--lin)" stroke-width="2"/>'
@@ -11830,6 +11905,9 @@ function montaTelaNav(){
   });
   q('gpsde').addEventListener('click', () => religaGps(true));
   q('trilha').addEventListener('click', alternaTrilha);
+  q('visao').addEventListener('click', abreVisao);
+  q('perc').addEventListener('click', () => { F.config = F.config || {}; F.config.verPerc = F.config.verPerc === false; grava(); pintaPercNav(); pedeQuadro(); });
+  setTimeout(pintaPercNav, 0);
   q('gps').addEventListener('click', abrePainelGps); setTimeout(pintaAtalhoGps, 0);
   q('gpscomo').addEventListener('click', () => {
     const p = q('gpspassos'); p.classList.toggle('oculto');
@@ -12616,6 +12694,8 @@ function desenhaNav(){
   }
   // a trilha já percorrida hoje, discreta
   // (sem trecho marcado: tracejada; com trecho: na cor do revestimento)
+  // os trajetos dos dias anteriores e os de outras equipes, por baixo e mais apagados
+  try { desenhaPercorridos(x, tela, [cen.lon - meiaGraus, cen.lat - meiaGraus, cen.lon + meiaGraus, cen.lat + meiaGraus]); } catch (e){}
   desenhaTrilhaTrechos(x, tela);
   // o trajeto escolhido em destaque; as outras opções, finas
   for (const t of [...TL].sort((u, v) => (u === T) - (v === T))){
@@ -13093,6 +13173,7 @@ function comecaPontoAqui(){
   fechaNav(); $('button[data-aba=dia]') && $('button[data-aba=dia]').click();
   pintaPontos(); pintaAlvos(); grava(); window.scrollTo(0, 0);
   marca('ponto ' + p.id + ' começado — leia o RINEX dele ao terminar o rastreio');
+  if (NOTEBOOK) setTimeout(() => mostraQrFotos(p, true), 500);
 }
 
 
@@ -13856,6 +13937,7 @@ function pintaRedist(){
 /* ---------- montagem ---------- */
 function monta(){
   try { pintaHotel(); } catch (e){}
+  try { if (PERC.chave !== _chavePerc()) atualizaPercorridos().catch(() => {}); else pintaPercorridos(); } catch (e){}
   try { pintaTrajEstado(); } catch (e){}
   try { const pe = $('#ppp_email'); if (pe && document.activeElement !== pe) pe.value = (F.config && F.config.email_ppp) || ''; } catch (e){}
   try { const sv = (F.config && F.config.servidor) || {}, su = $('#srv_url'), sc = $('#srv_chave');
@@ -14185,6 +14267,10 @@ function osmand(cmd){
 }
 $('#b_osm_ini').addEventListener('click', () => osmand('start_gpx_rec'));
 $('#b_osm_fim').addEventListener('click', () => osmand('stop_gpx_rec'));
+{ const bv = $('#b_visao'); if (bv){ if (MODO_PLAN) bv.remove(); else bv.addEventListener('click', abreVisao); } }
+$('#b_perc_env').addEventListener('click', () => enviaOcupacoes().catch(e => marca('não saiu: ' + e.message)));
+$('#b_perc_junta').addEventListener('click', () => $('#f_ocup').click());
+$('#b_perc_qgis').addEventListener('click', () => baixaPercGeoJSON().catch(e => marca('não saiu: ' + e.message)));
 $('#f_ocup').addEventListener('change', e => { const L = Array.from(e.target.files); e.target.value = '';
   if (L.length) juntaOcupacoes(L).catch(err => marca('não juntou: ' + err.message)); });
 $('#b_trilha_gpx').addEventListener('click', () => $('#f_trilha').click());
@@ -14425,6 +14511,262 @@ function desenhaTrilhaTrechos(x, tela){
   }
   x.restore();
 }
+
+/* 10/11/2026: os trajetos já percorridos ficam à vista na navegação — os dos dias anteriores
+   desta equipe e os que outras equipes mandaram —, mais apagados que a trilha de hoje.
+   Cada dia é cortado nos trechos marcados (cor do revestimento; tracejado: sem trecho) e
+   simplificado por Douglas-Peucker (DOUGLAS; PEUCKER, 1973) com tolerância de 8 m, o que
+   basta para a navegação e deixa o arquivo pequeno para mandar pelo WhatsApp. A menos de
+   RAIO_OCULTO da hospedagem e dos pousos nada aparece nem sai do aparelho.
+   Compartilhar: o mesmo arquivo de "Enviar minhas ocupações" leva os trajetos; "Juntar de
+   outra equipe" os recebe. Para o QGIS, um GeoJSON (RFC 7946) com uma feição por dia e
+   revestimento. Os de outra equipe ficam no IndexedDB (chave 'perc:'), fora do registro. */
+const PERC = {ant: [], chave: null, rodando: false, denovo: false, outras: []};
+const COR_OUTRAS = ['#0D9488', '#65A30D', '#CA8A04', '#E11D48', '#0EA5E9'];
+function _dp(g, tol){
+  if (g.length < 3) return g.slice();
+  const kx = 111320 * Math.cos(g[0][1] * RAD), ky = 110574;
+  const P = g.map(c => [c[0] * kx, c[1] * ky]), fica = new Uint8Array(g.length);
+  fica[0] = fica[g.length - 1] = 1;
+  const pilha = [[0, g.length - 1]];
+  while (pilha.length){
+    const [a, b] = pilha.pop(), ax = P[a][0], ay = P[a][1], dx = P[b][0] - ax, dy = P[b][1] - ay, L2 = dx * dx + dy * dy;
+    let dm = 0, im = -1;
+    for (let i = a + 1; i < b; i++){
+      let t = L2 ? ((P[i][0] - ax) * dx + (P[i][1] - ay) * dy) / L2 : 0; t = Math.max(0, Math.min(1, t));
+      const ex = ax + t * dx - P[i][0], ey = ay + t * dy - P[i][1], d = ex * ex + ey * ey;
+      if (d > dm){ dm = d; im = i; }
+    }
+    if (im >= 0 && dm > tol * tol){ fica[im] = 1; pilha.push([a, im], [im, b]); }
+  }
+  return g.filter((c, i) => fica[i]);
+}
+function _cortaOcultos(g, oc){
+  const P = []; let cur = [];
+  for (const c of g){
+    if (oc.some(b => _dPlano(b.lat, b.lon, c[1], c[0]) < RAIO_OCULTO)){ if (cur.length > 1) P.push(cur); cur = []; }
+    else cur.push(c);
+  }
+  if (cur.length > 1) P.push(cur);
+  return P;
+}
+function _bbPartes(partes){
+  for (const p of partes){ let b = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const c of p.g){ b = [Math.min(b[0], c[0]), Math.min(b[1], c[1]), Math.max(b[2], c[0]), Math.max(b[3], c[1])]; }
+    p.bb = b; }
+  return partes;
+}
+async function percorridosDoDia(d){
+  const T = trilhaDaData(await trilhaDoDia(d), d); if (!T || T.length < 2) return null;
+  const oc = _lugaresOcultos(d), s = segmentaTrilha(T, d.trechos || []), partes = [];
+  let km = 0;
+  for (const p of s.partes){
+    km += p.km;
+    for (const g of _cortaOcultos(p.g, oc)){
+      const h = _dp(g, 8); if (h.length < 2) continue;
+      partes.push({rev: (p.a && p.a.revestimen) || '', g: h.map(c => [+c[0].toFixed(6), +c[1].toFixed(6)])});
+    }
+  }
+  const data = d.data || (datasDoDia(d)[0] || {}).data || '';
+  return partes.length ? {data: data, km: +km.toFixed(1), partes: partes} : null;
+}
+const _chavePerc = () => (F.dias || []).map(d => (d.trilha_id || '-') + ':' + (d.trechos || []).length + ':' + (d.data || '')).join('|');
+async function atualizaPercorridos(){
+  if (PERC.rodando){ PERC.denovo = true; return; }
+  PERC.rodando = true;
+  try {
+    do {
+      PERC.denovo = false;
+      const ch = _chavePerc(), L = [];
+      for (const d of F.dias || []){ if (!d.trilha_id) continue; try { const r = await percorridosDoDia(d); if (r) L.push(_bbDia(r)); } catch (e){} }
+      L.sort((a, b) => String(a.data).localeCompare(String(b.data)));
+      PERC.ant = L; PERC.chave = ch;
+    } while (PERC.denovo);
+  } finally { PERC.rodando = false; }
+  pedeQuadro(); pintaPercorridos();
+}
+function _bbDia(r){ _bbPartes(r.partes); return r; }
+async function carregaPercOutras(){
+  const L = [];
+  try { for (const k of ((await mapaChaves()) || []).filter(k => /^perc:/.test(String(k)))){
+    const m = await mapaPegaUm(k).catch(() => null); if (m && m.dias){ m.dias.forEach(_bbDia); L.push(m); } } } catch (e){}
+  L.sort((a, b) => String(a.recebido).localeCompare(String(b.recebido)));
+  PERC.outras = L; pedeQuadro(); pintaPercorridos();
+}
+/* o que vai no arquivo: todos os dias da campanha neste aparelho, inclusive o de hoje até agora */
+async function meusPercorridos(){
+  const L = [];
+  for (const e of diasDaCampanha()){ try { const r = await percorridosDoDia(e.dia); if (r) L.push(r); } catch (err){} }
+  return L;
+}
+/* recebe os trajetos de outra equipe (do arquivo de ocupações ou de um GeoJSON); devolve o texto do resumo */
+async function guardaPercOutra(o){
+  if (!o || !Array.isArray(o.dias) || !o.dias.length) return '';
+  const k = 'perc:' + String(o.aparelho || o.equipe || 'outra');
+  const velho = PERC.outras.find(x => x.k === k);
+  const usadas = new Set(PERC.outras.filter(x => x.k !== k).map(x => x.cor));
+  const cor = velho ? velho.cor : (COR_OUTRAS.find(c => !usadas.has(c)) || COR_OUTRAS[PERC.outras.length % COR_OUTRAS.length]);
+  const reg = {k: k, equipe: o.equipe || 'outra equipe', aparelho: o.aparelho || '', gerado: o.gerado || '', recebido: new Date().toISOString(), cor: cor,
+               dias: o.dias.map(d => ({data: d.data || '', km: d.km || 0, partes: (d.partes || []).filter(p => p.g && p.g.length > 1).map(p => ({rev: p.rev || '', g: p.g}))}))};
+  await mapaPoeUm(k, reg);
+  await carregaPercOutras();
+  const km = reg.dias.reduce((t, d) => t + (+d.km || 0), 0);
+  return reg.dias.length + ' dia(s) de trajeto' + (km ? ', ' + _numBR(km, 0) + ' km' : '');
+}
+async function tiraPercOutra(k){
+  await _txMapa('readwrite', l => l.delete(k)).catch(() => {});
+  if (F.config.camadas && F.config.camadas.vis) delete F.config.camadas.vis[k];
+  await carregaPercOutras();
+}
+/* GeoJSON (RFC 7946: WGS 84 em lon/lat; a diferença para o SIRGAS 2000 é de centímetros) */
+function percParaGeoJSON(dias, equipe){
+  const feats = [];
+  for (const d of dias){
+    const por = {};
+    for (const p of d.partes) (por[p.rev] = por[p.rev] || []).push(p.g);
+    for (const [rev, gs] of Object.entries(por))
+      feats.push({type: 'Feature', properties: {equipe: equipe, data: d.data, revestimen: rev || null,
+        revestimento: rev ? _rotDom('revestimen', rev) : 'sem trecho marcado', km_dia: d.km},
+        geometry: {type: 'MultiLineString', coordinates: gs}});
+  }
+  return {type: 'FeatureCollection', name: 'trajetos_' + equipe.replace(/[^A-Za-z0-9]+/g, '_'),
+    folha_trajetos: {versao: 1, equipe: equipe, aparelho: idAparelho(), campanha: F.campanha.nome || '', gerado: new Date().toISOString(),
+      simplificacao: 'Douglas-Peucker, 8 m', oculto: 'trilha a menos de ' + RAIO_OCULTO + ' m da hospedagem e dos pousos'},
+    features: feats};
+}
+function percDeGeoJSON(j, nomeArq){
+  const m = j.folha_trajetos || {}, porData = {};
+  for (const f of j.features || []){
+    const g = f.geometry || {}, pr = f.properties || {};
+    const linhas = g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
+    const dt = String(pr.data || pr.date || '').slice(0, 10);
+    const D = porData[dt] = porData[dt] || {data: dt, km: +pr.km_dia || 0, partes: []};
+    for (const l of linhas) if (l && l.length > 1) D.partes.push({rev: String(pr.revestimen || ''), g: l.map(c => [+c[0], +c[1]])});
+  }
+  return {equipe: m.equipe || pr0(j) || String(nomeArq || 'outra equipe').replace(/\.(geo)?json(\.txt)?$|\.txt$/i, ''),
+          aparelho: m.aparelho || 'arq_' + String(nomeArq || '').slice(0, 40), campanha: m.campanha || '', gerado: m.gerado || '',
+          dias: Object.values(porData).filter(d => d.partes.length)};
+  function pr0(j){ const f = (j.features || [])[0]; return f && f.properties && f.properties.equipe; }
+}
+async function baixaPercGeoJSON(){
+  marca('preparando os trajetos…');
+  const L = await meusPercorridos();
+  if (!L.length) return marca('nenhum trajeto gravado neste aparelho ainda');
+  const eq = nomeEquipe(), nome = nomeSaida('trajetos_' + eq.replace(/[^A-Za-z0-9]+/g, '_')) + '.geojson';
+  baixa(nome, JSON.stringify(percParaGeoJSON(L, eq)), 'application/geo+json');
+  marca('trajetos gravados: ' + nome + ' — ' + L.length + ' dia(s)');
+}
+function _visPerc(id){ return NOTEBOOK ? camadaVis(id) : F.config.verPerc !== false; }
+function _opPerc(id){ const cf = NOTEBOOK && F.config.camadas; return cf && cf.op && cf.op[id] != null ? cf.op[id] : 1; }
+function desenhaPercorridos(x, tela, cx){
+  if (PERC.chave !== _chavePerc() && !PERC.rodando) atualizaPercorridos().catch(() => {});
+  const fora = b => cx && (b[2] < cx[0] || b[0] > cx[2] || b[3] < cx[1] || b[1] > cx[3]);
+  const linha = g => { x.beginPath(); g.forEach((c, k) => { const q = tela(c[1], c[0]); if (k) x.lineTo(q.x, q.y); else x.moveTo(q.x, q.y); }); x.stroke(); };
+  x.save(); x.lineJoin = 'round'; x.lineCap = 'round';
+  for (const o of PERC.outras){
+    if (!_visPerc(o.k)) continue;
+    x.strokeStyle = o.cor; x.globalAlpha = 0.7 * _opPerc(o.k); x.lineWidth = 3; x.setLineDash([9, 5]);
+    for (const d of o.dias) for (const p of d.partes) if (!fora(p.bb)) linha(p.g);
+  }
+  if (_visPerc('perc_ant')){
+    const op = _opPerc('perc_ant');
+    for (const d of PERC.ant) for (const p of d.partes){
+      if (fora(p.bb)) continue;
+      const cor = COR_REV[p.rev];
+      x.strokeStyle = cor || 'rgba(62,85,97,.7)'; x.globalAlpha = (cor ? 0.45 : 0.6) * op;
+      x.lineWidth = cor ? 3.5 : 2; x.setLineDash(cor ? [] : [2, 4]);
+      linha(p.g);
+    }
+  }
+  x.restore();
+}
+function pintaPercorridos(){
+  const el = $('#perc_estado');
+  const kmA = PERC.ant.reduce((t, d) => t + d.km, 0);
+  if (el) el.innerHTML = (PERC.ant.length
+      ? 'Desta equipe, no mapa: <b>' + PERC.ant.length + ' dia(s) anterior(es)</b>, ' + _numBR(kmA, 0) + ' km (' + PERC.ant.map(d => d.data ? d.data.slice(8, 10) + '/' + d.data.slice(5, 7) : '?').join(', ') + ').'
+      : 'Ainda não há dia anterior com trilha neste aparelho.')
+    + (PERC.outras.length ? '<br>Outras equipes: ' + PERC.outras.map(o => '<span style="display:inline-block;width:14px;height:4px;background:' + o.cor
+        + ';vertical-align:middle;margin-right:4px"></span><b>' + esc(o.equipe) + '</b> — ' + o.dias.length + ' dia(s), recebido '
+        + new Date(o.recebido).toLocaleString('pt-BR').slice(0, 17).replace(',', '')
+        + ' <button type="button" class="btn sec peq" data-tiraperc="' + esc(o.k) + '">tirar</button>').join(' · ')
+      : '<br>Nenhum trajeto de outra equipe recebido.');
+  if (el) el.querySelectorAll('[data-tiraperc]').forEach(b => b.addEventListener('click', () => tiraPercOutra(b.dataset.tiraperc)));
+  pintaPercNav();
+  if (NOTEBOOK) try { pintaCamadasNav(); } catch (e){}
+}
+function pintaPercNav(){
+  if (!NAV || !NAV.el) return;
+  const b = NAV.q('perc'); if (!b) return;
+  const tem = PERC.ant.length || PERC.outras.length;
+  b.hidden = NOTEBOOK || !tem;
+  const on = F.config.verPerc !== false;
+  b.textContent = (on ? '● ' : '') + 'dias anteriores' + (PERC.outras.length ? ' e equipes' : '');
+  b.classList.toggle('on', on);
+}
+
+/* ---------- visão geral da campanha (10/11/2026) ----------
+   Uma segunda guia, só de leitura, com o projeto inteiro: o que já foi feito e o que falta, no mapa e em listas,
+   com os mesmos itens da navegação (pontos na cor do tipo, plano de hoje, trilhas, sem passagem, hospedagem, você).
+   A guia é aberta pela folha (window.open sem endereço) e escrita por ela; por ser da mesma origem, a cada 3 s ela
+   pergunta à folha se algo mudou (visaoVersao) e, se sim, lê os dados (dadosVisao). Não grava nada e não abre uma
+   segunda cópia da folha — que daria o aviso de duas abas e o risco de um registro sobrescrever o outro. No notebook,
+   a guia pode ir para outra tela. */
+const VISAO = {w: null, vias: null, nVias: -1};
+function visaoVersao(){
+  const p = NAV && NAV.pos;
+  return (VISAO.ver || 0) + '|' + (p ? p.lat.toFixed(4) + ',' + p.lon.toFixed(4) : '') + '|' + TRILHA.length + '|'
+    + (PERC.chave || '') + '|' + PERC.outras.length + '|' + (F.dia.pontos || []).length + '|' + (F.dias || []).length;
+}
+function dadosVisao(){
+  const A = F.campanha.alvos || [], oc = ocupacoes(), despr = desprezados(), imp = impedidos();
+  const pend = new Set(pendentesA().map(a => a.id)), rem = new Set(listaRemedir().map(r => r.id));
+  const meus = new Set();
+  for (const d of F.dias || []) for (const p of d.pontos || []){ const k = chaveOcup(p); if (k) meus.add(k); }
+  for (const p of F.dia.pontos || []){ const k = chaveOcup(p); if (k) meus.add(k); }
+  const eu = equipeDoPlano(), pl = (F.dia.plano && F.dia.plano.paradas) || [];
+  const ordemPl = new Map(pl.map((x, k) => [x.id, k + 1]));
+  const pontos = A.map((a, i) => {
+    const q = equipeDaChave(_chaveUn(a));
+    const est = oc[a.id] ? 'feito' : imp.has(a.id) ? 'naomedido' : despr.has(a.id) ? 'desprezado' : pend.has(a.id) ? 'pendente' : 'opcao';
+    return {i: i, id: a.id, lat: +a.lat, lon: +a.lon, tipo: a.tipo || '', est: est, quem: oc[a.id] || [], meu: meus.has(a.id),
+      minha: !eu || !q || q.e === eu, eq: q ? q.e.nome : '', dia: q ? q.dia : null, rem: rem.has(a.id),
+      motivo: imp.has(a.id) ? (imp.get(a.id).motivo || '') : '', pl: ordemPl.get(a.id) || 0, op: opcaoDe(a.id) || ''};
+  }).filter(p => isFinite(p.lat) && isFinite(p.lon));
+  // hoje: a trilha cortada nos trechos, sem o entorno da hospedagem
+  const hoje = [];
+  if (TRILHA.length > 1){ const oc2 = _lugaresOcultos(F.dia);
+    for (const p of segmentaTrilha(TRILHA, F.dia.trechos || []).partes)
+      for (const g of _cortaOcultos(p.g, oc2)){ const h = _dp(g, 6); if (h.length > 1) hoje.push({rev: (p.a && p.a.revestimen) || '', g: h}); } }
+  // rodovias principais do OpenStreetMap guardado no aparelho (uma vez)
+  if (VISAO.nVias !== VIAS.length){ VISAO.nVias = VIAS.length;
+    VISAO.vias = VIAS.filter(v => /^(motorway|trunk|primary|secondary)/.test(v.h || '')).map(v => ({g: _dp(v.g, 25)})); }
+  const at = circulosAtendidos(), circs = new Set(A.map(a => circuloDe(a.id)).filter(Boolean));
+  const P = NAV && NAV.pos ? NAV.pos : TRILHA.length ? {lat: TRILHA[TRILHA.length - 1][1], lon: TRILHA[TRILHA.length - 1][2]} : null;
+  const kmHoje = (F.dia.trilha_resumo && F.dia.trilha_resumo.km) || 0;
+  const minhasP = pontos.filter(p => p.minha);
+  return {campanha: F.campanha.nome || '', equipe: nomeEquipe(), pontos: pontos,
+    plano: pl.map(x => ({id: x.id, g: x.g && x.g.length > 1 ? _dp(x.g, 10) : null})),
+    hoje: hoje, ant: PERC.ant, outras: PERC.outras, vias: VISAO.vias || [], kmHoje: kmHoje,
+    bloq: bloqueios().map(b => ({lat: +b.lat, lon: +b.lon})),
+    hosp: basesDe(F.campanha.planoCampanha).map(b => ({lat: +b.lat, lon: +b.lon})).filter(b => isFinite(b.lat) && isFinite(b.lon)),
+    pos: P ? {lat: P.lat, lon: P.lon} : null,
+    resumo: {feitos: pontos.filter(p => p.est === 'feito' && p.meu).length,
+      porFazer: minhasP.filter(p => p.est === 'pendente').length + minhasP.filter(p => p.rem && p.est !== 'feito' && p.est !== 'pendente').length,
+      circAt: Object.keys(at).length, circTot: circs.size,
+      km: PERC.ant.reduce((t, d) => t + (+d.km || 0), 0) + kmHoje, dias: PERC.ant.length + (TRILHA.length > 1 ? 1 : 0)}};
+}
+function abreVisao(){
+  if (VISAO.w && !VISAO.w.closed){ try { VISAO.w.visaoAtualiza(); VISAO.w.focus(); return; } catch (e){} }
+  const w = window.open('', 'visao_campanha');
+  if (!w) return marca('o navegador bloqueou a guia nova: permita pop-ups para esta folha e toque de novo');
+  let viva = false; try { viva = typeof w.visaoAtualiza === 'function'; } catch (e){}
+  if (viva){ VISAO.w = w; try { w.visaoAtualiza(); } catch (e){} w.focus(); return; }
+  w.document.open(); w.document.write(HTML_VISAO); w.document.close();
+  VISAO.w = w; try { w.focus(); } catch (e){}
+  marca('visão geral aberta em outra guia — só mostra; o registro continua aqui');
+}
+const HTML_VISAO = "\u003c!doctype html>\n\u003chtml lang=\"pt-BR\">\n\u003chead>\n\u003cmeta charset=\"utf-8\">\n\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\u003ctitle>Visão geral da campanha\u003c/title>\n\u003cstyle>\n*{box-sizing:border-box}\nbody{margin:0;font:15px/1.4 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;color:#1b2a33;background:#f6f7f5}\nheader{background:#0A2E52;color:#fff;padding:10px 14px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}\nheader h1{font-size:18px;margin:0}\nheader small{opacity:.85}\n.aviso{background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:6px 10px;margin:8px 10px 0}\n.cont{display:grid;grid-template-columns:1fr;gap:10px;padding:10px}\n@media (min-width:1000px){.cont{grid-template-columns:minmax(0,1fr) 400px;height:calc(100vh - 52px)} .mapa{height:100%;min-height:0} .lado{overflow:auto}}\n.mapa{position:relative;background:#e9ece9;border:1px solid #c9d2d6;border-radius:10px;overflow:hidden;min-height:62vh;touch-action:none}\ncanvas{display:block;width:100%;height:100%;cursor:grab}\n.ctl{position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:6px}\nbutton{font:inherit;border:1px solid #0A3D56;background:#fff;color:#0A3D56;border-radius:8px;padding:5px 10px;cursor:pointer}\nbutton.pri{background:#0A3D56;color:#fff}\n.ctl button{width:40px;height:40px;padding:0;font-size:20px}\ndetails.cam{position:absolute;left:8px;top:8px;background:rgba(255,255,255,.94);border-radius:8px;padding:6px 10px;font-size:13.5px;max-width:calc(100% - 70px)}\ndetails.cam summary{cursor:pointer;font-weight:600;color:#0A3D56}\ndetails.cam label{display:block;margin:3px 0}\n.info{position:absolute;left:8px;bottom:26px;background:#fff;border:1px solid #0A3D56;border-radius:10px;padding:8px 12px;max-width:min(420px,calc(100% - 16px));font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.15)}\n.info .acoes{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}\n.credito{position:absolute;right:6px;bottom:4px;font-size:11px;background:rgba(255,255,255,.85);padding:1px 5px;border-radius:4px;max-width:70%}\n.num{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:10px}\n.num div{background:#fff;border:1px solid #c9d2d6;border-radius:8px;padding:6px 10px;font-size:13px;color:#46565f}\n.num b{display:block;font-size:22px;color:#0A3D56}\n.cart{background:#fff;border:1px solid #c9d2d6;border-radius:10px;padding:10px 12px;margin-bottom:10px}\n.cart h2{font-size:16px;margin:0 0 6px;color:#0A3D56}\n.cart h3{font-size:13.5px;margin:8px 0 4px;color:#46565f}\n.chips{display:flex;flex-wrap:wrap;gap:5px}\n.chip{border:1px solid #c9d2d6;border-radius:14px;padding:2px 9px;font-size:13px;cursor:pointer;background:#fff}\n.chip.pl{border-color:#0B6FA4;color:#0B6FA4;font-weight:600}\n.chip.rem{border-color:#EA580C;color:#C2410C}\n.chip.nm{border-color:#DC2626;color:#B91C1C}\n.chip.ok{background:#EEF1EF;color:#46565f}\n.leg{font-size:13px;color:#46565f}\n.legenda div{display:flex;align-items:center;gap:8px;font-size:13px;margin:3px 0}\n.legenda svg{flex:none}\n\u003c/style>\n\u003c/head>\n\u003cbody>\n\u003cheader>\u003ch1 id=\"tit\">Visão geral da campanha\u003c/h1>\u003csmall id=\"sub\">aguardando a folha…\u003c/small>\u003c/header>\n\u003cdiv id=\"aviso\" class=\"aviso\" hidden>\u003c/div>\n\u003cdiv class=\"cont\">\n  \u003cdiv class=\"mapa\" id=\"mapa\">\n    \u003ccanvas id=\"cv\">\u003c/canvas>\n    \u003cdetails class=\"cam\" id=\"cam\">\u003csummary>Camadas\u003c/summary>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"fundo\"> Imagem Esri (com internet)\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"vias\"> Rodovias principais (OpenStreetMap)\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"perc\"> Trajetos percorridos\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"plano\"> Plano de hoje\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"todas\"> Pontos de outras equipes\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"despr\"> Opções desprezadas\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"rot\"> Rótulos dos pontos\u003c/label>\n    \u003c/details>\n    \u003cdiv class=\"ctl\">\u003cbutton type=\"button\" data-z=\"1\" title=\"aproximar\">+\u003c/button>\u003cbutton type=\"button\" data-z=\"-1\" title=\"afastar\">−\u003c/button>\n      \u003cbutton type=\"button\" data-z=\"fit\" title=\"ver todos os pontos da equipe\">⤢\u003c/button>\u003cbutton type=\"button\" data-z=\"eu\" title=\"onde estou\">◎\u003c/button>\u003c/div>\n    \u003cdiv class=\"info\" id=\"info\" hidden>\u003c/div>\n    \u003cdiv class=\"credito\" id=\"cred\">\u003c/div>\n  \u003c/div>\n  \u003cdiv class=\"lado\">\n    \u003cdiv class=\"num\" id=\"num\">\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>Por fazer\u003c/h2>\u003cdiv id=\"porfazer\">\u003c/div>\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>Feito\u003c/h2>\u003cdiv id=\"feito\">\u003c/div>\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>Trajetos percorridos\u003c/h2>\u003cdiv id=\"traj\" class=\"leg\">\u003c/div>\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>Legenda\u003c/h2>\u003cdiv class=\"legenda\" id=\"leg\">\u003c/div>\u003c/div>\n    \u003cp class=\"leg\">Esta guia só mostra: o registro continua na folha, que é onde tudo se faz. Ela se atualiza sozinha enquanto a folha estiver aberta.\n    No notebook, dá para arrastar esta guia para outra tela.\u003c/p>\n  \u003c/div>\n\u003c/div>\n\u003cscript>\n'use strict';\nconst M = window.opener;\nconst $ = s => document.querySelector(s);\nconst esc = s => String(s == null ? '' : s).replace(/[&\u003c>\"]/g, c => ({'&': '&amp;', '\u003c': '&lt;', '>': '&gt;', '\"': '&quot;'}[c]));\nconst TB = 256, RAD = Math.PI / 180;\nconst COR_REV = {'1': '#9CA3AF', '2': '#A16207', '3': '#EA580C', '4': '#1F2937', '5': '#7C3AED'};\nconst NOME_REV = {'2': 'Leito natural', '3': 'Revestimento primário', '4': 'Pavimentado', '5': 'Calçado', '1': 'Desconhecido'};\nconst corTipo = t => t === 'controle' ? '#8e44ad' : t === 'checagem' ? '#16a085' : '#5a6b73';\nconst CINZA_FEITO = '#9AA6AB';\nlet D = null, VER = null;\nconst S = {lat: -5.8, lon: -35.2, z: 10, sel: null, fit: false,\n  cam: {fundo: true, vias: true, perc: true, plano: true, todas: false, despr: false, rot: true}};\ntry { Object.assign(S.cam, JSON.parse(localStorage.getItem('visao_camadas') || '{}')); } catch (e){}\ndocument.querySelectorAll('[data-c]').forEach(c => { c.checked = !!S.cam[c.dataset.c];\n  c.addEventListener('change', () => { S.cam[c.dataset.c] = c.checked; try { localStorage.setItem('visao_camadas', JSON.stringify(S.cam)); } catch (e){} pinta(); lista(); }); });\n\n/* Mercator (EPSG:3857), em pixels do nível z */\nconst mx = (lon, z) => (lon + 180) / 360 * TB * Math.pow(2, z);\nconst my = (lat, z) => { const s = Math.sin(Math.max(-85, Math.min(85, lat)) * RAD); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * TB * Math.pow(2, z); };\nconst geoX = (X, z) => X / (TB * Math.pow(2, z)) * 360 - 180;\nconst geoY = (Y, z) => Math.atan(Math.sinh(Math.PI * (1 - 2 * Y / (TB * Math.pow(2, z))))) / RAD;\nconst cv = $('#cv'), x = cv.getContext('2d');\nlet W = 0, H = 0, DPR = 1;\nfunction tela(lat, lon){ return {x: W / 2 + mx(lon, S.z) - mx(S.lon, S.z), y: H / 2 + my(lat, S.z) - my(S.lat, S.z)}; }\nfunction geo(px, py){ return {lon: geoX(mx(S.lon, S.z) + px - W / 2, S.z), lat: geoY(my(S.lat, S.z) + py - H / 2, S.z)}; }\nfunction dimensiona(){\n  const r = cv.getBoundingClientRect(); DPR = window.devicePixelRatio || 1;\n  W = r.width; H = r.height; cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); pinta();\n}\nnew ResizeObserver(dimensiona).observe(cv);\nlet _ped = false;\nfunction pinta(){ if (_ped) return; _ped = true; requestAnimationFrame(() => { _ped = false; desenha(); }); }\n\n/* blocos da imagem Esri (os mesmos da navegação), só com internet */\nconst BLOCOS = new Map();\nfunction bloco(z, bx, by){\n  const k = z + '/' + bx + '/' + by; let b = BLOCOS.get(k);\n  if (!b){ b = new Image(); b.ok = false; b.onload = () => { b.ok = true; pinta(); };\n    b.src = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/' + z + '/' + by + '/' + bx;\n    BLOCOS.set(k, b); if (BLOCOS.size > 400) BLOCOS.delete(BLOCOS.keys().next().value); }\n  return b.ok ? b : null;\n}\nfunction linha(g, emPx){ x.beginPath(); g.forEach((c, k) => { const p = tela(c[1], c[0]); if (k) x.lineTo(p.x, p.y); else x.moveTo(p.x, p.y); }); x.stroke(); }\nfunction visivel(D){ return (D.pontos || []).filter(p => (S.cam.todas || p.minha) && (S.cam.despr || p.est !== 'desprezado')); }\n\nfunction desenha(){\n  x.setTransform(DPR, 0, 0, DPR, 0, 0);\n  x.fillStyle = '#E9ECE9'; x.fillRect(0, 0, W, H);\n  if (!D){ return; }\n  const fundo = S.cam.fundo && navigator.onLine;\n  if (fundo){\n    const zt = Math.max(0, Math.min(19, Math.round(S.z))), esc2 = Math.pow(2, S.z - zt);\n    const cx = mx(S.lon, zt), cy = my(S.lat, zt), n = Math.pow(2, zt);\n    const x0 = Math.floor((cx - W / 2 / esc2) / TB), x1 = Math.floor((cx + W / 2 / esc2) / TB);\n    const y0 = Math.floor((cy - H / 2 / esc2) / TB), y1 = Math.floor((cy + H / 2 / esc2) / TB);\n    if ((x1 - x0 + 1) * (y1 - y0 + 1) \u003c= 120)\n      for (let bx = x0; bx \u003c= x1; bx++) for (let by = Math.max(0, y0); by \u003c= Math.min(n - 1, y1); by++){\n        const im = bloco(zt, ((bx % n) + n) % n, by); if (!im) continue;\n        x.drawImage(im, W / 2 + (bx * TB - cx) * esc2, H / 2 + (by * TB - cy) * esc2, TB * esc2 + 0.5, TB * esc2 + 0.5);\n      }\n  }\n  $('#cred').textContent = (fundo ? 'Imagem: Esri, Maxar, Earthstar Geographics e comunidade de usuários GIS · ' : '')\n    + (S.cam.vias && (D.vias || []).length ? 'rodovias © colaboradores do OpenStreetMap' : '');\n  x.lineJoin = 'round'; x.lineCap = 'round';\n  // rodovias principais\n  if (S.cam.vias) for (const v of D.vias || []){\n    x.strokeStyle = fundo ? 'rgba(251,191,36,.75)' : '#D97706'; x.lineWidth = fundo ? 2 : 3; linha(v.g);\n  }\n  // trajetos percorridos: outras equipes (tracejado na cor delas), dias anteriores (mais claros), hoje (forte)\n  if (S.cam.perc){\n    for (const o of D.outras || []){ x.save(); x.strokeStyle = o.cor; x.globalAlpha = 0.8; x.lineWidth = 3; x.setLineDash([9, 5]);\n      for (const d of o.dias) for (const p of d.partes) linha(p.g); x.restore(); }\n    for (const d of D.ant || []) for (const p of d.partes){ const c = COR_REV[p.rev]; x.save();\n      x.strokeStyle = c || 'rgba(62,85,97,.8)'; x.globalAlpha = c ? 0.5 : 0.7; x.lineWidth = c ? 4 : 2; if (!c) x.setLineDash([2, 4]); linha(p.g); x.restore(); }\n    for (const p of D.hoje || []){ const c = COR_REV[p.rev]; x.save();\n      x.strokeStyle = c || 'rgba(62,85,97,.9)'; x.lineWidth = c ? 5 : 2.5; if (!c) x.setLineDash([2, 4]); linha(p.g); x.restore(); }\n  }\n  // plano de hoje: rotas e ordem\n  if (S.cam.plano) for (const r of D.plano || []) if (r.g && r.g.length > 1){\n    x.save(); x.strokeStyle = 'rgba(11,111,164,.85)'; x.lineWidth = 3.5; x.setLineDash([10, 6]); linha(r.g); x.restore(); }\n  // sem passagem\n  for (const b of D.bloq || []){ const p = tela(b.lat, b.lon); x.save(); x.strokeStyle = '#DC2626'; x.lineWidth = 3;\n    x.beginPath(); x.moveTo(p.x - 7, p.y - 7); x.lineTo(p.x + 7, p.y + 7); x.moveTo(p.x + 7, p.y - 7); x.lineTo(p.x - 7, p.y + 7); x.stroke(); x.restore(); }\n  // pontos\n  const P = visivel(D), caixas = [];\n  const ordem = P.slice().sort((a, b) => (a.est === 'desprezado') - (b.est === 'desprezado') || (b.pl > 0) - (a.pl > 0));\n  for (const q of ordem.slice().reverse()){\n    const p = tela(q.lat, q.lon); if (p.x \u003c -30 || p.y \u003c -30 || p.x > W + 30 || p.y > H + 30) continue;\n    x.save(); if (!q.minha) x.globalAlpha = 0.5;\n    if (q.est === 'naomedido'){ x.strokeStyle = '#fff'; x.lineWidth = 6; xis(p, 7); x.strokeStyle = '#DC2626'; x.lineWidth = 3; xis(p, 7); }\n    else if (q.est === 'desprezado'){ x.globalAlpha = 0.45; x.beginPath(); x.arc(p.x, p.y, 4, 0, 2 * Math.PI); x.strokeStyle = CINZA_FEITO; x.lineWidth = 2; x.stroke(); }\n    else if (q.est === 'opcao'){ x.beginPath(); x.arc(p.x, p.y, 5, 0, 2 * Math.PI); x.fillStyle = '#fff'; x.fill(); x.strokeStyle = corTipo(q.tipo); x.lineWidth = 2.5; x.stroke(); }\n    else if (q.est === 'feito'){\n      x.beginPath(); x.arc(p.x, p.y, 8, 0, 2 * Math.PI); x.fillStyle = CINZA_FEITO; x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 2; x.stroke();\n      x.beginPath(); x.moveTo(p.x - 4, p.y); x.lineTo(p.x - 1, p.y + 3.5); x.lineTo(p.x + 4.5, p.y - 3.5); x.strokeStyle = '#fff'; x.lineWidth = 2.2; x.stroke();\n      if (!q.meu){ x.beginPath(); x.arc(p.x, p.y, 12, 0, 2 * Math.PI); x.setLineDash([3, 3]); x.strokeStyle = '#475569'; x.lineWidth = 1.8; x.stroke(); x.setLineDash([]); }\n    } else { x.beginPath(); x.arc(p.x, p.y, 7.5, 0, 2 * Math.PI); x.fillStyle = corTipo(q.tipo); x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 2; x.stroke(); }\n    if (q.rem && q.est !== 'feito'){ x.beginPath(); x.arc(p.x, p.y, 12, 0, 2 * Math.PI); x.strokeStyle = '#EA580C'; x.lineWidth = 2.5; x.stroke(); }\n    if (S.cam.plano && q.pl){ const t = String(q.pl); x.font = '700 12px system-ui,sans-serif'; const w = x.measureText(t).width + 8;\n      x.fillStyle = '#0B6FA4'; rr(p.x - 13 - w, p.y - 9, w, 18, 6); x.fill(); x.fillStyle = '#fff'; x.textAlign = 'center'; x.fillText(t, p.x - 13 - w / 2, p.y + 4); x.textAlign = 'left'; }\n    x.restore();\n  }\n  if (S.cam.rot && S.z >= 11.5){\n    x.font = '600 12.5px system-ui,sans-serif';\n    for (const q of ordem){\n      if (q.est === 'desprezado') continue;\n      const p = tela(q.lat, q.lon); if (p.x \u003c 0 || p.y \u003c 0 || p.x > W || p.y > H) continue;\n      const tw = x.measureText(q.id).width, cx = {x0: p.x + 11, y0: p.y - 9, x1: p.x + 15 + tw, y1: p.y + 8};\n      if (caixas.some(c => cx.x0 \u003c c.x1 && cx.x1 > c.x0 && cx.y0 \u003c c.y1 && cx.y1 > c.y0)) continue; caixas.push(cx);\n      x.lineWidth = 3.5; x.strokeStyle = 'rgba(255,255,255,.92)'; x.strokeText(q.id, p.x + 12, p.y + 4.5);\n      x.fillStyle = q.minha ? '#0A3D56' : '#64748B'; x.fillText(q.id, p.x + 12, p.y + 4.5);\n    }\n  }\n  // hospedagem\n  for (const h of D.hosp || []){ const p = tela(h.lat, h.lon);\n    x.fillStyle = '#0A3D56'; x.fillRect(p.x - 8, p.y - 8, 16, 16); x.lineWidth = 2.5; x.strokeStyle = '#fff'; x.strokeRect(p.x - 8, p.y - 8, 16, 16);\n    if (S.z >= 10.5){ x.font = '600 12px system-ui,sans-serif'; x.lineWidth = 3.5; x.strokeStyle = 'rgba(255,255,255,.92)'; x.strokeText('Hospedagem', p.x + 12, p.y + 4); x.fillStyle = '#0A3D56'; x.fillText('Hospedagem', p.x + 12, p.y + 4); } }\n  // ponto escolhido\n  if (S.sel){ const q = (D.pontos || []).find(p => p.id === S.sel); if (q){ const p = tela(q.lat, q.lon);\n    x.beginPath(); x.arc(p.x, p.y, 17, 0, 2 * Math.PI); x.strokeStyle = '#fff'; x.lineWidth = 6; x.stroke(); x.strokeStyle = '#0A2E52'; x.lineWidth = 3; x.stroke(); } }\n  // você\n  if (D.pos){ const p = tela(D.pos.lat, D.pos.lon);\n    x.beginPath(); x.arc(p.x, p.y, 8, 0, 2 * Math.PI); x.fillStyle = '#0B6FA4'; x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 3; x.stroke(); }\n  // escala\n  const mpp = 156543.03392 * Math.cos(S.lat * RAD) / Math.pow(2, S.z), alvo = mpp * 110;\n  const passo = [1, 2, 5].map(k => [10, 100, 1000, 10000, 100000].map(b => k * b)).flat().sort((a, b) => a - b).filter(v => v \u003c= alvo).pop() || 10;\n  const lg = passo / mpp; x.fillStyle = 'rgba(255,255,255,.88)'; x.fillRect(8, H - 36, lg + 16, 28);\n  x.fillStyle = '#0A3D56'; x.fillRect(16, H - 15, lg, 4); x.font = '600 12px system-ui,sans-serif';\n  x.fillText(passo >= 1000 ? passo / 1000 + ' km' : passo + ' m', 16, H - 20);\n}\nfunction xis(p, r){ x.beginPath(); x.moveTo(p.x - r, p.y - r); x.lineTo(p.x + r, p.y + r); x.moveTo(p.x + r, p.y - r); x.lineTo(p.x - r, p.y + r); x.stroke(); }\nfunction rr(a, b, w, h, r){ x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); }\n\nfunction ajusta(){\n  const P = (D && D.pontos || []).filter(p => p.minha && p.est !== 'desprezado');\n  const L = P.length ? P : (D && D.pontos || []); if (!L.length || !W) return;\n  const la = L.map(p => p.lat), lo = L.map(p => p.lon);\n  const n = Math.max(...la), s = Math.min(...la), o = Math.min(...lo), l = Math.max(...lo);\n  S.lat = (n + s) / 2; S.lon = (o + l) / 2;\n  let z = 18; while (z > 3 && (mx(l, z) - mx(o, z) > W - 90 || my(s, z) - my(n, z) > H - 110)) z -= 0.25;\n  S.z = z; S.fit = true; pinta();\n}\nfunction zoomEm(px, py, dz){\n  const g = geo(px, py); S.z = Math.max(3, Math.min(19.5, S.z + dz));\n  const X = mx(g.lon, S.z) - (px - W / 2), Y = my(g.lat, S.z) - (py - H / 2);\n  S.lon = geoX(X, S.z); S.lat = geoY(Y, S.z); pinta();\n}\ncv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomEm(e.clientX - r.left, e.clientY - r.top, -e.deltaY * 0.002); }, {passive: false});\nconst PT = new Map(); let arrasto = null, moveu = 0;\ncv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); PT.set(e.pointerId, {x: e.clientX, y: e.clientY}); moveu = 0;\n  arrasto = PT.size === 2 ? {d: dist2()} : {x: e.clientX, y: e.clientY}; cv.style.cursor = 'grabbing'; });\ncv.addEventListener('pointermove', e => { if (!PT.has(e.pointerId)) return; PT.set(e.pointerId, {x: e.clientX, y: e.clientY});\n  if (PT.size === 2 && arrasto && arrasto.d){ const d = dist2(), r = cv.getBoundingClientRect(), c = centro2();\n    zoomEm(c.x - r.left, c.y - r.top, Math.log2(d / arrasto.d)); arrasto.d = d; moveu += 10; return; }\n  if (arrasto && arrasto.x != null){ const dx = e.clientX - arrasto.x, dy = e.clientY - arrasto.y; moveu += Math.abs(dx) + Math.abs(dy);\n    S.lon = geoX(mx(S.lon, S.z) - dx, S.z); S.lat = geoY(my(S.lat, S.z) - dy, S.z); arrasto = {x: e.clientX, y: e.clientY}; pinta(); } });\nconst solta = e => { PT.delete(e.pointerId); cv.style.cursor = 'grab';\n  if (!PT.size && moveu \u003c 6 && e.type === 'pointerup'){ const r = cv.getBoundingClientRect(); toque(e.clientX - r.left, e.clientY - r.top); }\n  arrasto = PT.size === 1 ? Object.assign({}, [...PT.values()][0]) : null; };\ncv.addEventListener('pointerup', solta); cv.addEventListener('pointercancel', solta);\nfunction dist2(){ const [a, b] = [...PT.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; }\nfunction centro2(){ const [a, b] = [...PT.values()]; return {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2}; }\nfunction toque(px, py){\n  let m = null, dm = 16;\n  for (const q of visivel(D || {})){ const p = tela(q.lat, q.lon), d = Math.hypot(p.x - px, p.y - py); if (d \u003c dm){ dm = d; m = q; } }\n  escolhe(m ? m.id : null, false);\n}\ndocument.querySelectorAll('[data-z]').forEach(b => b.addEventListener('click', () => {\n  const v = b.dataset.z;\n  if (v === 'fit') return ajusta();\n  if (v === 'eu'){ if (D && D.pos){ S.lat = D.pos.lat; S.lon = D.pos.lon; if (S.z \u003c 14) S.z = 14; pinta(); } else aviso('sem posição na folha ainda', 4000); return; }\n  zoomEm(W / 2, H / 2, +v);\n}));\nwindow.addEventListener('keydown', e => { if (e.key === '+' || e.key === 'PageUp') zoomEm(W / 2, H / 2, 1); if (e.key === '-' || e.key === 'PageDown') zoomEm(W / 2, H / 2, -1); });\n\nconst ESTADO = {pendente: 'a fazer', opcao: 'opção reserva (a usar se a principal não der)', feito: 'feito', naomedido: 'não medido', desprezado: 'desprezado (círculo já atendido)'};\nfunction escolhe(id, centra){\n  S.sel = id; const el = $('#info');\n  const q = id && (D.pontos || []).find(p => p.id === id);\n  if (!q){ el.hidden = true; pinta(); return; }\n  if (centra){ S.lat = q.lat; S.lon = q.lon; if (S.z \u003c 13) S.z = 13; }\n  el.innerHTML = '\u003cb style=\"font-size:16px\">' + esc(q.id) + '\u003c/b> · ' + esc(q.tipo || 'ponto') + (q.op ? ' · opção ' + esc(q.op) : '')\n    + '\u003cbr>' + esc(ESTADO[q.est] || q.est) + (q.quem.length ? ' — ' + esc(q.quem.join('; ')) : '')\n    + (q.rem ? '\u003cbr>\u003cb style=\"color:#C2410C\">a remedir\u003c/b>' : '') + (q.motivo ? '\u003cbr>motivo: ' + esc(q.motivo) : '')\n    + (q.eq ? '\u003cbr>' + esc(q.eq) + (q.dia ? ', dia ' + q.dia + ' do plano da campanha' : '') : '')\n    + (q.pl ? '\u003cbr>\u003cb style=\"color:#0B6FA4\">plano de hoje: ' + q.pl + 'º ponto\u003c/b>' : '')\n    + '\u003cdiv class=\"acoes\">' + (q.est !== 'desprezado' ? '\u003cbutton type=\"button\" class=\"pri\" data-nav=\"' + q.i + '\">Navegar até ele, na folha\u003c/button>' : '')\n    + '\u003cbutton type=\"button\" data-fecha>Fechar\u003c/button>\u003c/div>';\n  el.hidden = false;\n  const bn = el.querySelector('[data-nav]'); if (bn) bn.addEventListener('click', () => {\n    try { M.abreNav(+bn.dataset.nav); M.focus(); aviso('a navegação até ' + q.id + ' abriu na guia da folha — volte a ela', 6000); }\n    catch (e){ aviso('não consegui falar com a folha: ' + e.message, 6000); } });\n  el.querySelector('[data-fecha]').addEventListener('click', () => escolhe(null));\n  pinta();\n}\nlet _avT = null;\nfunction aviso(t, ms){ const a = $('#aviso'); a.textContent = t; a.hidden = !t; clearTimeout(_avT); if (t && ms) _avT = setTimeout(() => { a.hidden = true; }, ms); }\n\nconst chip = (q, cls, txt) => '\u003cspan class=\"chip ' + (cls || '') + '\" data-id=\"' + esc(q.id) + '\" title=\"' + esc((ESTADO[q.est] || '') + (q.motivo ? ' — ' + q.motivo : '')) + '\">' + esc(txt || q.id) + '\u003c/span>';\nconst dataBR = s => { const m = String(s).match(/^(\\d{4})-(\\d\\d)-(\\d\\d)$/); return m ? m[3] + '/' + m[2] : s; };\nfunction lista(){\n  if (!D) return;\n  const P = (D.pontos || []).filter(p => S.cam.todas || p.minha);\n  const pl = P.filter(p => p.pl && p.est !== 'feito').sort((a, b) => a.pl - b.pl);\n  const pend = P.filter(p => p.est === 'pendente' && !p.pl);\n  const rem = P.filter(p => p.rem && p.est !== 'feito');\n  const nm = P.filter(p => p.est === 'naomedido');\n  const porDia = {}; pend.forEach(p => { const k = p.dia ? 'Dia ' + p.dia + ' do plano da campanha' : 'Sem dia previsto'; (porDia[k] = porDia[k] || []).push(p); });\n  const kd = Object.keys(porDia).sort((a, b) => (parseInt(a.slice(4)) || 999) - (parseInt(b.slice(4)) || 999));\n  $('#porfazer').innerHTML = (pl.length ? '\u003ch3>Plano de hoje, na ordem\u003c/h3>\u003cdiv class=\"chips\">' + pl.map(p => chip(p, 'pl', p.pl + '. ' + p.id)).join('') + '\u003c/div>' : '\u003cp class=\"leg\">Sem plano de hoje.\u003c/p>')\n    + kd.map(k => '\u003ch3>' + esc(k) + ' (' + porDia[k].length + ')\u003c/h3>\u003cdiv class=\"chips\">' + porDia[k].sort((a, b) => a.id.localeCompare(b.id, 'pt-BR', {numeric: true})).map(p => chip(p)).join('') + '\u003c/div>').join('')\n    + (rem.length ? '\u003ch3>A remedir (' + rem.length + ')\u003c/h3>\u003cdiv class=\"chips\">' + rem.map(p => chip(p, 'rem')).join('') + '\u003c/div>' : '')\n    + (nm.length ? '\u003ch3>Não medidos (' + nm.length + ') — as outras opções do círculo se abrem\u003c/h3>\u003cdiv class=\"chips\">' + nm.map(p => chip(p, 'nm')).join('') + '\u003c/div>' : '')\n    + (!pl.length && !pend.length && !rem.length ? '\u003cp class=\"leg\">\u003cb>Nada pendente' + (S.cam.todas ? '' : ' para esta equipe') + '.\u003c/b>\u003c/p>' : '');\n  const F = P.filter(p => p.est === 'feito'), porQ = {};\n  F.forEach(p => { const k = p.meu ? (p.quem[0] === 'hoje' ? 'Hoje' : 'Esta equipe, ' + dataBR(p.quem[0])) : (p.quem[0] || 'outra equipe'); (porQ[k] = porQ[k] || []).push(p); });\n  const kq = Object.keys(porQ).sort((a, b) => (a === 'Hoje') - (b === 'Hoje') || a.localeCompare(b));\n  $('#feito').innerHTML = F.length ? kq.map(k => '\u003ch3>' + esc(k) + ' (' + porQ[k].length + ')\u003c/h3>\u003cdiv class=\"chips\">' + porQ[k].map(p => chip(p, 'ok')).join('') + '\u003c/div>').join('')\n    : '\u003cp class=\"leg\">Nenhum ponto ocupado ainda.\u003c/p>';\n  document.querySelectorAll('.chip[data-id]').forEach(c => c.addEventListener('click', () => escolhe(c.dataset.id, true)));\n  const R = D.resumo || {};\n  $('#num').innerHTML = '\u003cdiv>\u003cb>' + (R.feitos || 0) + '\u003c/b>pontos feitos por esta equipe\u003c/div>\u003cdiv>\u003cb>' + (R.porFazer || 0) + '\u003c/b>pontos a fazer (esta equipe)\u003c/div>'\n    + (R.circTot ? '\u003cdiv>\u003cb>' + R.circAt + ' de ' + R.circTot + '\u003c/b>círculos atendidos (campanha)\u003c/div>' : '')\n    + '\u003cdiv>\u003cb>' + String((R.km || 0).toFixed(0)) + ' km\u003c/b>percorridos em ' + (R.dias || 0) + ' dia(s)\u003c/div>';\n  const T = [];\n  (D.ant || []).forEach(d => T.push(dataBR(d.data) + ': ' + Math.round(d.km) + ' km'));\n  if (D.kmHoje) T.push('hoje: ' + D.kmHoje.toFixed(1).replace('.', ',') + ' km');\n  $('#traj').innerHTML = (T.length ? 'Esta equipe — ' + esc(T.join(' · ')) + '.' : 'Esta equipe ainda não tem trilha gravada.')\n    + ((D.outras || []).length ? '\u003cbr>Outras equipes: ' + D.outras.map(o => '\u003cspan style=\"display:inline-block;width:18px;border-top:3px dashed ' + o.cor + ';vertical-align:middle;margin:0 4px\">\u003c/span>' + esc(o.equipe) + ' (' + o.dias.length + ' dia(s))').join(' · ') : '');\n  legenda();\n}\nfunction sw(svg){ return '\u003csvg width=\"30\" height=\"20\" viewBox=\"-15 -10 30 20\">' + svg + '\u003c/svg>'; }\nfunction legenda(){\n  const L = [];\n  const tipos = [...new Set((D.pontos || []).map(p => p.tipo || ''))];\n  tipos.forEach(t => L.push([sw('\u003ccircle r=\"7\" fill=\"' + corTipo(t) + '\" stroke=\"#fff\" stroke-width=\"2\"/>'), 'A fazer — ' + (t || 'ponto') + ' (cor do tipo, como na navegação)']));\n  L.push([sw('\u003ccircle r=\"5\" fill=\"#fff\" stroke=\"#5a6b73\" stroke-width=\"2.5\"/>'), 'Opção reserva do círculo (vazada, na cor do tipo)']);\n  L.push([sw('\u003ccircle r=\"8\" fill=\"' + CINZA_FEITO + '\" stroke=\"#fff\" stroke-width=\"2\"/>\u003cpath d=\"M-4 0 L-1 3.5 L4.5 -3.5\" stroke=\"#fff\" stroke-width=\"2.2\" fill=\"none\"/>'), 'Feito por esta equipe']);\n  L.push([sw('\u003ccircle r=\"8\" fill=\"' + CINZA_FEITO + '\"/>\u003ccircle r=\"11\" fill=\"none\" stroke=\"#475569\" stroke-width=\"1.8\" stroke-dasharray=\"3 3\"/>'), 'Feito por outra equipe (anel tracejado)']);\n  L.push([sw('\u003ccircle r=\"6\" fill=\"#5a6b73\"/>\u003ccircle r=\"9.5\" fill=\"none\" stroke=\"#EA580C\" stroke-width=\"2.5\"/>'), 'A remedir (anel laranja)']);\n  L.push([sw('\u003cpath d=\"M-6 -6 L6 6 M6 -6 L-6 6\" stroke=\"#DC2626\" stroke-width=\"3\"/>'), 'Não medido (X vermelho) · também marca \"sem passagem\"']);\n  L.push([sw('\u003ccircle r=\"4\" fill=\"none\" stroke=\"' + CINZA_FEITO + '\" stroke-width=\"2\" opacity=\".5\"/>'), 'Opção desprezada (círculo já atendido), se ligada']);\n  L.push([sw('\u003crect x=\"-13\" y=\"-8\" width=\"14\" height=\"16\" rx=\"5\" fill=\"#0B6FA4\"/>\u003ctext x=\"-6\" y=\"4\" font-size=\"11\" fill=\"#fff\" text-anchor=\"middle\" font-weight=\"700\">1\u003c/text>\u003ccircle cx=\"7\" r=\"5\" fill=\"#5a6b73\"/>'), 'Ordem no plano de hoje']);\n  L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"rgba(11,111,164,.85)\" stroke-width=\"3.5\" stroke-dasharray=\"7 4\"/>'), 'Rota do plano de hoje']);\n  Object.keys(NOME_REV).forEach(k => L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"' + COR_REV[k] + '\" stroke-width=\"5\"/>'), 'Trilha — ' + NOME_REV[k] + ' (hoje, forte; dias anteriores, a mesma cor mais clara)']));\n  L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"rgba(62,85,97,.9)\" stroke-width=\"2.5\" stroke-dasharray=\"2 4\"/>'), 'Trilha sem trecho marcado']);\n  (D.outras || []).forEach(o => L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"' + o.cor + '\" stroke-width=\"3\" stroke-dasharray=\"7 4\"/>'), 'Trajetos de ' + esc(o.equipe)]));\n  L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"#D97706\" stroke-width=\"3\"/>'), 'Rodovias principais (OpenStreetMap)']);\n  L.push([sw('\u003crect x=\"-7\" y=\"-7\" width=\"14\" height=\"14\" fill=\"#0A3D56\" stroke=\"#fff\" stroke-width=\"2\"/>'), 'Hospedagem']);\n  L.push([sw('\u003ccircle r=\"7\" fill=\"#0B6FA4\" stroke=\"#fff\" stroke-width=\"3\"/>'), 'Você (última posição da folha)']);\n  L.push([sw('\u003ccircle r=\"6\" fill=\"#5a6b73\" opacity=\".5\"/>'), 'Pontos de outras equipes (mais apagados), se ligados']);\n  $('#leg').innerHTML = L.map(r => '\u003cdiv>' + r[0] + '\u003cspan>' + r[1] + '\u003c/span>\u003c/div>').join('')\n    + '\u003cp class=\"leg\" style=\"margin:6px 0 0\">Trilhas a menos de 1 km da hospedagem não aparecem.\u003c/p>';\n}\n/* a folha (a guia que abriu esta) é a fonte: a cada 3 s, se algo mudou, pega os dados de novo */\nfunction atualiza(){\n  if (!M || M.closed){ aviso('A folha que abriu esta guia foi fechada: abra a folha e toque em \"Visão geral\" de novo.'); return; }\n  let v; try { v = M.visaoVersao(); } catch (e){ aviso('A folha não respondeu (' + e.message + '). Volte à guia da folha e toque em \"Visão geral\".'); return; }\n  if (v === VER) return;\n  try { D = M.dadosVisao(); } catch (e){ aviso('erro ao ler a folha: ' + e.message); return; }\n  VER = v; if ($('#aviso').textContent.startsWith('A folha')) aviso('');\n  $('#tit').textContent = 'Visão geral — ' + (D.campanha || 'campanha');\n  $('#sub').textContent = (D.equipe ? D.equipe + ' · ' : '') + 'atualizado às ' + new Date().toLocaleTimeString('pt-BR').slice(0, 5);\n  document.title = 'Visão geral — ' + (D.equipe || D.campanha || 'campanha');\n  if (!S.fit) ajusta();\n  lista(); pinta();\n  if (S.sel) escolhe(S.sel, false);\n}\nwindow.visaoAtualiza = () => { VER = null; atualiza(); };\nsetInterval(() => { if (document.visibilityState === 'visible') atualiza(); }, 3000);\ndocument.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') atualiza(); });\nwindow.addEventListener('online', pinta); window.addEventListener('offline', pinta);\nsetTimeout(atualiza, 50);\n\u003c/script>\n\u003c/body>\n\u003c/html>\n";
 
 /* --- revisão no fim do dia (cartão da trilha) --- */
 function listaTrechos(){
@@ -15358,15 +15700,40 @@ function _htmlDigitar(id, d){
     + (d != null ? ' &nbsp;·&nbsp; <b style="font-size:30px">Declinação ' + _numBR(d, 1) + '</b>' : '')
     + '<br><small style="font-size:14px">(ou deixe a declinação em branco: a página calcula pelo GPS do celular)</small></div>';
 }
-function mostraQrFotos(p){
+/* 10/11/2026: no notebook, o cartão do ponto diz o que fazer no celular das fotos e mostra o que já chegou dele */
+function htmlFotosNotebook(p){
+  const rec = FOTOS.filter(f => p.fotos && p.fotos[f[0]]).length, c = p.coord_cel, posOk = !!(c && /fotos|GPS externo/.test(c.fonte || ''));
+  const pasta = !VIGIA.h ? 'Pasta de chegada das fotos não escolhida' : !VIGIA.ok ? 'Pasta de chegada das fotos inativa (toque em Reativar, na aba Notebook)' : '';
+  return '<div style="border:2px solid #0A2E52;border-radius:10px;padding:10px 12px;margin:6px 0 10px">'
+    + '<p style="margin:0 0 6px"><b>No notebook não se tira foto.</b> As 4 fotos e a posição provisória deste ponto vêm do <b>celular das fotos</b>, '
+    + '<b>agora</b>, enquanto o receptor rastreia:</p><ol class="leg" style="margin:4px 0 6px;padding-left:22px">'
+    + '<li><b>QR deste ponto</b> (botão abaixo): o celular lê e abre a página das fotos já com o ponto.</li>'
+    + '<li>No celular, <b>2. Medir a posição</b>: 20 s de pé junto ao tripé.</li>'
+    + '<li>No celular, <b>3. Tirar as 4 fotos</b> (F1 norte, F2 sul, F3 oeste, F4 leste).</li>'
+    + '<li><b>4. Mandar ao notebook ainda no ponto</b>: plugue o cabo USB, com o ajudante USB aberto no notebook — ele copia sozinho e as fotos '
+    + 'entram aqui em segundos —, ou toque em Enviar (Quick Share, Bluetooth). Sem como mandar agora: no fim do dia, do mesmo jeito.</li></ol>'
+    + '<p style="margin:4px 0"><b>Chegou neste notebook:</b> fotos <b style="color:' + (rec === 4 ? '#15803D' : '#B91C1C') + '">' + rec + ' de 4</b> · posição '
+    + (posOk ? '<b style="color:#15803D">✓ ± ' + _numBR(c.acc || 0, 1) + ' m</b>' : '<b style="color:#B91C1C">falta</b>')
+    + (rec === 4 && posOk ? ' — <b style="color:#15803D">pode desmontar</b>' : ' — confira antes de desmontar') + '</p>'
+    + (pasta ? '<p class="leg" style="color:#B91C1C;margin:4px 0"><b>' + pasta + '</b>: sem ela, as fotos não entram sozinhas (aba Notebook, passo 2).</p>' : '')
+    + '<div class="acoes"><button type="button" class="btn peq" data-qrfotos>QR deste ponto para o celular</button>'
+    + '<button type="button" class="btn sec peq" data-varre>Olhar a pasta agora</button>'
+    + '<button type="button" class="btn sec peq" data-fotosoutro>Escolher os arquivos à mão</button></div></div>';
+}
+function mostraQrFotos(p, inicio){
   const u = urlFotosPonto(p), id = _idsDoPonto(p)[0] || '';
   if (!id) return marca('o ponto ainda não tem identificador: ligue-o ao planejado ou preencha o identificador');
   let svg; try { svg = QR.svg(u, Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.6)); } catch (e){ return marca('QR: ' + e.message); }
   const v = document.createElement('div');
   v.style.cssText = 'position:fixed;inset:0;z-index:70;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;text-align:center';
-  v.innerHTML = '<b style="font-size:20px">Fotos do ' + esc(id) + ' — leia com a câmera do celular</b>' + svg
+  v.style.overflow = 'auto';
+  v.innerHTML = (inicio ? '<b style="font-size:22px;color:#0A2E52">Ponto ' + esc(id) + ' começado — agora, o celular das fotos</b>' : '')
+    + '<b style="font-size:20px">Fotos e posição do ' + esc(id) + ' — leia com a câmera do celular</b>' + svg
     + '<p class="leg" style="max-width:640px;overflow-wrap:anywhere">' + esc(u) + '</p>'
-    + '<p class="leg" style="max-width:640px">Abre a página leve já com o ponto e a declinação. Na primeira vez precisa de internet; depois abre sem rede.</p>'
+    + '<p class="leg" style="max-width:680px">Abre a página das fotos já com o ponto. Nela: <b>2. Medir a posição</b> (20 s junto ao tripé), '
+    + '<b>3. Tirar as 4 fotos</b> e <b>4. Mandar ao notebook</b> — cabo USB com o ajudante aberto, ou Enviar. Na primeira vez a página precisa de internet; depois abre sem rede.</p>'
+    + '<p class="leg" style="max-width:680px"><b>Já com a lista do dia no celular</b> (veio por Bluetooth)? Não precisa do QR: lá, o ponto ' + esc(id)
+    + ' já está escolhido pelo "Próximo ponto do plano" ou se escolhe na lista.</p>'
     + _htmlDigitar(id, _declDoPonto(p))
     + '<button type="button" class="btn sec peq">Fechar</button>';
   v.querySelector('button').addEventListener('click', () => v.remove());
@@ -18307,6 +18674,7 @@ async function inicia(){
   carregaArquivosNB().catch(() => {});
   contaBlocos();
   carregaTrajetos();
+  carregaPercOutras().catch(() => {});
   carregaTrilha().then(() => { if (F.dia.trilha_ligada) ligaTrilha(false); });
   setTimeout(() => { try { vigiaOcupacao(); } catch (e){} }, 1500);
   try { iniciaGpsExt(); } catch (e){}

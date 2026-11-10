@@ -541,7 +541,7 @@ você cabe o que nenhum arquivo registra.</p>
   </div>
   </div>
   <input type="file" id="f_json" accept=".json,application/json" multiple class="oculto">
-  <input type="file" id="f_rinex" accept="*/*" class="oculto">
+  <input type="file" id="f_rinex" accept="*/*" multiple class="oculto">
   <div id="listas" class="oculto"></div>
   <input type="file" id="f_foto" accept="image/*" capture="environment" class="oculto">
   <input type="file" id="f_galeria" accept="image/*" class="oculto">
@@ -555,6 +555,13 @@ você cabe o que nenhum arquivo registra.</p>
   </div>
   <div id="foco_barra" class="naoimprime" hidden></div>
   <div id="pontos"></div>
+
+  <div class="cart naoimprime" id="cart_ocorr_dia">
+    <h3>Ocorrências do dia</h3>
+    <p class="leg">O que saiu do previsto (viatura, acesso, tempo, equipamento, segurança), com fotos. Vai para os relatórios.</p>
+    <div class="ocor_reg"></div>
+    <div class="acoes"><button type="button" class="btn sec peq" data-ocnova>Registrar ocorrência (com fotos)</button></div>
+  </div>
 
   <div class="cart">
     <h3>O dia</h3>
@@ -779,6 +786,10 @@ você cabe o que nenhum arquivo registra.</p>
   </div>
   <div class="cart naoimprime" id="cart_arquiva">
     <h3>4. Ocorrências e arquivar o dia</h3>
+    <p class="leg">Viatura guinchada, porteira fechada, chuva, equipamento com defeito: registre com hora, lugar e fotos.
+    Sai no relatório do dia, no da campanha (com as fotos) e no Relatório de Viagem.</p>
+    <div class="ocor_reg"></div>
+    <div class="acoes"><button type="button" class="btn sec peq" data-ocnova>Registrar ocorrência (com fotos)</button></div>
     <label class="c" for="d_ocorr">Ocorrências do dia — o que saiu do previsto, e o que se fez</label>
     <textarea id="d_ocorr" data-campo="dia.ocorrencias"></textarea>
     <p class="leg">Arquivar guarda o dia na campanha (é o que monta o relatório da campanha) e esvazia a
@@ -790,6 +801,23 @@ você cabe o que nenhum arquivo registra.</p>
   </div>
   <div class="cart naoimprime" id="cart_redist" hidden></div>
   <details class="bloco naoimprime" id="bloco_ppp"><summary>Coordenadas do IBGE-PPP<span class="conta">dias depois</span></summary><div class="itens">
+  <div class="cart naoimprime" id="cart_ppp_sit">
+    <h3>Situação do IBGE-PPP, ponto a ponto</h3>
+    <p class="leg">Para cada ponto rastreado na campanha: os dias desde o fim do rastreio, a órbita que o IBGE-PPP usaria se o RINEX
+    fosse processado hoje, a data em que a órbita final deve sair e o que fazer. É previsão pelos prazos publicados; quem decide a órbita
+    é o próprio IBGE-PPP, e o resultado traz a usada. O botão <b>PPP</b>, na barra de baixo, aparece quando há ponto que já pode ir.</p>
+    <div id="ppp_sit"></div>
+    <details class="ajuda"><summary>Prazos das órbitas e referências</summary>
+      <p><b>Ultrarrápida</b>: cerca de 3 h depois do rastreio. <b>Rápida</b>: 17 a 18 h depois do fim do dia (UTC) do rastreio. <b>Final</b>: 12 a 15 dias
+      depois do fim da semana GPS do rastreio (sábado); aqui, provável a partir de 13 dias e certa a partir de 15. O Manual do IBGE-PPP dá de 12 a 36 h
+      para a rápida e de 11 a 17 dias para a final. Desde fevereiro de 2024 o IBGE-PPP usa as órbitas finais do CODE e as ultrarrápidas do NRCan.
+      Para coordenada de controle, vale o resultado de órbita final; o de rápida ou ultrarrápida é provisório e é substituído quando o final chega.</p>
+      <p class="leg">IBGE. <i>Manual do usuário: aplicativo online IBGE-PPP</i>. Rio de Janeiro: IBGE, 2023. ·
+      IBGE. <i>Serviço online para pós-processamento de dados GNSS – IBGE-PPP</i>. Rio de Janeiro: IBGE, [2024]. ·
+      NATURAL RESOURCES CANADA. <i>CSRS-PPP updates and information</i>. Ottawa: NRCan, 2026. ·
+      NASA. <i>GNSS orbit products</i>. Greenbelt: CDDIS, [2025].</p>
+    </details>
+  </div>
   <div class="cart naoimprime" id="cart_ppp">
     <h3>Coordenadas do IBGE-PPP</h3>
     <p class="leg">Quando o resultado do IBGE-PPP chegar — dias depois, se for
@@ -823,10 +851,10 @@ você cabe o que nenhum arquivo registra.</p>
       convertido aqui para 2.11, com GPS e GLONASS, que é o que o PPP processa. O arquivo vai
       compactado (Hatanaka, .AAd, cerca de um quarto do tamanho), o que faz rastreios de horas
       caberem nos 20 MB que o PPP aceita por arquivo. O arquivo guardado no ponto não muda.</p>
-      <p>O PPP só processa depois de publicadas as órbitas precisas: a rápida
-      sai de 12 a 36 h depois do rastreio; a final, de 11 a 17 dias depois
-      (Manual do Usuário IBGE-PPP, 2023). Reenviado depois, o resultado de órbita
-      final substitui o de rápida.</p>
+      <p>O PPP só processa depois de publicadas as órbitas: a ultrarrápida cerca de 3 h depois do rastreio,
+      a rápida de 12 a 36 h depois e a final de 11 a 17 dias depois (Manual do Usuário IBGE-PPP, 2023). Reenviado
+      depois, o resultado de órbita final substitui o de rápida. A <b>Situação do IBGE-PPP</b>, acima, mostra ponto
+      a ponto o que sairia hoje e quando a final deve sair.</p>
     </details>
     <details class="ajuda">
       <summary>O .bat do PPP (computador Windows)</summary>
@@ -1027,6 +1055,7 @@ você cabe o que nenhum arquivo registra.</p>
 <div class="barra naoimprime">
   <span id="estado">pronta</span>
   <button type="button" class="btn sec peq" id="b_gpsrap" hidden>GPS</button>
+  <button type="button" class="btn sec peq" id="b_pppalerta" hidden title="situação do IBGE-PPP">PPP</button>
   <button type="button" class="btn sec peq" id="b_visao" title="o que já foi feito e o que falta, numa guia à parte">Visão geral</button>
   <button type="button" class="btn sec peq" id="b_trancar" title="Trancar a folha (pede o PIN para abrir)">Trancar</button>
   <button type="button" class="btn sec peq" id="b_salvar">Cópia completa</button>
@@ -4386,7 +4415,7 @@ async function montaRelatorio(p){
   let yy = y2 + 22, xf = xn + wn + 26;
   const lfim = CRO.W - M;
   const linhas = [
-    ['tipo', p.tipo],
+    ['tipo', p.tipo], ['finalidade', finalidadeDe(p)],
     p.campo ? ['escolhido em campo', 'círculo ' + p.campo.circulo + ' — ' + (p.campo.motivo || '')]
             : ['escolhido no gabinete', p.planejado && p.planejado.id ? p.planejado.id : '—'],
     ['localidade', p.localidade || '—'],
@@ -4756,10 +4785,7 @@ function exportaRelatorio(p, formato){
    Foto e Folha MI são de outro tipo de planejamento e ficam em branco. O que o formulário pede
    e só a tela do receptor mostra (PDOP, coordenada de término) vem do cartão do ponto. */
 const CCAR_DIAG = {esq: 'o da esquerda no formulário', dir: 'o da direita no formulário'};
-function _ccarTipo(p){
-  const s = (p.serve || '') + ' ' + (p.tipo || '');
-  return /altim[eé]tric/i.test(s) && !/planialt|planim/i.test(s) ? 'alt' : 'planialt';
-}
+function _ccarTipo(p){ return finalidadeDe(p) === 'altimétrico' ? 'alt' : 'planialt'; }
 function _ccarDiagrama(x, X, Y, s, base){
   // trípé desenhado como no formulário: prato da antena no alto, pernas, eixo e cotas
   x.save(); x.strokeStyle = '#111'; x.fillStyle = '#111'; x.lineWidth = 1.6;
@@ -4879,6 +4905,7 @@ async function formularioCCAR(p, o){
   const escolhido = !!(p.campo || p.alvo === ALVO_CAMPO);
   marcaX(L + 430, y + 48, escolhido, 'Ponto escolhido em campo');
   const linhasD = [];
+  linhasD.push('Finalidade: ' + finalidadeDe(p) + '.');
   if (p.tipo === 'checagem') linhasD.push('Ponto de checagem' + (p.serve ? ' (' + p.serve.replace(/^checagem — /, '') + ')' : '') + '.');
   for (const [rot, v] of descricaoPadrao(p)) linhasD.push(rot.split(' — ')[0] + ': ' + v);
   fnt(15); x.fillStyle = AZ; let yy = y + 75; const largD = xd - L - 20;
@@ -5292,6 +5319,15 @@ const PISO = ['', 'rocha', 'concreto', 'asfalto', 'calçada / piso cimentado',
   'solo compactado', 'solo natural', 'areia', 'outro'];
 const HORIZONTE = ['', 'sem obstrução aparente', 'obstrução parcial',
   'obstrução em vários setores', 'obstrução severa'];
+/* Finalidade do ponto (10/11/2026): planialtimétrico ou altimétrico — é o que o formulário de campo da CCAR marca
+   ("Controle planialtimétrico" / "Controle altimétrico") e o relatório de entrega conta. Ponto sem finalidade escolhida
+   segue o "A que serve" antigo (checagem altimétrica → altimétrico); sem nada, planialtimétrico. */
+const FINALIDADES = ['planialtimétrico', 'altimétrico'];
+function finalidadeDe(p){
+  if (p && FINALIDADES.includes(p.finalidade)) return p.finalidade;
+  const s = ((p && p.serve) || '');
+  return /altim[eé]tric/i.test(s) && !/planialt|planim|posicional/i.test(s) ? 'altimétrico' : 'planialtimétrico';
+}
 /* A que serve: escolha numa lista, conforme o tipo. */
 const SERVE = {
   checagem: ['checagem — avaliação da exatidão posicional (planimétrica e altimétrica)',
@@ -5582,10 +5618,15 @@ function cartaoPonto(p, k){
         : '<div><label class="c">Tipo</label><select data-p="tipo">'
           + ['controle', 'checagem'].map(o => '<option' + (p.tipo === o ? ' selected' : '')
           + '>' + o + '</option>').join('') + '</select></div></div>')
-    + '<label class="c">A que serve</label><select data-p="serve">'
+    + '<label class="c" style="font-weight:700">Finalidade do ponto</label><select data-p="finalidade" style="font-weight:700">'
+    + FINALIDADES.map(o => '<option value="' + o + '"' + (finalidadeDe(p) === o ? ' selected' : '') + '>' + o.charAt(0).toUpperCase() + o.slice(1) + '</option>').join('')
+    + '</select>'
+    + (p.tipo === 'checagem' ? '<p class="leg" data-chkleg style="margin:2px 0 6px">Ponto de checagem: avaliação da exatidão '
+        + (finalidadeDe(p) === 'altimétrico' ? 'altimétrica' : 'posicional (planimétrica e altimétrica)') + '.</p>'
+      : '<label class="c">A que serve</label><select data-p="serve">'
     + (function(){ const L = (SERVE[p.tipo] || []).slice(); if (p.serve && !L.includes(p.serve)) L.push(p.serve);
         return ['<option value=""></option>'].concat(L.map(o => '<option' + (p.serve === o ? ' selected' : '') + '>' + esc(o) + '</option>')).join(''); })()
-    + '</select>'
+    + '</select>')
     + '<div class="lin2">'
     + '<div><label class="c">Materialização do marco</label><select data-p="alvo">'
     + (function(){ const L = ALVOS.slice(); if (p.alvo && !L.includes(p.alvo)) L.push(p.alvo);
@@ -5690,6 +5731,15 @@ function cartaoPonto(p, k){
     if (c === 'tipo' || c === 'id'){ cabecalhoPonto(d, p, k); }
     if (c === 'id') pintaAlvos();
     if (c === 'forma') lembraMontagem(p);
+    if (c === 'finalidade'){
+      // checagem: o "a que serve" acompanha a finalidade
+      if (p.tipo === 'checagem' && SERVE.checagem){ p.serve = SERVE.checagem[p.finalidade === 'altimétrico' ? 2 : 0];
+        const sv = d.querySelector('[data-p=serve]'); if (sv) sv.value = p.serve;
+        const cl = d.querySelector('[data-chkleg]'); if (cl) cl.textContent = 'Ponto de checagem: avaliação da exatidão '
+          + (p.finalidade === 'altimétrico' ? 'altimétrica' : 'posicional (planimétrica e altimétrica)') + '.'; }
+      if (p.relatorio){ p.relatorio = ''; setTimeout(() => marca('finalidade mudou — monte de novo o relatório do ponto'), 600); }
+      marca('ponto ' + (p.id || '') + ': ' + p.finalidade);
+    }
     pintaAvisos(d, p, minPonto(p.tipo) || 0); pintaFaltaDescricao(d, p); grava();
     if (p.ocup_ini && c !== 'id') pintaOcupacao(d, p);
   };
@@ -6156,9 +6206,12 @@ function separaDatas(d, fica){
     if (k === fica) return true; (resto[k] = resto[k] || []).push(p); return false; });
   d.trechos = (d.trechos || []).filter(q => { const k = q.t ? _isoLocal(q.t * 1000) : fica;
     if (k === fica || !resto[k]) return true; (tre[k] = tre[k] || []).push(q); return false; });
+  const oc = {};   // ocorrências registradas: cada uma no dia da sua hora
+  d.ocorr_reg = (d.ocorr_reg || []).filter(o => { const k = o.t ? _isoLocal(Date.parse(o.t)) : fica;
+    if (k === fica || !resto[k]) return true; (oc[k] = oc[k] || []).push(o); return false; });
   d.data = fica; d.data_auto = false;
   return Object.keys(resto).sort().map(k => Object.assign(diaNovo(), {data: k, data_auto: false,
-    pontos: resto[k], trechos: tre[k] || [], trilha_id: d.trilha_id || ''}));
+    pontos: resto[k], trechos: tre[k] || [], ocorr_reg: oc[k] || [], trilha_id: d.trilha_id || ''}));
 }
 function pintaQualDia(){
   const cx = $('#cart_qual_dia'); if (!cx) return;
@@ -6213,6 +6266,7 @@ async function arrumaDiasMisturados(){
       if (F.dia[k]) r[k] = r[k] && r[k] !== F.dia[k] ? r[k] + '\n' + F.dia[k] : F.dia[k];
     r.itens = Object.assign({}, r.itens || {}, F.dia.itens || {});
     r.trechos = (r.trechos || []).concat(F.dia.trechos || []);
+    r.ocorr_reg = (r.ocorr_reg || []).concat(F.dia.ocorr_reg || []);
     if (F.dia.trilha_ligada) r.trilha_ligada = true;
     if (F.dia.trilha_id && F.dia.trilha_id !== r.trilha_id){
       try {
@@ -6488,7 +6542,7 @@ const COLS = [
 const COLS_PT = [
   ['campanha', () => F.campanha.nome], ['municipio', () => F.campanha.municipio],
   ['uf', () => F.campanha.uf], ['data', () => DIA_CSV().data], ['local', () => DIA_CSV().local],
-  ['ponto', p => p.id], ['tipo', p => p.tipo], ['serve_a', p => p.serve],
+  ['ponto', p => p.id], ['tipo', p => p.tipo], ['finalidade', p => finalidadeDe(p)], ['serve_a', p => p.serve],
   ['localidade', p => p.localidade],
   ['municipio_ibge', p => p.municipio], ['uf_ibge', p => p.uf],
   ['cod_municipio_ibge', p => p.cd_mun],
@@ -6799,7 +6853,7 @@ function _tabelaPontos(pontos, comDia){
     + '<th>antena</th><th>altura</th><th>rastreio</th><th>dur.</th><th>PPP</th></tr>'
     + pontos.map(e => { const p = e.p || e;
         return '<tr>' + (comDia ? '<td>' + _dataBr(e.data) + '</td>' : '')
-        + '<td>' + esc(p.id || '—') + '</td><td>' + p.tipo
+        + '<td>' + esc(p.id || '—') + '</td><td>' + p.tipo + '<br><span class="ocor" style="color:inherit">' + finalidadeDe(p) + '</span>'
         + '</td><td>' + esc((p.planejado || {}).id || '—')
         + (afastamentoPlanejado(p) != null ? '<br><span class="ocor">a '
            + _metros(afastamentoPlanejado(p)) + '</span>' : '')
@@ -6900,6 +6954,7 @@ function montaImpressao(mapas, fotos, fig, tempos){
     + htmlTemposDia(tempos)
     + (F.dia.ocorrencias ? '<h2>Ocorrências do dia</h2><p>'
         + esc(F.dia.ocorrencias).replace(/\n/g,'<br>') + '</p>' : '')
+    + htmlOcorrReg([F.dia], false)
     + NOTA_COORD
     + '<p class="ident">Registro gerado em ' + new Date().toLocaleString('pt-BR') + '.</p>'
     + '<div class="assina"><div>responsável pela equipe</div><div>data</div></div>'
@@ -6968,7 +7023,137 @@ async function fotoComRumo(u, az, D){
   seloRumo(x, vx + r * 1.7, vy + r * 1.9, r, az, D);
   return c.toDataURL('image/jpeg', 0.85);
 }
+
+/* ---------- Ocorrências registradas, com fotos (10/11/2026) ----------
+   Pedido da coordenação: viatura guinchada, porteira fechada, chuva, receptor com defeito — cada ocorrência
+   vira um registro do dia (tipo, hora, lugar, o que aconteceu e o que se fez, fotos), que sai no relatório
+   do dia, no relatório da campanha (com as fotos), no Relatório de Viagem e na cópia completa. As fotos são
+   reduzidas a 1600 px e guardadas no aparelho, como as dos pontos. A posição do aparelho fica no registro,
+   mas não sai nos relatórios a menos de 1 km da hospedagem (a mesma regra das trilhas). O campo de texto
+   livre "Ocorrências do dia" continua valendo. */
+const TIPOS_OCOR = ['viatura — pane, guincho ou oficina', 'viatura — acidente ou avaria', 'acesso — estrada, porteira, ponte ou propriedade',
+  'tempo — chuva, raios ou vento', 'equipamento — receptor, antena, ARP ou celular', 'segurança', 'saúde ou acidente pessoal', 'outra'];
+function ocorrDe(d){ return (d && (d.ocorr_reg = d.ocorr_reg || [])) || []; }
+const _hm2 = iso => { const t = new Date(iso); return isNaN(t) ? '—' : String(t.getHours()).padStart(2, '0') + 'h' + String(t.getMinutes()).padStart(2, '0'); };
+async function guardaFotoOcorr(file){
+  const d = await reduz(file, 1600, 0.75);
+  const k = 'oc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  await idbPoe(k, d);
+  try { await idbPoe(chaveMin(k), await reduzDataURL(d, LADO_MIN, 0.62)); } catch (e){}
+  return k;
+}
+function _ocorrPublica(o, d){
+  if (o.lat == null || o.lon == null) return false;
+  try { return !_lugaresOcultos(d || F.dia).some(b => _dPlano(b.lat, b.lon, o.lat, o.lon) < RAIO_OCULTO); } catch (e){ return false; }
+}
+function abreOcorrencia(id){
+  const L = ocorrDe(F.dia), velho = id ? L.find(o => o.id === id) : null;
+  const P = NAV && NAV.pos ? NAV.pos : null;
+  const o = velho ? JSON.parse(JSON.stringify(velho))
+    : {id: 'oc_' + Date.now(), t: new Date().toISOString(), tipo: TIPOS_OCOR[0], lugar: '', texto: '', fotos: [],
+       lat: P ? +P.lat.toFixed(6) : null, lon: P ? +P.lon.toFixed(6) : null};
+  const ant = document.getElementById('ocor_tela'); if (ant) ant.remove();
+  const v = document.createElement('div'); v.id = 'ocor_tela'; v.className = 'naoimprime';
+  v.style.cssText = 'position:fixed;inset:0;z-index:95;background:var(--fundo,#fff);overflow:auto;padding:16px';
+  const hora = (() => { const t = new Date(o.t); return String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0'); })();
+  v.innerHTML = '<div style="max-width:720px;margin:0 auto"><h3>' + (velho ? 'Ocorrência' : 'Nova ocorrência') + ' do dia</h3>'
+    + '<label class="c">Tipo</label><select data-o="tipo">' + TIPOS_OCOR.map(x => '<option' + (x === o.tipo ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select>'
+    + '<div class="lin2"><div><label class="c">Hora</label><input type="time" data-o="hora" value="' + hora + '"></div>'
+    + '<div><label class="c">Lugar (opcional)</label><input type="text" data-o="lugar" value="' + esc(o.lugar) + '" placeholder="ex.: RN-063, perto do ponto 0031A; oficina em Ceará-Mirim"></div></div>'
+    + '<label class="c">O que aconteceu e o que se fez</label><textarea data-o="texto" rows="5" placeholder="ex.: a viatura parou com pane elétrica às 10h; guincho às 12h para a oficina; a equipe voltou de carona; pontos 0031A e 0033A ficaram para amanhã">' + esc(o.texto) + '</textarea>'
+    + '<label class="c">Fotos</label><div data-o="fotos" style="display:flex;flex-wrap:wrap;gap:8px;margin:4px 0"></div>'
+    + '<div class="acoes"><button type="button" class="btn sec peq" data-oa="cam">Tirar foto</button><button type="button" class="btn sec peq" data-oa="gal">Escolher fotos</button></div>'
+    + '<p class="leg" data-o="pos">' + (o.lat != null ? 'Posição do aparelho guardada no registro (' + o.lat.toFixed(5) + ', ' + o.lon.toFixed(5) + ')' + (_ocorrPublica(o) ? '.' : '; perto da hospedagem, não sai nos relatórios.')
+      : 'Sem posição do aparelho (GPS desligado): use o campo Lugar.') + '</p>'
+    + '<div class="acoes"><button type="button" class="btn peq" data-oa="ok">Guardar</button><button type="button" class="btn sec peq" data-oa="nao">Cancelar</button>'
+    + (velho ? '<button type="button" class="btn sec peq" data-oa="apaga" style="margin-left:auto">Apagar esta ocorrência</button>' : '') + '</div></div>'
+    + '<input type="file" accept="image/*" capture="environment" data-of="cam" class="oculto"><input type="file" accept="image/*" multiple data-of="gal" class="oculto">';
+  document.body.appendChild(v);
+  const q = s => v.querySelector(s), novas = [];
+  const pintaF = async () => {
+    const el = q('[data-o=fotos]'); el.innerHTML = o.fotos.length ? '' : '<span class="leg">nenhuma foto</span>';
+    for (const k of o.fotos){ const m = await miniaturaDe(k).catch(() => null);
+      const f = document.createElement('div'); f.style.cssText = 'position:relative';
+      f.innerHTML = '<img alt="foto da ocorrência" style="height:96px;border-radius:6px;border:1px solid #c9d2d6" src="' + (m || '') + '">'
+        + '<button type="button" class="btn sec peq" style="position:absolute;top:2px;right:2px;padding:0 6px" title="tirar esta foto">×</button>';
+      f.querySelector('button').addEventListener('click', () => { o.fotos = o.fotos.filter(z => z !== k); pintaF(); });
+      el.appendChild(f); }
+  };
+  const recebe = async files => {
+    for (const f of files){ try { const k = await guardaFotoOcorr(f); o.fotos.push(k); novas.push(k); } catch (e){ marca('foto: ' + e.message); } }
+    pintaF();
+  };
+  v.querySelectorAll('[data-of]').forEach(i => i.addEventListener('change', e => { const L2 = Array.from(e.target.files); e.target.value = ''; if (L2.length) recebe(L2); }));
+  q('[data-oa=cam]').addEventListener('click', () => q('[data-of=cam]').click());
+  q('[data-oa=gal]').addEventListener('click', () => q('[data-of=gal]').click());
+  q('[data-oa=nao]').addEventListener('click', () => { novas.forEach(k => { idbTira(k).catch(() => {}); idbTira(chaveMin(k)).catch(() => {}); }); v.remove(); });
+  q('[data-oa=ok]').addEventListener('click', () => {
+    o.tipo = q('[data-o=tipo]').value; o.lugar = q('[data-o=lugar]').value.trim(); o.texto = q('[data-o=texto]').value.trim();
+    const [h, m] = (q('[data-o=hora]').value || '00:00').split(':').map(Number);
+    const base = F.dia.data ? new Date(F.dia.data + 'T00:00:00') : new Date(o.t); base.setHours(h, m, 0, 0); o.t = base.toISOString();
+    if (!o.texto && !o.fotos.length) return marca('escreva o que aconteceu ou ponha ao menos uma foto');
+    const tiradas = velho ? velho.fotos.filter(k => !o.fotos.includes(k)) : [];
+    tiradas.forEach(k => { idbTira(k).catch(() => {}); idbTira(chaveMin(k)).catch(() => {}); });
+    const L2 = ocorrDe(F.dia), i = L2.findIndex(x => x.id === o.id);
+    if (i >= 0) L2[i] = o; else L2.push(o);
+    L2.sort((a, b) => String(a.t).localeCompare(String(b.t)));
+    grava(); pintaOcorrencias(); v.remove();
+    marca('ocorrência guardada: ' + o.tipo + (o.fotos.length ? ', ' + o.fotos.length + ' foto(s)' : '') + ' — sai no relatório do dia e no da campanha');
+  });
+  const ap = q('[data-oa=apaga]'); if (ap) ap.addEventListener('click', () => {
+    if (!confirm('Apagar esta ocorrência e as fotos dela?')) return;
+    F.dia.ocorr_reg = ocorrDe(F.dia).filter(x => x.id !== o.id);
+    o.fotos.concat(velho.fotos).forEach(k => { idbTira(k).catch(() => {}); idbTira(chaveMin(k)).catch(() => {}); });
+    grava(); pintaOcorrencias(); v.remove(); marca('ocorrência apagada');
+  });
+  pintaF();
+}
+function pintaOcorrencias(){
+  const L = ocorrDe(F.dia);
+  document.querySelectorAll('.ocor_reg').forEach(async el => {
+    el.innerHTML = L.length ? L.map(o => '<div class="ocor_item" style="border:1px solid #c9d2d6;border-radius:8px;padding:6px 10px;margin:6px 0">'
+        + '<b>' + _hm2(o.t) + ' · ' + esc(o.tipo) + '</b>' + (o.lugar ? ' — ' + esc(o.lugar) : '')
+        + (o.texto ? '<br><span class="leg" style="color:inherit">' + esc(o.texto).replace(/\n/g, '<br>') + '</span>' : '')
+        + '<div data-ofs="' + esc(o.id) + '" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px"></div>'
+        + '<button type="button" class="btn sec peq" data-oed="' + esc(o.id) + '">Ver ou alterar</button></div>').join('')
+      : '<p class="leg">Nenhuma ocorrência registrada hoje.</p>';
+    el.querySelectorAll('[data-oed]').forEach(b => b.addEventListener('click', () => abreOcorrencia(b.dataset.oed)));
+    for (const o of L){ const box = el.querySelector('[data-ofs="' + o.id + '"]'); if (!box) continue;
+      for (const k of o.fotos){ const m = await miniaturaDe(k).catch(() => null); if (!m) continue;
+        const im = document.createElement('img'); im.alt = 'foto da ocorrência'; im.src = m; im.style.cssText = 'height:64px;border-radius:4px'; box.appendChild(im); } }
+  });
+}
+/* fotos das ocorrências para os relatórios (todas as dias da campanha), reduzidas para o PDF */
+const OCOR_IMG = new Map();
+async function carregaFotosOcorr(){
+  for (const e of diasDaCampanha()) for (const o of ocorrDe(e.dia)) for (const k of o.fotos || []){
+    if (OCOR_IMG.has(k)) continue;
+    const d = await idbPega(k).catch(() => null); if (!d) continue;
+    OCOR_IMG.set(k, await reduzDataURL(d, 1000, 0.8).catch(() => d));
+  }
+}
+function htmlOcorrReg(dias, comData){
+  const L = []; for (const d of dias) for (const o of ocorrDe(d)) L.push({d: d, o: o});
+  if (!L.length) return '';
+  return '<h2>Ocorrências registradas' + (comData ? ' na campanha' : '') + '</h2>'
+    + L.map(({d, o}, i) => '<div style="break-inside:avoid;page-break-inside:avoid;margin:6px 0 12px">'
+      + '<p style="margin:0"><b>' + (i + 1) + '. ' + (comData ? _dataBr(d.data || _isoLocal(Date.parse(o.t))) + ', ' : '') + _hm2(o.t) + ' — ' + esc(o.tipo) + '</b>'
+      + (o.lugar ? ' · ' + esc(o.lugar) : '') + (_ocorrPublica(o, d) ? ' · posição ' + gms(o.lat, 'lat') + ' ' + gms(o.lon, 'lon') : '') + '</p>'
+      + (o.texto ? '<p style="margin:2px 0 4px">' + esc(o.texto).replace(/\n/g, '<br>') + '</p>' : '')
+      + ((o.fotos || []).some(k => OCOR_IMG.get(k)) ? '<div style="display:flex;flex-wrap:wrap;gap:6px">' + o.fotos.map((k, j) => OCOR_IMG.get(k)
+          ? '<figure style="margin:0;width:48%"><img alt="foto da ocorrência" decoding="sync" loading="eager" style="width:100%" src="' + OCOR_IMG.get(k) + '">'
+            + '<figcaption class="ocor">Ocorrência ' + (i + 1) + ', foto ' + (j + 1) + '</figcaption></figure>' : '').join('') + '</div>'
+        : (o.fotos || []).length ? '<p class="ocor">' + o.fotos.length + ' foto(s) guardada(s) em outro aparelho</p>' : '')
+      + '</div>').join('');
+}
+function textoOcorrReg(dias){
+  const L = []; for (const d of dias) for (const o of ocorrDe(d))
+    L.push(_dataBr(d.data || _isoLocal(Date.parse(o.t))) + ', ' + _hm2(o.t) + ' — ' + o.tipo + (o.lugar ? ' (' + o.lugar + ')' : '') + ': ' + (o.texto || 'ver fotos')
+      + (o.fotos && o.fotos.length ? ' [' + o.fotos.length + ' foto(s) no relatório da campanha]' : '') + '.');
+  return L;
+}
 async function fotosParaImpressao(pontos){
+  try { await carregaFotosOcorr(); } catch (e){}
   const r = new Map();
   for (const p of pontos){
     const L = [];
@@ -7026,7 +7211,9 @@ function montaImpressaoCampanha(fotos, tempos, fig){
       + '<td class="n">' + q.nChk + '</td>'
       + '<td class="n">' + (q.semAltura || '—') + '</td><td>' + esc(munPernoite(e.dia.data) || '—') + '</td></tr>'
       + (e.dia.ocorrencias ? '<tr><td colspan="7" class="ocor">'
-         + esc(e.dia.ocorrencias).replace(/\n/g,' · ') + '</td></tr>' : '');
+         + esc(e.dia.ocorrencias).replace(/\n/g,' · ') + '</td></tr>' : '')
+      + (ocorrDe(e.dia).length ? '<tr><td colspan="7" class="ocor">Ocorrências registradas: '
+         + ocorrDe(e.dia).map(o => _hm2(o.t) + ' ' + esc(o.tipo)).join(' · ') + ' (detalhe e fotos adiante)</td></tr>' : '');
   }).join('');
   const todos = [];
   for (const e of r.porDia)
@@ -7062,6 +7249,7 @@ function montaImpressaoCampanha(fotos, tempos, fig){
     + '<h2>Os dias da campanha</h2><table><tr><th>dia</th><th>local</th>'
     + '<th>pontos</th><th>controle</th><th>checagem</th><th>sem altura</th><th>pernoite</th></tr>'
     + (dias || '<tr><td colspan="7">nenhum dia registrado</td></tr>') + '</table>'
+    + htmlOcorrReg(r.porDia.map(e => e.dia), true)
     + (function(){ const pcR = F.campanha.planoCampanha, cal = calendarioPlano(pcR, null); return cal ? '<h2>Calendário: plano e realizado</h2>'
         + (pcR ? '<p class="ocor">Plano: ' + esc(resumoCalendario(pcR)) + '</p>' : '<p class="ocor">Sem plano da campanha: só o realizado.</p>') + cal : ''; })()
     + htmlPlanejadoExecutado(todos)
@@ -7299,8 +7487,23 @@ function pedeFoto(cb, camera){ _aoLerFoto = cb; $(camera ? '#f_foto' : '#f_galer
 
 /* um seletor de arquivo para todos os blocos GNSS */
 $('#f_rinex').addEventListener('change', async e => {
-  const f = e.target.files[0]; e.target.value = '';
-  if (!f || !_aoLerRinex) return;
+  const todos = Array.from(e.target.files); e.target.value = '';
+  if (!todos.length || !_aoLerRinex) return;
+  /* 10/11/2026: o cartão aceita a observação e os arquivos de navegação juntos */
+  const tp = await Promise.all(todos.map(tipoRinexArq));
+  const navs = todos.filter((x, i) => ehNav(tp[i])), f = todos.find((x, i) => !ehNav(tp[i]));
+  const pNav = _aoLerRinexP;
+  if (!f){
+    if (pNav){ const res = []; for (const n of navs) res.push(await guardaNavPonto(pNav, n).catch(er => er.message)); grava(); pintaPontos();
+      marca('navegação de ' + pNav.id + ': ' + res.join('; ')); }
+    else marca('escolha também o arquivo de observação (.AAo)');
+    _aoLerRinex = null; _aoLerRinexP = null; return;
+  }
+  if (navs.length) setTimeout(async () => {
+    const p = pNav || F.dia.pontos[F.dia.foco]; if (!p) return;
+    const res = []; for (const n of navs) res.push(await guardaNavPonto(p, n).catch(er => er.message)); grava(); pintaPontos();
+    marca('navegação de ' + p.id + ': ' + res.join('; '));
+  }, 900);
   marca('lendo ' + f.name + '…');
   try {
     let g = f;
@@ -7354,6 +7557,7 @@ async function copiaCompleta(){
   const usadas = new Set();
   for (const p of (F.dia.pontos || []).concat(...(F.dias || []).map(d => d.pontos || [])))
     for (const k of Object.values(p.fotos || {})) if (k){ usadas.add(k); usadas.add(chaveMin(k)); }
+  for (const d of (F.dias || []).concat([F.dia])) for (const o of ocorrDe(d)) for (const k of o.fotos || []){ usadas.add(k); usadas.add(chaveMin(k)); }
   let nf = 0;
   for (const [k, v] of await _idbTudo()){
     if (!usadas.has(k) || typeof v !== 'string') continue;
@@ -7776,7 +7980,7 @@ $('#b_limpa_dia').addEventListener('click', async () => {
   // vira um dia da campanha
   const marcou = Object.keys(F.dia.itens || {}).some(k => (F.dia.itens[k]||{}).ok);
   const vazio = !nv && !np && !marcou && !F.dia.local
-                && !F.dia.obs && !F.dia.ocorrencias
+                && !F.dia.obs && !F.dia.ocorrencias && !ocorrDe(F.dia).length
                 && !(F.dia.data && !F.dia.data_auto);
   const pesa = [nm ? nm + ' mapa(s) da 0a' : null,
                 nr ? nr + ' relatório(s) de ponto' : null].filter(Boolean).join(', ');
@@ -10627,6 +10831,70 @@ async function montaDiasTempo(G, iH, ordem, dH, MT, capDe, fimDe, j0, xMax, ocup
     dias.push(seq); j++;
   }
   return dias;
+}
+/* 10/11/2026 — Redistribuição em FAIXAS DE DISTÂNCIA (pedido da coordenação): a montaDiasTempo abria cada dia pelo
+   círculo mais distante e completava pela inserção mais barata em toda a lista. Como os círculos perto da hospedagem
+   quase não alongam rota nenhuma, eles enchiam os primeiros dias, e os distantes da mesma direção iam ficando para
+   depois: o resultado era um ponto distante em cada dia. Aqui a lista é percorrida na ordem da distância à hospedagem
+   (do mais distante para o mais próximo, ou o contrário) e cada dia só recebe círculos (1) da faixa da semente
+   (tempo de carro até a hospedagem a no máximo max(30 min, metade do da semente) do dela), (2) com desvio de rota de
+   até max(25 min, 60% do tempo da semente) e (3) enquanto carro + ocupações cabem na jornada. Assim os distantes
+   saem juntos nos primeiros dias e os dias seguintes vão se aproximando (ou se afastando, na ordem "perto").
+   Se os dias não bastarem para as datas que restam, a faixa se alarga (sem a restrição 1, depois sem a 2) antes de
+   sobrar círculo. Base: heurística de agrupamento por semente e inserção (cluster-first, route-second;
+   FISHER; JAIKUMAR, 1981), com a inserção mais barata dentro do dia (ROSENKRANTZ; STEARNS; LEWIS, 1977). */
+async function montaDiasFaixa(G, iH, ordem, dH, MT, capDe, fimDe, nDias, xMax, ocup, ptVerif, soCampoDe){
+  const M = MT.M, ix = MT.ix, sinal = ordem === 'perto' ? 1 : -1;
+  const cmp = (a, b) => sinal * (dH[a.k] - dH[b.k]);
+  const passo = async (nivel, verif) => {
+    let so = false, iFa = -1;
+    const t = (a, b) => so && b === iFa ? 0 : M[a][b];
+    const custo = (seq, iF) => { const nn = [iH].concat(seq.map(u => ix.get(u.k)), [iF]); let c = 0;
+      for (let q = 1; q < nn.length; q++) c += t(nn[q - 1], nn[q]); return c + ocup * seq.length; };
+    const ordena = (seq, iF) => {
+      if (seq.length < 2) return seq;
+      const nn = [iH].concat(seq.map(u => ix.get(u.k))), k = _primeiroIdx(seq, ordem, null);
+      if (iF === iH) return ordemComPrimeiro(nn.map(a => nn.map(b => M[a][b])), ordem, k).map(q => seq[q - 1]);
+      const n2 = nn.concat([iF]); return ordemComPrimeiro(n2.map(a => n2.map(b => M[a][b])), ordem, k, true).map(q => seq[q - 1]);
+    };
+    let L = G.slice().sort(cmp), j = 0;
+    const dias = [];
+    while (L.length){
+      const cap = capDe(j), iF = fimDe(j); so = !!(soCampoDe && soCampoDe(j)); iFa = iF;
+      const sem = L.shift(), d0 = dH[sem.k] || 0;
+      const faixa = Math.max(30, d0 / 2), dMax = Math.max(25, 0.6 * d0);
+      let seq = [sem], T = custo(seq, iF);
+      const fica = [];
+      for (const u of L){
+        if (seq.length >= xMax){ fica.push(u); continue; }
+        if (nivel < 1 && Math.abs((dH[u.k] || 0) - d0) > faixa){ fica.push(u); continue; }
+        const nn = [iH].concat(seq.map(v => ix.get(v.k)), [iF]), iu = ix.get(u.k);
+        let best = null;
+        for (let q = 0; q + 1 < nn.length; q++){ const dl = t(nn[q], iu) + t(iu, nn[q + 1]) - t(nn[q], nn[q + 1]);
+          if (!best || dl < best.dl) best = {q: q, dl: dl}; }
+        if ((nivel < 2 && best.dl > dMax) || T + best.dl + ocup > cap){ fica.push(u); continue; }
+        seq.splice(best.q, 0, u); T += best.dl + ocup;
+      }
+      L = fica;
+      seq = ordena(seq, iF); T = custo(seq, iF);
+      if (verif) for (let tent = 0; tent < 3 && seq.length > 1; tent++){
+        let Tr;
+        try { Tr = await _tempoRotaDia([MT.nos[iH]].concat(seq, so ? [] : [MT.nos[iF]]), verif) + ocup * seq.length; } catch (e){ break; }
+        if (Tr <= cap) break;
+        let mel = -1, eco = -Infinity;     // sai o que mais alonga o dia, nunca a semente
+        seq.forEach((u, q) => { if (u === sem) return; const e2 = T - custo(seq.filter((_, z) => z !== q), iF); if (e2 > eco){ eco = e2; mel = q; } });
+        if (mel < 0) break;
+        L.push(seq[mel]); L.sort(cmp); seq = ordena(seq.filter((_, z) => z !== mel), iF); T = custo(seq, iF);
+      }
+      dias.push(seq); j++;
+    }
+    return dias;
+  };
+  let nivel = 0, D = await passo(0, null);
+  while (nivel < 2 && D.length > nDias){ nivel++; D = await passo(nivel, null); }
+  const fin = ptVerif ? await passo(nivel, ptVerif) : D;
+  fin.nivel = nivel;
+  return fin;
 }
 /* Rotas de carro de um dia do plano (ordem pelo menor tempo, quando o dia não é de ordem fixa;
    até 3 caminhos por trecho; caminhos até as reservas B, C e D de cada círculo). Grava em d.trechos,
@@ -13699,7 +13967,7 @@ $('#b_area_tira').addEventListener('click', async () => {
      coordenação, no planejador.
    - Mesmas datas até o fim do plano da campanha (calendário: sábado, folgas, dias de reserva
      fora; véspera da volta com a hora-limite e o fim no pouso da volta, como no planejador).
-   - Cada dia pela jornada, pelo método do planejador (montaDiasTempo: inserção mais barata,
+   - Cada dia pela jornada, em faixas de distância (montaDiasFaixa, 10/11/2026; antes, montaDiasTempo: inserção mais barata,
      ROSENKRANTZ; STEARNS; LEWIS, 1977; tempos de carro pela tabela do OSRM, conferidos pela rota).
    - O que não couber fica como sobra: aparece no Hoje depois da rota do dia e vai à coordenação.
    Nada muda sem o aceite da equipe; aceito, a folha faz as rotas offline dos dias novos. */
@@ -13761,7 +14029,11 @@ async function propoeRedist(){
     MT.ix = new Map(U.map((u, i) => [u.k, B.length + i]));
     const dH = {}; U.forEach(u => { dH[u.k] = MT.M[0][MT.ix.get(u.k)]; });
     marca('redistribuição: montando os dias pela jornada…');
-    const D = await montaDiasTempo(U, 0, Q.ordem, dH, MT, capDe, fimDe, 0, Q.xMax, Q.ocup, MT.fonte === 'osrm' ? Q.pt : null, soCampo, null);
+    const D = window.REDIST_METODO === 'antigo'
+      ? await montaDiasTempo(U, 0, Q.ordem, dH, MT, capDe, fimDe, 0, Q.xMax, Q.ocup, MT.fonte === 'osrm' ? Q.pt : null, soCampo, null)
+      : await montaDiasFaixa(U, 0, Q.ordem, dH, MT, capDe, fimDe, datas.length, Q.xMax, Q.ocup, MT.fonte === 'osrm' ? Q.pt : null, soCampo);
+    if (D.nivel) avisos.push(D.nivel === 1 ? 'para caber nas datas, alguns dias juntaram faixas de distância vizinhas'
+                                           : 'para caber nas datas, alguns dias juntaram faixas vizinhas e círculos com desvio maior que o normal');
     const dias = D.slice(0, datas.length), sobra = [].concat(...D.slice(datas.length));
     while (dias.length < datas.length) dias.push([]);
     const carDia = (seq, j) => { const nn = [0].concat(seq.map(u => MT.ix.get(u.k)), [fimDe(j)]); let c = 0;
@@ -13787,7 +14059,7 @@ async function propoeRedist(){
     ((e.sobra && e.sobra.ids) || []).filter(viva).forEach(id => { if (!atras.includes(id)) atras.push(id); });
     REDIST = {quando: new Date().toISOString(), equipe: e.nome, desde: _desdeRedist(), datas: datas, ordem: Q.ordem,
       dias: dias.map(s2 => ({ids: s2.map(u => u.id), ks: s2.map(u => u.k)})), sobra: {ids: sobra.map(u => u.id), ks: sobra.map(u => u.k)},
-      est: est, atual: atual, atras: atras, fonte: MT.fonte, avisos: avisos, vesp: datas.map((_, j) => ehV(j)), iPV: iPV, nU: U.length};
+      est: est, atual: atual, atras: atras, fonte: MT.fonte, avisos: avisos, dH: Object.fromEntries(U.map(u => [u.id, Math.round(dH[u.k] || 0)])), vesp: datas.map((_, j) => ehV(j)), iPV: iPV, nU: U.length};
     marca('redistribuição: proposta pronta — confira e aceite ou mantenha o plano');
   } catch (er){ marca('redistribuição: ' + (er.name === 'AbortError' ? 'o servidor de rotas não respondeu' : er.message)); }
   finally { pintaRedist(); const c = $('#cart_redist'); if (c && REDIST) c.scrollIntoView({behavior: 'smooth'}); }
@@ -13795,15 +14067,16 @@ async function propoeRedist(){
 function htmlPropostaRedist(R, pc, e){
   const lst = L => L.length ? L.map(esc).join(', ') : '—';
   let h = '<table class="tab_redist" style="width:100%;border-collapse:collapse;font-size:.92em;margin:6px 0">'
-    + '<tr><th style="text-align:left">dia</th><th style="text-align:left">plano atual (pendentes)</th><th style="text-align:left">proposta</th><th style="text-align:right">carro + pontos</th><th style="text-align:right">fim do campo</th></tr>';
+    + '<tr><th style="text-align:left">dia</th><th style="text-align:left">plano atual (pendentes)</th><th style="text-align:left">proposta</th><th style="text-align:right">até a pousada</th><th style="text-align:right">carro + pontos</th><th style="text-align:right">fim do campo</th></tr>';
   R.datas.forEach((iso, j) => {
     const d = R.dias[j], t = R.est[j], passa = t && t.total > t.cap;
     h += '<tr style="border-top:1px solid #ccc"><td>' + _ddmm(_diaDe(iso)) + (R.vesp[j] ? '<br><small>véspera da volta</small>' : '') + '</td>'
       + '<td>' + lst(R.atual[j]) + '</td><td><b>' + lst(d.ids) + '</b></td>'
+      + '<td style="text-align:right">' + (R.dH && d.ids.length ? (v => v.length ? (Math.min(...v) === Math.max(...v) ? Math.min(...v) : Math.min(...v) + '–' + Math.max(...v)) + ' min' : '—')(d.ids.map(id => R.dH[id]).filter(x => x != null)) : '—') + '</td>'
       + '<td style="text-align:right">' + (t ? _hm(t.car) + ' + ' + d.ids.length + ' × ' + (pc.ocup || 40) + ' min' : '—') + '</td>'
       + '<td style="text-align:right' + (passa ? ';color:#B91C1C' : '') + '">' + (t ? _hora(t.fim) + (R.vesp[j] ? '<br><small>depois, o pouso</small>' : '') : '—') + '</td></tr>';
   });
-  h += '</table>';
+  h += '</table><p class="leg">"Até a pousada": tempo de carro de cada círculo do dia até a pousada, do menor ao maior.</p>';
   if (R.atras.length) h += '<p class="leg">De dias anteriores, ainda pendentes, e que entram na proposta: ' + lst(R.atras) + '.</p>';
   if (R.sobra.ids.length) h += '<p class="leg" style="color:#B91C1C"><b>Não cabem até ' + _dataBr(R.datas[R.datas.length - 1]) + ': ' + lst(R.sobra.ids)
     + '.</b> Ficam como sobra: aparecem no Hoje depois da rota do dia, se der tempo. Avise a coordenação (arquivo abaixo, depois de aceitar).</p>';
@@ -13910,9 +14183,11 @@ function pintaRedist(){
       + cand.map((iso, j) => '<option value="' + (j === cand.length - 1 ? '' : iso) + '"' + ((j === cand.length - 1 ? !fimSel : iso === fimSel) ? ' selected' : '') + '>'
         + _ddmm(_diaDe(iso)) + (j === cand.length - 1 ? ' — fim do calendário' : '') + (pc.retorno && pc.retorno.vesp === iso ? ' (véspera da volta)' : '') + '</option>').join('')
       + '</select><p class="leg">Os dias depois dele saem do plano refeito; o que não couber fica como sobra.</p>' : '')
-    + '<label class="c" for="redist_ordem">Cada dia começa pelo ponto</label><select id="redist_ordem">'
-    + '<option value="longe"' + (Q.ordem === 'longe' ? ' selected' : '') + '>mais distante da pousada (volta curta no fim do dia)</option>'
-    + '<option value="perto"' + (Q.ordem === 'perto' ? ' selected' : '') + '>mais próximo da pousada (vai se afastando)</option></select>';
+    + '<label class="c" for="redist_ordem">Ordem dos dias</label><select id="redist_ordem">'
+    + '<option value="longe"' + (Q.ordem === 'longe' ? ' selected' : '') + '>os mais distantes primeiro; os dias seguintes vão se aproximando da pousada</option>'
+    + '<option value="perto"' + (Q.ordem === 'perto' ? ' selected' : '') + '>os mais próximos primeiro; os dias seguintes vão se afastando da pousada</option></select>'
+    + '<p class="leg">Os círculos entram nos dias pela faixa de distância (tempo de carro até a pousada): os de faixa parecida e na mesma direção saem juntos, '
+    + 'e um dia não mistura círculo distante com círculo perto da pousada, a não ser que, sem isso, as datas não bastem (a proposta avisa).</p>';
   if (REDIST) h += htmlPropostaRedist(REDIST, pc, e)
     + '<div class="acoes"><button type="button" class="btn peq so_rede" id="b_redist_ok">Aceitar e gerar as rotas</button>'
     + '<button type="button" class="btn sec peq" id="b_redist_nao">Manter o plano atual</button></div>';
@@ -13928,7 +14203,7 @@ function pintaRedist(){
   const b4 = $('#b_redist_csv'); if (b4) b4.addEventListener('click', enviaCsvRedist);
   const so = $('#redist_ordem'); if (so) so.addEventListener('change', () => {
     F.campanha.redist_ordem = so.value; REDIST = null; grava(); pintaRedist();
-    marca('redistribuição: cada dia começa pelo ponto mais ' + (so.value === 'perto' ? 'próximo' : 'distante') + ' da pousada'); });
+    marca('redistribuição: ' + (so.value === 'perto' ? 'os mais próximos primeiro, afastando-se' : 'os mais distantes primeiro, aproximando-se') + ' — veja a proposta de novo'); });
   const sf = $('#redist_fim'); if (sf) sf.addEventListener('change', () => {
     F.campanha.redist_fim = sf.value || ''; REDIST = null; grava(); pintaRedist();
     marca(sf.value ? 'redistribuição até ' + _ddmm(_diaDe(sf.value)) : 'redistribuição até o fim do calendário'); });
@@ -13937,6 +14212,8 @@ function pintaRedist(){
 /* ---------- montagem ---------- */
 function monta(){
   try { pintaHotel(); } catch (e){}
+  try { pintaOcorrencias(); } catch (e){}
+  try { if (!MODO_PLAN) pintaSituacaoPPP(); } catch (e){}
   try { if (PERC.chave !== _chavePerc()) atualizaPercorridos().catch(() => {}); else pintaPercorridos(); } catch (e){}
   try { pintaTrajEstado(); } catch (e){}
   try { const pe = $('#ppp_email'); if (pe && document.activeElement !== pe) pe.value = (F.config && F.config.email_ppp) || ''; } catch (e){}
@@ -14267,6 +14544,8 @@ function osmand(cmd){
 }
 $('#b_osm_ini').addEventListener('click', () => osmand('start_gpx_rec'));
 $('#b_osm_fim').addEventListener('click', () => osmand('stop_gpx_rec'));
+document.querySelectorAll('[data-ocnova]').forEach(b => b.addEventListener('click', () => abreOcorrencia(null)));
+{ const bp = $('#b_pppalerta'); if (bp){ if (MODO_PLAN) bp.remove(); else bp.addEventListener('click', abreSituacaoPPP); } }
 { const bv = $('#b_visao'); if (bv){ if (MODO_PLAN) bv.remove(); else bv.addEventListener('click', abreVisao); } }
 $('#b_perc_env').addEventListener('click', () => enviaOcupacoes().catch(e => marca('não saiu: ' + e.message)));
 $('#b_perc_junta').addEventListener('click', () => $('#f_ocup').click());
@@ -14751,6 +15030,8 @@ function dadosVisao(){
     bloq: bloqueios().map(b => ({lat: +b.lat, lon: +b.lon})),
     hosp: basesDe(F.campanha.planoCampanha).map(b => ({lat: +b.lat, lon: +b.lon})).filter(b => isFinite(b.lat) && isFinite(b.lon)),
     pos: P ? {lat: P.lat, lon: P.lon} : null,
+    ppp: (() => { try { return situacaoPPP().map(x => ({id: x.p.id, nivel: x.nivel, acao: x.acao, hoje: x.hoje, dias: Math.floor(x.dias),
+      orb: x.k ? String(x.k.orbita || '').toLowerCase() : ''})); } catch (e){ return []; } })(),
     resumo: {feitos: pontos.filter(p => p.est === 'feito' && p.meu).length,
       porFazer: minhasP.filter(p => p.est === 'pendente').length + minhasP.filter(p => p.rem && p.est !== 'feito' && p.est !== 'pendente').length,
       circAt: Object.keys(at).length, circTot: circs.size,
@@ -14766,7 +15047,7 @@ function abreVisao(){
   VISAO.w = w; try { w.focus(); } catch (e){}
   marca('visão geral aberta em outra guia — só mostra; o registro continua aqui');
 }
-const HTML_VISAO = "\u003c!doctype html>\n\u003chtml lang=\"pt-BR\">\n\u003chead>\n\u003cmeta charset=\"utf-8\">\n\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\u003ctitle>Visão geral da campanha\u003c/title>\n\u003cstyle>\n*{box-sizing:border-box}\nbody{margin:0;font:15px/1.4 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;color:#1b2a33;background:#f6f7f5}\nheader{background:#0A2E52;color:#fff;padding:10px 14px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}\nheader h1{font-size:18px;margin:0}\nheader small{opacity:.85}\n.aviso{background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:6px 10px;margin:8px 10px 0}\n.cont{display:grid;grid-template-columns:1fr;gap:10px;padding:10px}\n@media (min-width:1000px){.cont{grid-template-columns:minmax(0,1fr) 400px;height:calc(100vh - 52px)} .mapa{height:100%;min-height:0} .lado{overflow:auto}}\n.mapa{position:relative;background:#e9ece9;border:1px solid #c9d2d6;border-radius:10px;overflow:hidden;min-height:62vh;touch-action:none}\ncanvas{display:block;width:100%;height:100%;cursor:grab}\n.ctl{position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:6px}\nbutton{font:inherit;border:1px solid #0A3D56;background:#fff;color:#0A3D56;border-radius:8px;padding:5px 10px;cursor:pointer}\nbutton.pri{background:#0A3D56;color:#fff}\n.ctl button{width:40px;height:40px;padding:0;font-size:20px}\ndetails.cam{position:absolute;left:8px;top:8px;background:rgba(255,255,255,.94);border-radius:8px;padding:6px 10px;font-size:13.5px;max-width:calc(100% - 70px)}\ndetails.cam summary{cursor:pointer;font-weight:600;color:#0A3D56}\ndetails.cam label{display:block;margin:3px 0}\n.info{position:absolute;left:8px;bottom:26px;background:#fff;border:1px solid #0A3D56;border-radius:10px;padding:8px 12px;max-width:min(420px,calc(100% - 16px));font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.15)}\n.info .acoes{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}\n.credito{position:absolute;right:6px;bottom:4px;font-size:11px;background:rgba(255,255,255,.85);padding:1px 5px;border-radius:4px;max-width:70%}\n.num{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:10px}\n.num div{background:#fff;border:1px solid #c9d2d6;border-radius:8px;padding:6px 10px;font-size:13px;color:#46565f}\n.num b{display:block;font-size:22px;color:#0A3D56}\n.cart{background:#fff;border:1px solid #c9d2d6;border-radius:10px;padding:10px 12px;margin-bottom:10px}\n.cart h2{font-size:16px;margin:0 0 6px;color:#0A3D56}\n.cart h3{font-size:13.5px;margin:8px 0 4px;color:#46565f}\n.chips{display:flex;flex-wrap:wrap;gap:5px}\n.chip{border:1px solid #c9d2d6;border-radius:14px;padding:2px 9px;font-size:13px;cursor:pointer;background:#fff}\n.chip.pl{border-color:#0B6FA4;color:#0B6FA4;font-weight:600}\n.chip.rem{border-color:#EA580C;color:#C2410C}\n.chip.nm{border-color:#DC2626;color:#B91C1C}\n.chip.ok{background:#EEF1EF;color:#46565f}\n.leg{font-size:13px;color:#46565f}\n.legenda div{display:flex;align-items:center;gap:8px;font-size:13px;margin:3px 0}\n.legenda svg{flex:none}\n\u003c/style>\n\u003c/head>\n\u003cbody>\n\u003cheader>\u003ch1 id=\"tit\">Visão geral da campanha\u003c/h1>\u003csmall id=\"sub\">aguardando a folha…\u003c/small>\u003c/header>\n\u003cdiv id=\"aviso\" class=\"aviso\" hidden>\u003c/div>\n\u003cdiv class=\"cont\">\n  \u003cdiv class=\"mapa\" id=\"mapa\">\n    \u003ccanvas id=\"cv\">\u003c/canvas>\n    \u003cdetails class=\"cam\" id=\"cam\">\u003csummary>Camadas\u003c/summary>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"fundo\"> Imagem Esri (com internet)\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"vias\"> Rodovias principais (OpenStreetMap)\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"perc\"> Trajetos percorridos\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"plano\"> Plano de hoje\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"todas\"> Pontos de outras equipes\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"despr\"> Opções desprezadas\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"rot\"> Rótulos dos pontos\u003c/label>\n    \u003c/details>\n    \u003cdiv class=\"ctl\">\u003cbutton type=\"button\" data-z=\"1\" title=\"aproximar\">+\u003c/button>\u003cbutton type=\"button\" data-z=\"-1\" title=\"afastar\">−\u003c/button>\n      \u003cbutton type=\"button\" data-z=\"fit\" title=\"ver todos os pontos da equipe\">⤢\u003c/button>\u003cbutton type=\"button\" data-z=\"eu\" title=\"onde estou\">◎\u003c/button>\u003c/div>\n    \u003cdiv class=\"info\" id=\"info\" hidden>\u003c/div>\n    \u003cdiv class=\"credito\" id=\"cred\">\u003c/div>\n  \u003c/div>\n  \u003cdiv class=\"lado\">\n    \u003cdiv class=\"num\" id=\"num\">\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>Por fazer\u003c/h2>\u003cdiv id=\"porfazer\">\u003c/div>\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>Feito\u003c/h2>\u003cdiv id=\"feito\">\u003c/div>\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>Trajetos percorridos\u003c/h2>\u003cdiv id=\"traj\" class=\"leg\">\u003c/div>\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>Legenda\u003c/h2>\u003cdiv class=\"legenda\" id=\"leg\">\u003c/div>\u003c/div>\n    \u003cp class=\"leg\">Esta guia só mostra: o registro continua na folha, que é onde tudo se faz. Ela se atualiza sozinha enquanto a folha estiver aberta.\n    No notebook, dá para arrastar esta guia para outra tela.\u003c/p>\n  \u003c/div>\n\u003c/div>\n\u003cscript>\n'use strict';\nconst M = window.opener;\nconst $ = s => document.querySelector(s);\nconst esc = s => String(s == null ? '' : s).replace(/[&\u003c>\"]/g, c => ({'&': '&amp;', '\u003c': '&lt;', '>': '&gt;', '\"': '&quot;'}[c]));\nconst TB = 256, RAD = Math.PI / 180;\nconst COR_REV = {'1': '#9CA3AF', '2': '#A16207', '3': '#EA580C', '4': '#1F2937', '5': '#7C3AED'};\nconst NOME_REV = {'2': 'Leito natural', '3': 'Revestimento primário', '4': 'Pavimentado', '5': 'Calçado', '1': 'Desconhecido'};\nconst corTipo = t => t === 'controle' ? '#8e44ad' : t === 'checagem' ? '#16a085' : '#5a6b73';\nconst CINZA_FEITO = '#9AA6AB';\nlet D = null, VER = null;\nconst S = {lat: -5.8, lon: -35.2, z: 10, sel: null, fit: false,\n  cam: {fundo: true, vias: true, perc: true, plano: true, todas: false, despr: false, rot: true}};\ntry { Object.assign(S.cam, JSON.parse(localStorage.getItem('visao_camadas') || '{}')); } catch (e){}\ndocument.querySelectorAll('[data-c]').forEach(c => { c.checked = !!S.cam[c.dataset.c];\n  c.addEventListener('change', () => { S.cam[c.dataset.c] = c.checked; try { localStorage.setItem('visao_camadas', JSON.stringify(S.cam)); } catch (e){} pinta(); lista(); }); });\n\n/* Mercator (EPSG:3857), em pixels do nível z */\nconst mx = (lon, z) => (lon + 180) / 360 * TB * Math.pow(2, z);\nconst my = (lat, z) => { const s = Math.sin(Math.max(-85, Math.min(85, lat)) * RAD); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * TB * Math.pow(2, z); };\nconst geoX = (X, z) => X / (TB * Math.pow(2, z)) * 360 - 180;\nconst geoY = (Y, z) => Math.atan(Math.sinh(Math.PI * (1 - 2 * Y / (TB * Math.pow(2, z))))) / RAD;\nconst cv = $('#cv'), x = cv.getContext('2d');\nlet W = 0, H = 0, DPR = 1;\nfunction tela(lat, lon){ return {x: W / 2 + mx(lon, S.z) - mx(S.lon, S.z), y: H / 2 + my(lat, S.z) - my(S.lat, S.z)}; }\nfunction geo(px, py){ return {lon: geoX(mx(S.lon, S.z) + px - W / 2, S.z), lat: geoY(my(S.lat, S.z) + py - H / 2, S.z)}; }\nfunction dimensiona(){\n  const r = cv.getBoundingClientRect(); DPR = window.devicePixelRatio || 1;\n  W = r.width; H = r.height; cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); pinta();\n}\nnew ResizeObserver(dimensiona).observe(cv);\nlet _ped = false;\nfunction pinta(){ if (_ped) return; _ped = true; requestAnimationFrame(() => { _ped = false; desenha(); }); }\n\n/* blocos da imagem Esri (os mesmos da navegação), só com internet */\nconst BLOCOS = new Map();\nfunction bloco(z, bx, by){\n  const k = z + '/' + bx + '/' + by; let b = BLOCOS.get(k);\n  if (!b){ b = new Image(); b.ok = false; b.onload = () => { b.ok = true; pinta(); };\n    b.src = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/' + z + '/' + by + '/' + bx;\n    BLOCOS.set(k, b); if (BLOCOS.size > 400) BLOCOS.delete(BLOCOS.keys().next().value); }\n  return b.ok ? b : null;\n}\nfunction linha(g, emPx){ x.beginPath(); g.forEach((c, k) => { const p = tela(c[1], c[0]); if (k) x.lineTo(p.x, p.y); else x.moveTo(p.x, p.y); }); x.stroke(); }\nfunction visivel(D){ return (D.pontos || []).filter(p => (S.cam.todas || p.minha) && (S.cam.despr || p.est !== 'desprezado')); }\n\nfunction desenha(){\n  x.setTransform(DPR, 0, 0, DPR, 0, 0);\n  x.fillStyle = '#E9ECE9'; x.fillRect(0, 0, W, H);\n  if (!D){ return; }\n  const fundo = S.cam.fundo && navigator.onLine;\n  if (fundo){\n    const zt = Math.max(0, Math.min(19, Math.round(S.z))), esc2 = Math.pow(2, S.z - zt);\n    const cx = mx(S.lon, zt), cy = my(S.lat, zt), n = Math.pow(2, zt);\n    const x0 = Math.floor((cx - W / 2 / esc2) / TB), x1 = Math.floor((cx + W / 2 / esc2) / TB);\n    const y0 = Math.floor((cy - H / 2 / esc2) / TB), y1 = Math.floor((cy + H / 2 / esc2) / TB);\n    if ((x1 - x0 + 1) * (y1 - y0 + 1) \u003c= 120)\n      for (let bx = x0; bx \u003c= x1; bx++) for (let by = Math.max(0, y0); by \u003c= Math.min(n - 1, y1); by++){\n        const im = bloco(zt, ((bx % n) + n) % n, by); if (!im) continue;\n        x.drawImage(im, W / 2 + (bx * TB - cx) * esc2, H / 2 + (by * TB - cy) * esc2, TB * esc2 + 0.5, TB * esc2 + 0.5);\n      }\n  }\n  $('#cred').textContent = (fundo ? 'Imagem: Esri, Maxar, Earthstar Geographics e comunidade de usuários GIS · ' : '')\n    + (S.cam.vias && (D.vias || []).length ? 'rodovias © colaboradores do OpenStreetMap' : '');\n  x.lineJoin = 'round'; x.lineCap = 'round';\n  // rodovias principais\n  if (S.cam.vias) for (const v of D.vias || []){\n    x.strokeStyle = fundo ? 'rgba(251,191,36,.75)' : '#D97706'; x.lineWidth = fundo ? 2 : 3; linha(v.g);\n  }\n  // trajetos percorridos: outras equipes (tracejado na cor delas), dias anteriores (mais claros), hoje (forte)\n  if (S.cam.perc){\n    for (const o of D.outras || []){ x.save(); x.strokeStyle = o.cor; x.globalAlpha = 0.8; x.lineWidth = 3; x.setLineDash([9, 5]);\n      for (const d of o.dias) for (const p of d.partes) linha(p.g); x.restore(); }\n    for (const d of D.ant || []) for (const p of d.partes){ const c = COR_REV[p.rev]; x.save();\n      x.strokeStyle = c || 'rgba(62,85,97,.8)'; x.globalAlpha = c ? 0.5 : 0.7; x.lineWidth = c ? 4 : 2; if (!c) x.setLineDash([2, 4]); linha(p.g); x.restore(); }\n    for (const p of D.hoje || []){ const c = COR_REV[p.rev]; x.save();\n      x.strokeStyle = c || 'rgba(62,85,97,.9)'; x.lineWidth = c ? 5 : 2.5; if (!c) x.setLineDash([2, 4]); linha(p.g); x.restore(); }\n  }\n  // plano de hoje: rotas e ordem\n  if (S.cam.plano) for (const r of D.plano || []) if (r.g && r.g.length > 1){\n    x.save(); x.strokeStyle = 'rgba(11,111,164,.85)'; x.lineWidth = 3.5; x.setLineDash([10, 6]); linha(r.g); x.restore(); }\n  // sem passagem\n  for (const b of D.bloq || []){ const p = tela(b.lat, b.lon); x.save(); x.strokeStyle = '#DC2626'; x.lineWidth = 3;\n    x.beginPath(); x.moveTo(p.x - 7, p.y - 7); x.lineTo(p.x + 7, p.y + 7); x.moveTo(p.x + 7, p.y - 7); x.lineTo(p.x - 7, p.y + 7); x.stroke(); x.restore(); }\n  // pontos\n  const P = visivel(D), caixas = [];\n  const ordem = P.slice().sort((a, b) => (a.est === 'desprezado') - (b.est === 'desprezado') || (b.pl > 0) - (a.pl > 0));\n  for (const q of ordem.slice().reverse()){\n    const p = tela(q.lat, q.lon); if (p.x \u003c -30 || p.y \u003c -30 || p.x > W + 30 || p.y > H + 30) continue;\n    x.save(); if (!q.minha) x.globalAlpha = 0.5;\n    if (q.est === 'naomedido'){ x.strokeStyle = '#fff'; x.lineWidth = 6; xis(p, 7); x.strokeStyle = '#DC2626'; x.lineWidth = 3; xis(p, 7); }\n    else if (q.est === 'desprezado'){ x.globalAlpha = 0.45; x.beginPath(); x.arc(p.x, p.y, 4, 0, 2 * Math.PI); x.strokeStyle = CINZA_FEITO; x.lineWidth = 2; x.stroke(); }\n    else if (q.est === 'opcao'){ x.beginPath(); x.arc(p.x, p.y, 5, 0, 2 * Math.PI); x.fillStyle = '#fff'; x.fill(); x.strokeStyle = corTipo(q.tipo); x.lineWidth = 2.5; x.stroke(); }\n    else if (q.est === 'feito'){\n      x.beginPath(); x.arc(p.x, p.y, 8, 0, 2 * Math.PI); x.fillStyle = CINZA_FEITO; x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 2; x.stroke();\n      x.beginPath(); x.moveTo(p.x - 4, p.y); x.lineTo(p.x - 1, p.y + 3.5); x.lineTo(p.x + 4.5, p.y - 3.5); x.strokeStyle = '#fff'; x.lineWidth = 2.2; x.stroke();\n      if (!q.meu){ x.beginPath(); x.arc(p.x, p.y, 12, 0, 2 * Math.PI); x.setLineDash([3, 3]); x.strokeStyle = '#475569'; x.lineWidth = 1.8; x.stroke(); x.setLineDash([]); }\n    } else { x.beginPath(); x.arc(p.x, p.y, 7.5, 0, 2 * Math.PI); x.fillStyle = corTipo(q.tipo); x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 2; x.stroke(); }\n    if (q.rem && q.est !== 'feito'){ x.beginPath(); x.arc(p.x, p.y, 12, 0, 2 * Math.PI); x.strokeStyle = '#EA580C'; x.lineWidth = 2.5; x.stroke(); }\n    if (S.cam.plano && q.pl){ const t = String(q.pl); x.font = '700 12px system-ui,sans-serif'; const w = x.measureText(t).width + 8;\n      x.fillStyle = '#0B6FA4'; rr(p.x - 13 - w, p.y - 9, w, 18, 6); x.fill(); x.fillStyle = '#fff'; x.textAlign = 'center'; x.fillText(t, p.x - 13 - w / 2, p.y + 4); x.textAlign = 'left'; }\n    x.restore();\n  }\n  if (S.cam.rot && S.z >= 11.5){\n    x.font = '600 12.5px system-ui,sans-serif';\n    for (const q of ordem){\n      if (q.est === 'desprezado') continue;\n      const p = tela(q.lat, q.lon); if (p.x \u003c 0 || p.y \u003c 0 || p.x > W || p.y > H) continue;\n      const tw = x.measureText(q.id).width, cx = {x0: p.x + 11, y0: p.y - 9, x1: p.x + 15 + tw, y1: p.y + 8};\n      if (caixas.some(c => cx.x0 \u003c c.x1 && cx.x1 > c.x0 && cx.y0 \u003c c.y1 && cx.y1 > c.y0)) continue; caixas.push(cx);\n      x.lineWidth = 3.5; x.strokeStyle = 'rgba(255,255,255,.92)'; x.strokeText(q.id, p.x + 12, p.y + 4.5);\n      x.fillStyle = q.minha ? '#0A3D56' : '#64748B'; x.fillText(q.id, p.x + 12, p.y + 4.5);\n    }\n  }\n  // hospedagem\n  for (const h of D.hosp || []){ const p = tela(h.lat, h.lon);\n    x.fillStyle = '#0A3D56'; x.fillRect(p.x - 8, p.y - 8, 16, 16); x.lineWidth = 2.5; x.strokeStyle = '#fff'; x.strokeRect(p.x - 8, p.y - 8, 16, 16);\n    if (S.z >= 10.5){ x.font = '600 12px system-ui,sans-serif'; x.lineWidth = 3.5; x.strokeStyle = 'rgba(255,255,255,.92)'; x.strokeText('Hospedagem', p.x + 12, p.y + 4); x.fillStyle = '#0A3D56'; x.fillText('Hospedagem', p.x + 12, p.y + 4); } }\n  // ponto escolhido\n  if (S.sel){ const q = (D.pontos || []).find(p => p.id === S.sel); if (q){ const p = tela(q.lat, q.lon);\n    x.beginPath(); x.arc(p.x, p.y, 17, 0, 2 * Math.PI); x.strokeStyle = '#fff'; x.lineWidth = 6; x.stroke(); x.strokeStyle = '#0A2E52'; x.lineWidth = 3; x.stroke(); } }\n  // você\n  if (D.pos){ const p = tela(D.pos.lat, D.pos.lon);\n    x.beginPath(); x.arc(p.x, p.y, 8, 0, 2 * Math.PI); x.fillStyle = '#0B6FA4'; x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 3; x.stroke(); }\n  // escala\n  const mpp = 156543.03392 * Math.cos(S.lat * RAD) / Math.pow(2, S.z), alvo = mpp * 110;\n  const passo = [1, 2, 5].map(k => [10, 100, 1000, 10000, 100000].map(b => k * b)).flat().sort((a, b) => a - b).filter(v => v \u003c= alvo).pop() || 10;\n  const lg = passo / mpp; x.fillStyle = 'rgba(255,255,255,.88)'; x.fillRect(8, H - 36, lg + 16, 28);\n  x.fillStyle = '#0A3D56'; x.fillRect(16, H - 15, lg, 4); x.font = '600 12px system-ui,sans-serif';\n  x.fillText(passo >= 1000 ? passo / 1000 + ' km' : passo + ' m', 16, H - 20);\n}\nfunction xis(p, r){ x.beginPath(); x.moveTo(p.x - r, p.y - r); x.lineTo(p.x + r, p.y + r); x.moveTo(p.x + r, p.y - r); x.lineTo(p.x - r, p.y + r); x.stroke(); }\nfunction rr(a, b, w, h, r){ x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); }\n\nfunction ajusta(){\n  const P = (D && D.pontos || []).filter(p => p.minha && p.est !== 'desprezado');\n  const L = P.length ? P : (D && D.pontos || []); if (!L.length || !W) return;\n  const la = L.map(p => p.lat), lo = L.map(p => p.lon);\n  const n = Math.max(...la), s = Math.min(...la), o = Math.min(...lo), l = Math.max(...lo);\n  S.lat = (n + s) / 2; S.lon = (o + l) / 2;\n  let z = 18; while (z > 3 && (mx(l, z) - mx(o, z) > W - 90 || my(s, z) - my(n, z) > H - 110)) z -= 0.25;\n  S.z = z; S.fit = true; pinta();\n}\nfunction zoomEm(px, py, dz){\n  const g = geo(px, py); S.z = Math.max(3, Math.min(19.5, S.z + dz));\n  const X = mx(g.lon, S.z) - (px - W / 2), Y = my(g.lat, S.z) - (py - H / 2);\n  S.lon = geoX(X, S.z); S.lat = geoY(Y, S.z); pinta();\n}\ncv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomEm(e.clientX - r.left, e.clientY - r.top, -e.deltaY * 0.002); }, {passive: false});\nconst PT = new Map(); let arrasto = null, moveu = 0;\ncv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); PT.set(e.pointerId, {x: e.clientX, y: e.clientY}); moveu = 0;\n  arrasto = PT.size === 2 ? {d: dist2()} : {x: e.clientX, y: e.clientY}; cv.style.cursor = 'grabbing'; });\ncv.addEventListener('pointermove', e => { if (!PT.has(e.pointerId)) return; PT.set(e.pointerId, {x: e.clientX, y: e.clientY});\n  if (PT.size === 2 && arrasto && arrasto.d){ const d = dist2(), r = cv.getBoundingClientRect(), c = centro2();\n    zoomEm(c.x - r.left, c.y - r.top, Math.log2(d / arrasto.d)); arrasto.d = d; moveu += 10; return; }\n  if (arrasto && arrasto.x != null){ const dx = e.clientX - arrasto.x, dy = e.clientY - arrasto.y; moveu += Math.abs(dx) + Math.abs(dy);\n    S.lon = geoX(mx(S.lon, S.z) - dx, S.z); S.lat = geoY(my(S.lat, S.z) - dy, S.z); arrasto = {x: e.clientX, y: e.clientY}; pinta(); } });\nconst solta = e => { PT.delete(e.pointerId); cv.style.cursor = 'grab';\n  if (!PT.size && moveu \u003c 6 && e.type === 'pointerup'){ const r = cv.getBoundingClientRect(); toque(e.clientX - r.left, e.clientY - r.top); }\n  arrasto = PT.size === 1 ? Object.assign({}, [...PT.values()][0]) : null; };\ncv.addEventListener('pointerup', solta); cv.addEventListener('pointercancel', solta);\nfunction dist2(){ const [a, b] = [...PT.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; }\nfunction centro2(){ const [a, b] = [...PT.values()]; return {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2}; }\nfunction toque(px, py){\n  let m = null, dm = 16;\n  for (const q of visivel(D || {})){ const p = tela(q.lat, q.lon), d = Math.hypot(p.x - px, p.y - py); if (d \u003c dm){ dm = d; m = q; } }\n  escolhe(m ? m.id : null, false);\n}\ndocument.querySelectorAll('[data-z]').forEach(b => b.addEventListener('click', () => {\n  const v = b.dataset.z;\n  if (v === 'fit') return ajusta();\n  if (v === 'eu'){ if (D && D.pos){ S.lat = D.pos.lat; S.lon = D.pos.lon; if (S.z \u003c 14) S.z = 14; pinta(); } else aviso('sem posição na folha ainda', 4000); return; }\n  zoomEm(W / 2, H / 2, +v);\n}));\nwindow.addEventListener('keydown', e => { if (e.key === '+' || e.key === 'PageUp') zoomEm(W / 2, H / 2, 1); if (e.key === '-' || e.key === 'PageDown') zoomEm(W / 2, H / 2, -1); });\n\nconst ESTADO = {pendente: 'a fazer', opcao: 'opção reserva (a usar se a principal não der)', feito: 'feito', naomedido: 'não medido', desprezado: 'desprezado (círculo já atendido)'};\nfunction escolhe(id, centra){\n  S.sel = id; const el = $('#info');\n  const q = id && (D.pontos || []).find(p => p.id === id);\n  if (!q){ el.hidden = true; pinta(); return; }\n  if (centra){ S.lat = q.lat; S.lon = q.lon; if (S.z \u003c 13) S.z = 13; }\n  el.innerHTML = '\u003cb style=\"font-size:16px\">' + esc(q.id) + '\u003c/b> · ' + esc(q.tipo || 'ponto') + (q.op ? ' · opção ' + esc(q.op) : '')\n    + '\u003cbr>' + esc(ESTADO[q.est] || q.est) + (q.quem.length ? ' — ' + esc(q.quem.join('; ')) : '')\n    + (q.rem ? '\u003cbr>\u003cb style=\"color:#C2410C\">a remedir\u003c/b>' : '') + (q.motivo ? '\u003cbr>motivo: ' + esc(q.motivo) : '')\n    + (q.eq ? '\u003cbr>' + esc(q.eq) + (q.dia ? ', dia ' + q.dia + ' do plano da campanha' : '') : '')\n    + (q.pl ? '\u003cbr>\u003cb style=\"color:#0B6FA4\">plano de hoje: ' + q.pl + 'º ponto\u003c/b>' : '')\n    + '\u003cdiv class=\"acoes\">' + (q.est !== 'desprezado' ? '\u003cbutton type=\"button\" class=\"pri\" data-nav=\"' + q.i + '\">Navegar até ele, na folha\u003c/button>' : '')\n    + '\u003cbutton type=\"button\" data-fecha>Fechar\u003c/button>\u003c/div>';\n  el.hidden = false;\n  const bn = el.querySelector('[data-nav]'); if (bn) bn.addEventListener('click', () => {\n    try { M.abreNav(+bn.dataset.nav); M.focus(); aviso('a navegação até ' + q.id + ' abriu na guia da folha — volte a ela', 6000); }\n    catch (e){ aviso('não consegui falar com a folha: ' + e.message, 6000); } });\n  el.querySelector('[data-fecha]').addEventListener('click', () => escolhe(null));\n  pinta();\n}\nlet _avT = null;\nfunction aviso(t, ms){ const a = $('#aviso'); a.textContent = t; a.hidden = !t; clearTimeout(_avT); if (t && ms) _avT = setTimeout(() => { a.hidden = true; }, ms); }\n\nconst chip = (q, cls, txt) => '\u003cspan class=\"chip ' + (cls || '') + '\" data-id=\"' + esc(q.id) + '\" title=\"' + esc((ESTADO[q.est] || '') + (q.motivo ? ' — ' + q.motivo : '')) + '\">' + esc(txt || q.id) + '\u003c/span>';\nconst dataBR = s => { const m = String(s).match(/^(\\d{4})-(\\d\\d)-(\\d\\d)$/); return m ? m[3] + '/' + m[2] : s; };\nfunction lista(){\n  if (!D) return;\n  const P = (D.pontos || []).filter(p => S.cam.todas || p.minha);\n  const pl = P.filter(p => p.pl && p.est !== 'feito').sort((a, b) => a.pl - b.pl);\n  const pend = P.filter(p => p.est === 'pendente' && !p.pl);\n  const rem = P.filter(p => p.rem && p.est !== 'feito');\n  const nm = P.filter(p => p.est === 'naomedido');\n  const porDia = {}; pend.forEach(p => { const k = p.dia ? 'Dia ' + p.dia + ' do plano da campanha' : 'Sem dia previsto'; (porDia[k] = porDia[k] || []).push(p); });\n  const kd = Object.keys(porDia).sort((a, b) => (parseInt(a.slice(4)) || 999) - (parseInt(b.slice(4)) || 999));\n  $('#porfazer').innerHTML = (pl.length ? '\u003ch3>Plano de hoje, na ordem\u003c/h3>\u003cdiv class=\"chips\">' + pl.map(p => chip(p, 'pl', p.pl + '. ' + p.id)).join('') + '\u003c/div>' : '\u003cp class=\"leg\">Sem plano de hoje.\u003c/p>')\n    + kd.map(k => '\u003ch3>' + esc(k) + ' (' + porDia[k].length + ')\u003c/h3>\u003cdiv class=\"chips\">' + porDia[k].sort((a, b) => a.id.localeCompare(b.id, 'pt-BR', {numeric: true})).map(p => chip(p)).join('') + '\u003c/div>').join('')\n    + (rem.length ? '\u003ch3>A remedir (' + rem.length + ')\u003c/h3>\u003cdiv class=\"chips\">' + rem.map(p => chip(p, 'rem')).join('') + '\u003c/div>' : '')\n    + (nm.length ? '\u003ch3>Não medidos (' + nm.length + ') — as outras opções do círculo se abrem\u003c/h3>\u003cdiv class=\"chips\">' + nm.map(p => chip(p, 'nm')).join('') + '\u003c/div>' : '')\n    + (!pl.length && !pend.length && !rem.length ? '\u003cp class=\"leg\">\u003cb>Nada pendente' + (S.cam.todas ? '' : ' para esta equipe') + '.\u003c/b>\u003c/p>' : '');\n  const F = P.filter(p => p.est === 'feito'), porQ = {};\n  F.forEach(p => { const k = p.meu ? (p.quem[0] === 'hoje' ? 'Hoje' : 'Esta equipe, ' + dataBR(p.quem[0])) : (p.quem[0] || 'outra equipe'); (porQ[k] = porQ[k] || []).push(p); });\n  const kq = Object.keys(porQ).sort((a, b) => (a === 'Hoje') - (b === 'Hoje') || a.localeCompare(b));\n  $('#feito').innerHTML = F.length ? kq.map(k => '\u003ch3>' + esc(k) + ' (' + porQ[k].length + ')\u003c/h3>\u003cdiv class=\"chips\">' + porQ[k].map(p => chip(p, 'ok')).join('') + '\u003c/div>').join('')\n    : '\u003cp class=\"leg\">Nenhum ponto ocupado ainda.\u003c/p>';\n  document.querySelectorAll('.chip[data-id]').forEach(c => c.addEventListener('click', () => escolhe(c.dataset.id, true)));\n  const R = D.resumo || {};\n  $('#num').innerHTML = '\u003cdiv>\u003cb>' + (R.feitos || 0) + '\u003c/b>pontos feitos por esta equipe\u003c/div>\u003cdiv>\u003cb>' + (R.porFazer || 0) + '\u003c/b>pontos a fazer (esta equipe)\u003c/div>'\n    + (R.circTot ? '\u003cdiv>\u003cb>' + R.circAt + ' de ' + R.circTot + '\u003c/b>círculos atendidos (campanha)\u003c/div>' : '')\n    + '\u003cdiv>\u003cb>' + String((R.km || 0).toFixed(0)) + ' km\u003c/b>percorridos em ' + (R.dias || 0) + ' dia(s)\u003c/div>';\n  const T = [];\n  (D.ant || []).forEach(d => T.push(dataBR(d.data) + ': ' + Math.round(d.km) + ' km'));\n  if (D.kmHoje) T.push('hoje: ' + D.kmHoje.toFixed(1).replace('.', ',') + ' km');\n  $('#traj').innerHTML = (T.length ? 'Esta equipe — ' + esc(T.join(' · ')) + '.' : 'Esta equipe ainda não tem trilha gravada.')\n    + ((D.outras || []).length ? '\u003cbr>Outras equipes: ' + D.outras.map(o => '\u003cspan style=\"display:inline-block;width:18px;border-top:3px dashed ' + o.cor + ';vertical-align:middle;margin:0 4px\">\u003c/span>' + esc(o.equipe) + ' (' + o.dias.length + ' dia(s))').join(' · ') : '');\n  legenda();\n}\nfunction sw(svg){ return '\u003csvg width=\"30\" height=\"20\" viewBox=\"-15 -10 30 20\">' + svg + '\u003c/svg>'; }\nfunction legenda(){\n  const L = [];\n  const tipos = [...new Set((D.pontos || []).map(p => p.tipo || ''))];\n  tipos.forEach(t => L.push([sw('\u003ccircle r=\"7\" fill=\"' + corTipo(t) + '\" stroke=\"#fff\" stroke-width=\"2\"/>'), 'A fazer — ' + (t || 'ponto') + ' (cor do tipo, como na navegação)']));\n  L.push([sw('\u003ccircle r=\"5\" fill=\"#fff\" stroke=\"#5a6b73\" stroke-width=\"2.5\"/>'), 'Opção reserva do círculo (vazada, na cor do tipo)']);\n  L.push([sw('\u003ccircle r=\"8\" fill=\"' + CINZA_FEITO + '\" stroke=\"#fff\" stroke-width=\"2\"/>\u003cpath d=\"M-4 0 L-1 3.5 L4.5 -3.5\" stroke=\"#fff\" stroke-width=\"2.2\" fill=\"none\"/>'), 'Feito por esta equipe']);\n  L.push([sw('\u003ccircle r=\"8\" fill=\"' + CINZA_FEITO + '\"/>\u003ccircle r=\"11\" fill=\"none\" stroke=\"#475569\" stroke-width=\"1.8\" stroke-dasharray=\"3 3\"/>'), 'Feito por outra equipe (anel tracejado)']);\n  L.push([sw('\u003ccircle r=\"6\" fill=\"#5a6b73\"/>\u003ccircle r=\"9.5\" fill=\"none\" stroke=\"#EA580C\" stroke-width=\"2.5\"/>'), 'A remedir (anel laranja)']);\n  L.push([sw('\u003cpath d=\"M-6 -6 L6 6 M6 -6 L-6 6\" stroke=\"#DC2626\" stroke-width=\"3\"/>'), 'Não medido (X vermelho) · também marca \"sem passagem\"']);\n  L.push([sw('\u003ccircle r=\"4\" fill=\"none\" stroke=\"' + CINZA_FEITO + '\" stroke-width=\"2\" opacity=\".5\"/>'), 'Opção desprezada (círculo já atendido), se ligada']);\n  L.push([sw('\u003crect x=\"-13\" y=\"-8\" width=\"14\" height=\"16\" rx=\"5\" fill=\"#0B6FA4\"/>\u003ctext x=\"-6\" y=\"4\" font-size=\"11\" fill=\"#fff\" text-anchor=\"middle\" font-weight=\"700\">1\u003c/text>\u003ccircle cx=\"7\" r=\"5\" fill=\"#5a6b73\"/>'), 'Ordem no plano de hoje']);\n  L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"rgba(11,111,164,.85)\" stroke-width=\"3.5\" stroke-dasharray=\"7 4\"/>'), 'Rota do plano de hoje']);\n  Object.keys(NOME_REV).forEach(k => L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"' + COR_REV[k] + '\" stroke-width=\"5\"/>'), 'Trilha — ' + NOME_REV[k] + ' (hoje, forte; dias anteriores, a mesma cor mais clara)']));\n  L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"rgba(62,85,97,.9)\" stroke-width=\"2.5\" stroke-dasharray=\"2 4\"/>'), 'Trilha sem trecho marcado']);\n  (D.outras || []).forEach(o => L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"' + o.cor + '\" stroke-width=\"3\" stroke-dasharray=\"7 4\"/>'), 'Trajetos de ' + esc(o.equipe)]));\n  L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"#D97706\" stroke-width=\"3\"/>'), 'Rodovias principais (OpenStreetMap)']);\n  L.push([sw('\u003crect x=\"-7\" y=\"-7\" width=\"14\" height=\"14\" fill=\"#0A3D56\" stroke=\"#fff\" stroke-width=\"2\"/>'), 'Hospedagem']);\n  L.push([sw('\u003ccircle r=\"7\" fill=\"#0B6FA4\" stroke=\"#fff\" stroke-width=\"3\"/>'), 'Você (última posição da folha)']);\n  L.push([sw('\u003ccircle r=\"6\" fill=\"#5a6b73\" opacity=\".5\"/>'), 'Pontos de outras equipes (mais apagados), se ligados']);\n  $('#leg').innerHTML = L.map(r => '\u003cdiv>' + r[0] + '\u003cspan>' + r[1] + '\u003c/span>\u003c/div>').join('')\n    + '\u003cp class=\"leg\" style=\"margin:6px 0 0\">Trilhas a menos de 1 km da hospedagem não aparecem.\u003c/p>';\n}\n/* a folha (a guia que abriu esta) é a fonte: a cada 3 s, se algo mudou, pega os dados de novo */\nfunction atualiza(){\n  if (!M || M.closed){ aviso('A folha que abriu esta guia foi fechada: abra a folha e toque em \"Visão geral\" de novo.'); return; }\n  let v; try { v = M.visaoVersao(); } catch (e){ aviso('A folha não respondeu (' + e.message + '). Volte à guia da folha e toque em \"Visão geral\".'); return; }\n  if (v === VER) return;\n  try { D = M.dadosVisao(); } catch (e){ aviso('erro ao ler a folha: ' + e.message); return; }\n  VER = v; if ($('#aviso').textContent.startsWith('A folha')) aviso('');\n  $('#tit').textContent = 'Visão geral — ' + (D.campanha || 'campanha');\n  $('#sub').textContent = (D.equipe ? D.equipe + ' · ' : '') + 'atualizado às ' + new Date().toLocaleTimeString('pt-BR').slice(0, 5);\n  document.title = 'Visão geral — ' + (D.equipe || D.campanha || 'campanha');\n  if (!S.fit) ajusta();\n  lista(); pinta();\n  if (S.sel) escolhe(S.sel, false);\n}\nwindow.visaoAtualiza = () => { VER = null; atualiza(); };\nsetInterval(() => { if (document.visibilityState === 'visible') atualiza(); }, 3000);\ndocument.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') atualiza(); });\nwindow.addEventListener('online', pinta); window.addEventListener('offline', pinta);\nsetTimeout(atualiza, 50);\n\u003c/script>\n\u003c/body>\n\u003c/html>\n";
+const HTML_VISAO = "\u003c!doctype html>\n\u003chtml lang=\"pt-BR\">\n\u003chead>\n\u003cmeta charset=\"utf-8\">\n\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\u003ctitle>Visão geral da campanha\u003c/title>\n\u003cstyle>\n*{box-sizing:border-box}\nbody{margin:0;font:15px/1.4 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;color:#1b2a33;background:#f6f7f5}\nheader{background:#0A2E52;color:#fff;padding:10px 14px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}\nheader h1{font-size:18px;margin:0}\nheader small{opacity:.85}\n.aviso{background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:6px 10px;margin:8px 10px 0}\n.cont{display:grid;grid-template-columns:1fr;gap:10px;padding:10px}\n@media (min-width:1000px){.cont{grid-template-columns:minmax(0,1fr) 400px;height:calc(100vh - 52px)} .mapa{height:100%;min-height:0} .lado{overflow:auto}}\n.mapa{position:relative;background:#e9ece9;border:1px solid #c9d2d6;border-radius:10px;overflow:hidden;min-height:62vh;touch-action:none}\ncanvas{display:block;width:100%;height:100%;cursor:grab}\n.ctl{position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:6px}\nbutton{font:inherit;border:1px solid #0A3D56;background:#fff;color:#0A3D56;border-radius:8px;padding:5px 10px;cursor:pointer}\nbutton.pri{background:#0A3D56;color:#fff}\n.ctl button{width:40px;height:40px;padding:0;font-size:20px}\ndetails.cam{position:absolute;left:8px;top:8px;background:rgba(255,255,255,.94);border-radius:8px;padding:6px 10px;font-size:13.5px;max-width:calc(100% - 70px)}\ndetails.cam summary{cursor:pointer;font-weight:600;color:#0A3D56}\ndetails.cam label{display:block;margin:3px 0}\n.info{position:absolute;left:8px;bottom:26px;background:#fff;border:1px solid #0A3D56;border-radius:10px;padding:8px 12px;max-width:min(420px,calc(100% - 16px));font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.15)}\n.info .acoes{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}\n.credito{position:absolute;right:6px;bottom:4px;font-size:11px;background:rgba(255,255,255,.85);padding:1px 5px;border-radius:4px;max-width:70%}\n.num{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:10px}\n.num div{background:#fff;border:1px solid #c9d2d6;border-radius:8px;padding:6px 10px;font-size:13px;color:#46565f}\n.num b{display:block;font-size:22px;color:#0A3D56}\n.cart{background:#fff;border:1px solid #c9d2d6;border-radius:10px;padding:10px 12px;margin-bottom:10px}\n.cart h2{font-size:16px;margin:0 0 6px;color:#0A3D56}\n.cart h3{font-size:13.5px;margin:8px 0 4px;color:#46565f}\n.chips{display:flex;flex-wrap:wrap;gap:5px}\n.chip{border:1px solid #c9d2d6;border-radius:14px;padding:2px 9px;font-size:13px;cursor:pointer;background:#fff}\n.chip.pl{border-color:#0B6FA4;color:#0B6FA4;font-weight:600}\n.chip.rem{border-color:#EA580C;color:#C2410C}\n.chip.nm{border-color:#DC2626;color:#B91C1C}\n.chip.ok{background:#EEF1EF;color:#46565f}\n.leg{font-size:13px;color:#46565f}\n.legenda div{display:flex;align-items:center;gap:8px;font-size:13px;margin:3px 0}\n.legenda svg{flex:none}\n\u003c/style>\n\u003c/head>\n\u003cbody>\n\u003cheader>\u003ch1 id=\"tit\">Visão geral da campanha\u003c/h1>\u003csmall id=\"sub\">aguardando a folha…\u003c/small>\u003c/header>\n\u003cdiv id=\"aviso\" class=\"aviso\" hidden>\u003c/div>\n\u003cdiv class=\"cont\">\n  \u003cdiv class=\"mapa\" id=\"mapa\">\n    \u003ccanvas id=\"cv\">\u003c/canvas>\n    \u003cdetails class=\"cam\" id=\"cam\">\u003csummary>Camadas\u003c/summary>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"fundo\"> Imagem Esri (com internet)\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"vias\"> Rodovias principais (OpenStreetMap)\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"perc\"> Trajetos percorridos\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"plano\"> Plano de hoje\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"todas\"> Pontos de outras equipes\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"despr\"> Opções desprezadas\u003c/label>\n      \u003clabel>\u003cinput type=\"checkbox\" data-c=\"rot\"> Rótulos dos pontos\u003c/label>\n    \u003c/details>\n    \u003cdiv class=\"ctl\">\u003cbutton type=\"button\" data-z=\"1\" title=\"aproximar\">+\u003c/button>\u003cbutton type=\"button\" data-z=\"-1\" title=\"afastar\">−\u003c/button>\n      \u003cbutton type=\"button\" data-z=\"fit\" title=\"ver todos os pontos da equipe\">⤢\u003c/button>\u003cbutton type=\"button\" data-z=\"eu\" title=\"onde estou\">◎\u003c/button>\u003c/div>\n    \u003cdiv class=\"info\" id=\"info\" hidden>\u003c/div>\n    \u003cdiv class=\"credito\" id=\"cred\">\u003c/div>\n  \u003c/div>\n  \u003cdiv class=\"lado\">\n    \u003cdiv class=\"num\" id=\"num\">\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>Por fazer\u003c/h2>\u003cdiv id=\"porfazer\">\u003c/div>\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>Feito\u003c/h2>\u003cdiv id=\"feito\">\u003c/div>\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>IBGE-PPP\u003c/h2>\u003cdiv id=\"ppp\">\u003c/div>\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>Trajetos percorridos\u003c/h2>\u003cdiv id=\"traj\" class=\"leg\">\u003c/div>\u003c/div>\n    \u003cdiv class=\"cart\">\u003ch2>Legenda\u003c/h2>\u003cdiv class=\"legenda\" id=\"leg\">\u003c/div>\u003c/div>\n    \u003cp class=\"leg\">Esta guia só mostra: o registro continua na folha, que é onde tudo se faz. Ela se atualiza sozinha enquanto a folha estiver aberta.\n    No notebook, dá para arrastar esta guia para outra tela.\u003c/p>\n  \u003c/div>\n\u003c/div>\n\u003cscript>\n'use strict';\nconst M = window.opener;\nconst $ = s => document.querySelector(s);\nconst esc = s => String(s == null ? '' : s).replace(/[&\u003c>\"]/g, c => ({'&': '&amp;', '\u003c': '&lt;', '>': '&gt;', '\"': '&quot;'}[c]));\nconst TB = 256, RAD = Math.PI / 180;\nconst COR_REV = {'1': '#9CA3AF', '2': '#A16207', '3': '#EA580C', '4': '#1F2937', '5': '#7C3AED'};\nconst NOME_REV = {'2': 'Leito natural', '3': 'Revestimento primário', '4': 'Pavimentado', '5': 'Calçado', '1': 'Desconhecido'};\nconst corTipo = t => t === 'controle' ? '#8e44ad' : t === 'checagem' ? '#16a085' : '#5a6b73';\nconst CINZA_FEITO = '#9AA6AB';\nlet D = null, VER = null;\nconst S = {lat: -5.8, lon: -35.2, z: 10, sel: null, fit: false,\n  cam: {fundo: true, vias: true, perc: true, plano: true, todas: false, despr: false, rot: true}};\ntry { Object.assign(S.cam, JSON.parse(localStorage.getItem('visao_camadas') || '{}')); } catch (e){}\ndocument.querySelectorAll('[data-c]').forEach(c => { c.checked = !!S.cam[c.dataset.c];\n  c.addEventListener('change', () => { S.cam[c.dataset.c] = c.checked; try { localStorage.setItem('visao_camadas', JSON.stringify(S.cam)); } catch (e){} pinta(); lista(); }); });\n\n/* Mercator (EPSG:3857), em pixels do nível z */\nconst mx = (lon, z) => (lon + 180) / 360 * TB * Math.pow(2, z);\nconst my = (lat, z) => { const s = Math.sin(Math.max(-85, Math.min(85, lat)) * RAD); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * TB * Math.pow(2, z); };\nconst geoX = (X, z) => X / (TB * Math.pow(2, z)) * 360 - 180;\nconst geoY = (Y, z) => Math.atan(Math.sinh(Math.PI * (1 - 2 * Y / (TB * Math.pow(2, z))))) / RAD;\nconst cv = $('#cv'), x = cv.getContext('2d');\nlet W = 0, H = 0, DPR = 1;\nfunction tela(lat, lon){ return {x: W / 2 + mx(lon, S.z) - mx(S.lon, S.z), y: H / 2 + my(lat, S.z) - my(S.lat, S.z)}; }\nfunction geo(px, py){ return {lon: geoX(mx(S.lon, S.z) + px - W / 2, S.z), lat: geoY(my(S.lat, S.z) + py - H / 2, S.z)}; }\nfunction dimensiona(){\n  const r = cv.getBoundingClientRect(); DPR = window.devicePixelRatio || 1;\n  W = r.width; H = r.height; cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); pinta();\n}\nnew ResizeObserver(dimensiona).observe(cv);\nlet _ped = false;\nfunction pinta(){ if (_ped) return; _ped = true; requestAnimationFrame(() => { _ped = false; desenha(); }); }\n\n/* blocos da imagem Esri (os mesmos da navegação), só com internet */\nconst BLOCOS = new Map();\nfunction bloco(z, bx, by){\n  const k = z + '/' + bx + '/' + by; let b = BLOCOS.get(k);\n  if (!b){ b = new Image(); b.ok = false; b.onload = () => { b.ok = true; pinta(); };\n    b.src = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/' + z + '/' + by + '/' + bx;\n    BLOCOS.set(k, b); if (BLOCOS.size > 400) BLOCOS.delete(BLOCOS.keys().next().value); }\n  return b.ok ? b : null;\n}\nfunction linha(g, emPx){ x.beginPath(); g.forEach((c, k) => { const p = tela(c[1], c[0]); if (k) x.lineTo(p.x, p.y); else x.moveTo(p.x, p.y); }); x.stroke(); }\nfunction visivel(D){ return (D.pontos || []).filter(p => (S.cam.todas || p.minha) && (S.cam.despr || p.est !== 'desprezado')); }\n\nfunction desenha(){\n  x.setTransform(DPR, 0, 0, DPR, 0, 0);\n  x.fillStyle = '#E9ECE9'; x.fillRect(0, 0, W, H);\n  if (!D){ return; }\n  const fundo = S.cam.fundo && navigator.onLine;\n  if (fundo){\n    const zt = Math.max(0, Math.min(19, Math.round(S.z))), esc2 = Math.pow(2, S.z - zt);\n    const cx = mx(S.lon, zt), cy = my(S.lat, zt), n = Math.pow(2, zt);\n    const x0 = Math.floor((cx - W / 2 / esc2) / TB), x1 = Math.floor((cx + W / 2 / esc2) / TB);\n    const y0 = Math.floor((cy - H / 2 / esc2) / TB), y1 = Math.floor((cy + H / 2 / esc2) / TB);\n    if ((x1 - x0 + 1) * (y1 - y0 + 1) \u003c= 120)\n      for (let bx = x0; bx \u003c= x1; bx++) for (let by = Math.max(0, y0); by \u003c= Math.min(n - 1, y1); by++){\n        const im = bloco(zt, ((bx % n) + n) % n, by); if (!im) continue;\n        x.drawImage(im, W / 2 + (bx * TB - cx) * esc2, H / 2 + (by * TB - cy) * esc2, TB * esc2 + 0.5, TB * esc2 + 0.5);\n      }\n  }\n  $('#cred').textContent = (fundo ? 'Imagem: Esri, Maxar, Earthstar Geographics e comunidade de usuários GIS · ' : '')\n    + (S.cam.vias && (D.vias || []).length ? 'rodovias © colaboradores do OpenStreetMap' : '');\n  x.lineJoin = 'round'; x.lineCap = 'round';\n  // rodovias principais\n  if (S.cam.vias) for (const v of D.vias || []){\n    x.strokeStyle = fundo ? 'rgba(251,191,36,.75)' : '#D97706'; x.lineWidth = fundo ? 2 : 3; linha(v.g);\n  }\n  // trajetos percorridos: outras equipes (tracejado na cor delas), dias anteriores (mais claros), hoje (forte)\n  if (S.cam.perc){\n    for (const o of D.outras || []){ x.save(); x.strokeStyle = o.cor; x.globalAlpha = 0.8; x.lineWidth = 3; x.setLineDash([9, 5]);\n      for (const d of o.dias) for (const p of d.partes) linha(p.g); x.restore(); }\n    for (const d of D.ant || []) for (const p of d.partes){ const c = COR_REV[p.rev]; x.save();\n      x.strokeStyle = c || 'rgba(62,85,97,.8)'; x.globalAlpha = c ? 0.5 : 0.7; x.lineWidth = c ? 4 : 2; if (!c) x.setLineDash([2, 4]); linha(p.g); x.restore(); }\n    for (const p of D.hoje || []){ const c = COR_REV[p.rev]; x.save();\n      x.strokeStyle = c || 'rgba(62,85,97,.9)'; x.lineWidth = c ? 5 : 2.5; if (!c) x.setLineDash([2, 4]); linha(p.g); x.restore(); }\n  }\n  // plano de hoje: rotas e ordem\n  if (S.cam.plano) for (const r of D.plano || []) if (r.g && r.g.length > 1){\n    x.save(); x.strokeStyle = 'rgba(11,111,164,.85)'; x.lineWidth = 3.5; x.setLineDash([10, 6]); linha(r.g); x.restore(); }\n  // sem passagem\n  for (const b of D.bloq || []){ const p = tela(b.lat, b.lon); x.save(); x.strokeStyle = '#DC2626'; x.lineWidth = 3;\n    x.beginPath(); x.moveTo(p.x - 7, p.y - 7); x.lineTo(p.x + 7, p.y + 7); x.moveTo(p.x + 7, p.y - 7); x.lineTo(p.x - 7, p.y + 7); x.stroke(); x.restore(); }\n  // pontos\n  const P = visivel(D), caixas = [];\n  const ordem = P.slice().sort((a, b) => (a.est === 'desprezado') - (b.est === 'desprezado') || (b.pl > 0) - (a.pl > 0));\n  for (const q of ordem.slice().reverse()){\n    const p = tela(q.lat, q.lon); if (p.x \u003c -30 || p.y \u003c -30 || p.x > W + 30 || p.y > H + 30) continue;\n    x.save(); if (!q.minha) x.globalAlpha = 0.5;\n    if (q.est === 'naomedido'){ x.strokeStyle = '#fff'; x.lineWidth = 6; xis(p, 7); x.strokeStyle = '#DC2626'; x.lineWidth = 3; xis(p, 7); }\n    else if (q.est === 'desprezado'){ x.globalAlpha = 0.45; x.beginPath(); x.arc(p.x, p.y, 4, 0, 2 * Math.PI); x.strokeStyle = CINZA_FEITO; x.lineWidth = 2; x.stroke(); }\n    else if (q.est === 'opcao'){ x.beginPath(); x.arc(p.x, p.y, 5, 0, 2 * Math.PI); x.fillStyle = '#fff'; x.fill(); x.strokeStyle = corTipo(q.tipo); x.lineWidth = 2.5; x.stroke(); }\n    else if (q.est === 'feito'){\n      x.beginPath(); x.arc(p.x, p.y, 8, 0, 2 * Math.PI); x.fillStyle = CINZA_FEITO; x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 2; x.stroke();\n      x.beginPath(); x.moveTo(p.x - 4, p.y); x.lineTo(p.x - 1, p.y + 3.5); x.lineTo(p.x + 4.5, p.y - 3.5); x.strokeStyle = '#fff'; x.lineWidth = 2.2; x.stroke();\n      if (!q.meu){ x.beginPath(); x.arc(p.x, p.y, 12, 0, 2 * Math.PI); x.setLineDash([3, 3]); x.strokeStyle = '#475569'; x.lineWidth = 1.8; x.stroke(); x.setLineDash([]); }\n    } else { x.beginPath(); x.arc(p.x, p.y, 7.5, 0, 2 * Math.PI); x.fillStyle = corTipo(q.tipo); x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 2; x.stroke(); }\n    if (q.rem && q.est !== 'feito'){ x.beginPath(); x.arc(p.x, p.y, 12, 0, 2 * Math.PI); x.strokeStyle = '#EA580C'; x.lineWidth = 2.5; x.stroke(); }\n    if (S.cam.plano && q.pl){ const t = String(q.pl); x.font = '700 12px system-ui,sans-serif'; const w = x.measureText(t).width + 8;\n      x.fillStyle = '#0B6FA4'; rr(p.x - 13 - w, p.y - 9, w, 18, 6); x.fill(); x.fillStyle = '#fff'; x.textAlign = 'center'; x.fillText(t, p.x - 13 - w / 2, p.y + 4); x.textAlign = 'left'; }\n    x.restore();\n  }\n  if (S.cam.rot && S.z >= 11.5){\n    x.font = '600 12.5px system-ui,sans-serif';\n    for (const q of ordem){\n      if (q.est === 'desprezado') continue;\n      const p = tela(q.lat, q.lon); if (p.x \u003c 0 || p.y \u003c 0 || p.x > W || p.y > H) continue;\n      const tw = x.measureText(q.id).width, cx = {x0: p.x + 11, y0: p.y - 9, x1: p.x + 15 + tw, y1: p.y + 8};\n      if (caixas.some(c => cx.x0 \u003c c.x1 && cx.x1 > c.x0 && cx.y0 \u003c c.y1 && cx.y1 > c.y0)) continue; caixas.push(cx);\n      x.lineWidth = 3.5; x.strokeStyle = 'rgba(255,255,255,.92)'; x.strokeText(q.id, p.x + 12, p.y + 4.5);\n      x.fillStyle = q.minha ? '#0A3D56' : '#64748B'; x.fillText(q.id, p.x + 12, p.y + 4.5);\n    }\n  }\n  // hospedagem\n  for (const h of D.hosp || []){ const p = tela(h.lat, h.lon);\n    x.fillStyle = '#0A3D56'; x.fillRect(p.x - 8, p.y - 8, 16, 16); x.lineWidth = 2.5; x.strokeStyle = '#fff'; x.strokeRect(p.x - 8, p.y - 8, 16, 16);\n    if (S.z >= 10.5){ x.font = '600 12px system-ui,sans-serif'; x.lineWidth = 3.5; x.strokeStyle = 'rgba(255,255,255,.92)'; x.strokeText('Hospedagem', p.x + 12, p.y + 4); x.fillStyle = '#0A3D56'; x.fillText('Hospedagem', p.x + 12, p.y + 4); } }\n  // ponto escolhido\n  if (S.sel){ const q = (D.pontos || []).find(p => p.id === S.sel); if (q){ const p = tela(q.lat, q.lon);\n    x.beginPath(); x.arc(p.x, p.y, 17, 0, 2 * Math.PI); x.strokeStyle = '#fff'; x.lineWidth = 6; x.stroke(); x.strokeStyle = '#0A2E52'; x.lineWidth = 3; x.stroke(); } }\n  // você\n  if (D.pos){ const p = tela(D.pos.lat, D.pos.lon);\n    x.beginPath(); x.arc(p.x, p.y, 8, 0, 2 * Math.PI); x.fillStyle = '#0B6FA4'; x.fill(); x.strokeStyle = '#fff'; x.lineWidth = 3; x.stroke(); }\n  // escala\n  const mpp = 156543.03392 * Math.cos(S.lat * RAD) / Math.pow(2, S.z), alvo = mpp * 110;\n  const passo = [1, 2, 5].map(k => [10, 100, 1000, 10000, 100000].map(b => k * b)).flat().sort((a, b) => a - b).filter(v => v \u003c= alvo).pop() || 10;\n  const lg = passo / mpp; x.fillStyle = 'rgba(255,255,255,.88)'; x.fillRect(8, H - 36, lg + 16, 28);\n  x.fillStyle = '#0A3D56'; x.fillRect(16, H - 15, lg, 4); x.font = '600 12px system-ui,sans-serif';\n  x.fillText(passo >= 1000 ? passo / 1000 + ' km' : passo + ' m', 16, H - 20);\n}\nfunction xis(p, r){ x.beginPath(); x.moveTo(p.x - r, p.y - r); x.lineTo(p.x + r, p.y + r); x.moveTo(p.x + r, p.y - r); x.lineTo(p.x - r, p.y + r); x.stroke(); }\nfunction rr(a, b, w, h, r){ x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); }\n\nfunction ajusta(){\n  const P = (D && D.pontos || []).filter(p => p.minha && p.est !== 'desprezado');\n  const L = P.length ? P : (D && D.pontos || []); if (!L.length || !W) return;\n  const la = L.map(p => p.lat), lo = L.map(p => p.lon);\n  const n = Math.max(...la), s = Math.min(...la), o = Math.min(...lo), l = Math.max(...lo);\n  S.lat = (n + s) / 2; S.lon = (o + l) / 2;\n  let z = 18; while (z > 3 && (mx(l, z) - mx(o, z) > W - 90 || my(s, z) - my(n, z) > H - 110)) z -= 0.25;\n  S.z = z; S.fit = true; pinta();\n}\nfunction zoomEm(px, py, dz){\n  const g = geo(px, py); S.z = Math.max(3, Math.min(19.5, S.z + dz));\n  const X = mx(g.lon, S.z) - (px - W / 2), Y = my(g.lat, S.z) - (py - H / 2);\n  S.lon = geoX(X, S.z); S.lat = geoY(Y, S.z); pinta();\n}\ncv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomEm(e.clientX - r.left, e.clientY - r.top, -e.deltaY * 0.002); }, {passive: false});\nconst PT = new Map(); let arrasto = null, moveu = 0;\ncv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); PT.set(e.pointerId, {x: e.clientX, y: e.clientY}); moveu = 0;\n  arrasto = PT.size === 2 ? {d: dist2()} : {x: e.clientX, y: e.clientY}; cv.style.cursor = 'grabbing'; });\ncv.addEventListener('pointermove', e => { if (!PT.has(e.pointerId)) return; PT.set(e.pointerId, {x: e.clientX, y: e.clientY});\n  if (PT.size === 2 && arrasto && arrasto.d){ const d = dist2(), r = cv.getBoundingClientRect(), c = centro2();\n    zoomEm(c.x - r.left, c.y - r.top, Math.log2(d / arrasto.d)); arrasto.d = d; moveu += 10; return; }\n  if (arrasto && arrasto.x != null){ const dx = e.clientX - arrasto.x, dy = e.clientY - arrasto.y; moveu += Math.abs(dx) + Math.abs(dy);\n    S.lon = geoX(mx(S.lon, S.z) - dx, S.z); S.lat = geoY(my(S.lat, S.z) - dy, S.z); arrasto = {x: e.clientX, y: e.clientY}; pinta(); } });\nconst solta = e => { PT.delete(e.pointerId); cv.style.cursor = 'grab';\n  if (!PT.size && moveu \u003c 6 && e.type === 'pointerup'){ const r = cv.getBoundingClientRect(); toque(e.clientX - r.left, e.clientY - r.top); }\n  arrasto = PT.size === 1 ? Object.assign({}, [...PT.values()][0]) : null; };\ncv.addEventListener('pointerup', solta); cv.addEventListener('pointercancel', solta);\nfunction dist2(){ const [a, b] = [...PT.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; }\nfunction centro2(){ const [a, b] = [...PT.values()]; return {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2}; }\nfunction toque(px, py){\n  let m = null, dm = 16;\n  for (const q of visivel(D || {})){ const p = tela(q.lat, q.lon), d = Math.hypot(p.x - px, p.y - py); if (d \u003c dm){ dm = d; m = q; } }\n  escolhe(m ? m.id : null, false);\n}\ndocument.querySelectorAll('[data-z]').forEach(b => b.addEventListener('click', () => {\n  const v = b.dataset.z;\n  if (v === 'fit') return ajusta();\n  if (v === 'eu'){ if (D && D.pos){ S.lat = D.pos.lat; S.lon = D.pos.lon; if (S.z \u003c 14) S.z = 14; pinta(); } else aviso('sem posição na folha ainda', 4000); return; }\n  zoomEm(W / 2, H / 2, +v);\n}));\nwindow.addEventListener('keydown', e => { if (e.key === '+' || e.key === 'PageUp') zoomEm(W / 2, H / 2, 1); if (e.key === '-' || e.key === 'PageDown') zoomEm(W / 2, H / 2, -1); });\n\nconst ESTADO = {pendente: 'a fazer', opcao: 'opção reserva (a usar se a principal não der)', feito: 'feito', naomedido: 'não medido', desprezado: 'desprezado (círculo já atendido)'};\nfunction escolhe(id, centra){\n  S.sel = id; const el = $('#info');\n  const q = id && (D.pontos || []).find(p => p.id === id);\n  if (!q){ el.hidden = true; pinta(); return; }\n  if (centra){ S.lat = q.lat; S.lon = q.lon; if (S.z \u003c 13) S.z = 13; }\n  el.innerHTML = '\u003cb style=\"font-size:16px\">' + esc(q.id) + '\u003c/b> · ' + esc(q.tipo || 'ponto') + (q.op ? ' · opção ' + esc(q.op) : '')\n    + '\u003cbr>' + esc(ESTADO[q.est] || q.est) + (q.quem.length ? ' — ' + esc(q.quem.join('; ')) : '')\n    + (q.rem ? '\u003cbr>\u003cb style=\"color:#C2410C\">a remedir\u003c/b>' : '') + (q.motivo ? '\u003cbr>motivo: ' + esc(q.motivo) : '')\n    + (q.eq ? '\u003cbr>' + esc(q.eq) + (q.dia ? ', dia ' + q.dia + ' do plano da campanha' : '') : '')\n    + (q.pl ? '\u003cbr>\u003cb style=\"color:#0B6FA4\">plano de hoje: ' + q.pl + 'º ponto\u003c/b>' : '')\n    + '\u003cdiv class=\"acoes\">' + (q.est !== 'desprezado' ? '\u003cbutton type=\"button\" class=\"pri\" data-nav=\"' + q.i + '\">Navegar até ele, na folha\u003c/button>' : '')\n    + '\u003cbutton type=\"button\" data-fecha>Fechar\u003c/button>\u003c/div>';\n  el.hidden = false;\n  const bn = el.querySelector('[data-nav]'); if (bn) bn.addEventListener('click', () => {\n    try { M.abreNav(+bn.dataset.nav); M.focus(); aviso('a navegação até ' + q.id + ' abriu na guia da folha — volte a ela', 6000); }\n    catch (e){ aviso('não consegui falar com a folha: ' + e.message, 6000); } });\n  el.querySelector('[data-fecha]').addEventListener('click', () => escolhe(null));\n  pinta();\n}\nlet _avT = null;\nfunction aviso(t, ms){ const a = $('#aviso'); a.textContent = t; a.hidden = !t; clearTimeout(_avT); if (t && ms) _avT = setTimeout(() => { a.hidden = true; }, ms); }\n\nconst chip = (q, cls, txt) => '\u003cspan class=\"chip ' + (cls || '') + '\" data-id=\"' + esc(q.id) + '\" title=\"' + esc((ESTADO[q.est] || '') + (q.motivo ? ' — ' + q.motivo : '')) + '\">' + esc(txt || q.id) + '\u003c/span>';\nconst dataBR = s => { const m = String(s).match(/^(\\d{4})-(\\d\\d)-(\\d\\d)$/); return m ? m[3] + '/' + m[2] : s; };\nfunction lista(){\n  if (!D) return;\n  const P = (D.pontos || []).filter(p => S.cam.todas || p.minha);\n  const pl = P.filter(p => p.pl && p.est !== 'feito').sort((a, b) => a.pl - b.pl);\n  const pend = P.filter(p => p.est === 'pendente' && !p.pl);\n  const rem = P.filter(p => p.rem && p.est !== 'feito');\n  const nm = P.filter(p => p.est === 'naomedido');\n  const porDia = {}; pend.forEach(p => { const k = p.dia ? 'Dia ' + p.dia + ' do plano da campanha' : 'Sem dia previsto'; (porDia[k] = porDia[k] || []).push(p); });\n  const kd = Object.keys(porDia).sort((a, b) => (parseInt(a.slice(4)) || 999) - (parseInt(b.slice(4)) || 999));\n  $('#porfazer').innerHTML = (pl.length ? '\u003ch3>Plano de hoje, na ordem\u003c/h3>\u003cdiv class=\"chips\">' + pl.map(p => chip(p, 'pl', p.pl + '. ' + p.id)).join('') + '\u003c/div>' : '\u003cp class=\"leg\">Sem plano de hoje.\u003c/p>')\n    + kd.map(k => '\u003ch3>' + esc(k) + ' (' + porDia[k].length + ')\u003c/h3>\u003cdiv class=\"chips\">' + porDia[k].sort((a, b) => a.id.localeCompare(b.id, 'pt-BR', {numeric: true})).map(p => chip(p)).join('') + '\u003c/div>').join('')\n    + (rem.length ? '\u003ch3>A remedir (' + rem.length + ')\u003c/h3>\u003cdiv class=\"chips\">' + rem.map(p => chip(p, 'rem')).join('') + '\u003c/div>' : '')\n    + (nm.length ? '\u003ch3>Não medidos (' + nm.length + ') — as outras opções do círculo se abrem\u003c/h3>\u003cdiv class=\"chips\">' + nm.map(p => chip(p, 'nm')).join('') + '\u003c/div>' : '')\n    + (!pl.length && !pend.length && !rem.length ? '\u003cp class=\"leg\">\u003cb>Nada pendente' + (S.cam.todas ? '' : ' para esta equipe') + '.\u003c/b>\u003c/p>' : '');\n  const F = P.filter(p => p.est === 'feito'), porQ = {};\n  F.forEach(p => { const k = p.meu ? (p.quem[0] === 'hoje' ? 'Hoje' : 'Esta equipe, ' + dataBR(p.quem[0])) : (p.quem[0] || 'outra equipe'); (porQ[k] = porQ[k] || []).push(p); });\n  const kq = Object.keys(porQ).sort((a, b) => (a === 'Hoje') - (b === 'Hoje') || a.localeCompare(b));\n  $('#feito').innerHTML = F.length ? kq.map(k => '\u003ch3>' + esc(k) + ' (' + porQ[k].length + ')\u003c/h3>\u003cdiv class=\"chips\">' + porQ[k].map(p => chip(p, 'ok')).join('') + '\u003c/div>').join('')\n    : '\u003cp class=\"leg\">Nenhum ponto ocupado ainda.\u003c/p>';\n  document.querySelectorAll('.chip[data-id]').forEach(c => c.addEventListener('click', () => escolhe(c.dataset.id, true)));\n  const R = D.resumo || {};\n  $('#num').innerHTML = '\u003cdiv>\u003cb>' + (R.feitos || 0) + '\u003c/b>pontos feitos por esta equipe\u003c/div>\u003cdiv>\u003cb>' + (R.porFazer || 0) + '\u003c/b>pontos a fazer (esta equipe)\u003c/div>'\n    + (R.circTot ? '\u003cdiv>\u003cb>' + R.circAt + ' de ' + R.circTot + '\u003c/b>círculos atendidos (campanha)\u003c/div>' : '')\n    + '\u003cdiv>\u003cb>' + String((R.km || 0).toFixed(0)) + ' km\u003c/b>percorridos em ' + (R.dias || 0) + ' dia(s)\u003c/div>';\n  const T = [];\n  (D.ant || []).forEach(d => T.push(dataBR(d.data) + ': ' + Math.round(d.km) + ' km'));\n  if (D.kmHoje) T.push('hoje: ' + D.kmHoje.toFixed(1).replace('.', ',') + ' km');\n  $('#traj').innerHTML = (T.length ? 'Esta equipe — ' + esc(T.join(' · ')) + '.' : 'Esta equipe ainda não tem trilha gravada.')\n    + ((D.outras || []).length ? '\u003cbr>Outras equipes: ' + D.outras.map(o => '\u003cspan style=\"display:inline-block;width:18px;border-top:3px dashed ' + o.cor + ';vertical-align:middle;margin:0 4px\">\u003c/span>' + esc(o.equipe) + ' (' + o.dias.length + ' dia(s))').join(' · ') : '');\n  const PP = D.ppp || [];\n  const grupo = (n, tit, cls) => { const g = PP.filter(x => x.nivel === n); return g.length ? '\u003ch3>' + tit + ' (' + g.length + ')\u003c/h3>\u003cdiv class=\"chips\">'\n    + g.map(x => '\u003cspan class=\"chip ' + cls + '\" data-id=\"' + esc(x.id) + '\" title=\"' + esc(x.acao) + '\">' + esc(x.id) + ' · ' + x.dias + ' d\u003c/span>').join('') + '\u003c/div>' : ''; };\n  $('#ppp').innerHTML = PP.length ? grupo(3, 'Já com órbita final publicada — processar', 'nm') + grupo(2, 'Já podem ir (rápida ou final provável)', 'rem')\n    + grupo(1, 'Aguardando órbita', '') + grupo(0, 'Prontos, com órbita final', 'ok')\n    + '\u003cp class=\"leg\" style=\"margin:6px 0 0\">Número de dias desde o fim do rastreio. Toque num ponto para ver no mapa; o envio é na folha (Fechar ▸ Coordenadas do IBGE-PPP).\u003c/p>'\n    : '\u003cp class=\"leg\">Nenhum ponto rastreado ainda.\u003c/p>';\n  document.querySelectorAll('#ppp .chip[data-id]').forEach(c => c.addEventListener('click', () => escolhe(c.dataset.id, true)));\n  legenda();\n}\nfunction sw(svg){ return '\u003csvg width=\"30\" height=\"20\" viewBox=\"-15 -10 30 20\">' + svg + '\u003c/svg>'; }\nfunction legenda(){\n  const L = [];\n  const tipos = [...new Set((D.pontos || []).map(p => p.tipo || ''))];\n  tipos.forEach(t => L.push([sw('\u003ccircle r=\"7\" fill=\"' + corTipo(t) + '\" stroke=\"#fff\" stroke-width=\"2\"/>'), 'A fazer — ' + (t || 'ponto') + ' (cor do tipo, como na navegação)']));\n  L.push([sw('\u003ccircle r=\"5\" fill=\"#fff\" stroke=\"#5a6b73\" stroke-width=\"2.5\"/>'), 'Opção reserva do círculo (vazada, na cor do tipo)']);\n  L.push([sw('\u003ccircle r=\"8\" fill=\"' + CINZA_FEITO + '\" stroke=\"#fff\" stroke-width=\"2\"/>\u003cpath d=\"M-4 0 L-1 3.5 L4.5 -3.5\" stroke=\"#fff\" stroke-width=\"2.2\" fill=\"none\"/>'), 'Feito por esta equipe']);\n  L.push([sw('\u003ccircle r=\"8\" fill=\"' + CINZA_FEITO + '\"/>\u003ccircle r=\"11\" fill=\"none\" stroke=\"#475569\" stroke-width=\"1.8\" stroke-dasharray=\"3 3\"/>'), 'Feito por outra equipe (anel tracejado)']);\n  L.push([sw('\u003ccircle r=\"6\" fill=\"#5a6b73\"/>\u003ccircle r=\"9.5\" fill=\"none\" stroke=\"#EA580C\" stroke-width=\"2.5\"/>'), 'A remedir (anel laranja)']);\n  L.push([sw('\u003cpath d=\"M-6 -6 L6 6 M6 -6 L-6 6\" stroke=\"#DC2626\" stroke-width=\"3\"/>'), 'Não medido (X vermelho) · também marca \"sem passagem\"']);\n  L.push([sw('\u003ccircle r=\"4\" fill=\"none\" stroke=\"' + CINZA_FEITO + '\" stroke-width=\"2\" opacity=\".5\"/>'), 'Opção desprezada (círculo já atendido), se ligada']);\n  L.push([sw('\u003crect x=\"-13\" y=\"-8\" width=\"14\" height=\"16\" rx=\"5\" fill=\"#0B6FA4\"/>\u003ctext x=\"-6\" y=\"4\" font-size=\"11\" fill=\"#fff\" text-anchor=\"middle\" font-weight=\"700\">1\u003c/text>\u003ccircle cx=\"7\" r=\"5\" fill=\"#5a6b73\"/>'), 'Ordem no plano de hoje']);\n  L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"rgba(11,111,164,.85)\" stroke-width=\"3.5\" stroke-dasharray=\"7 4\"/>'), 'Rota do plano de hoje']);\n  Object.keys(NOME_REV).forEach(k => L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"' + COR_REV[k] + '\" stroke-width=\"5\"/>'), 'Trilha — ' + NOME_REV[k] + ' (hoje, forte; dias anteriores, a mesma cor mais clara)']));\n  L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"rgba(62,85,97,.9)\" stroke-width=\"2.5\" stroke-dasharray=\"2 4\"/>'), 'Trilha sem trecho marcado']);\n  (D.outras || []).forEach(o => L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"' + o.cor + '\" stroke-width=\"3\" stroke-dasharray=\"7 4\"/>'), 'Trajetos de ' + esc(o.equipe)]));\n  L.push([sw('\u003cpath d=\"M-14 0 H14\" stroke=\"#D97706\" stroke-width=\"3\"/>'), 'Rodovias principais (OpenStreetMap)']);\n  L.push([sw('\u003crect x=\"-7\" y=\"-7\" width=\"14\" height=\"14\" fill=\"#0A3D56\" stroke=\"#fff\" stroke-width=\"2\"/>'), 'Hospedagem']);\n  L.push([sw('\u003ccircle r=\"7\" fill=\"#0B6FA4\" stroke=\"#fff\" stroke-width=\"3\"/>'), 'Você (última posição da folha)']);\n  L.push([sw('\u003ccircle r=\"6\" fill=\"#5a6b73\" opacity=\".5\"/>'), 'Pontos de outras equipes (mais apagados), se ligados']);\n  $('#leg').innerHTML = L.map(r => '\u003cdiv>' + r[0] + '\u003cspan>' + r[1] + '\u003c/span>\u003c/div>').join('')\n    + '\u003cp class=\"leg\" style=\"margin:6px 0 0\">Trilhas a menos de 1 km da hospedagem não aparecem.\u003c/p>';\n}\n/* a folha (a guia que abriu esta) é a fonte: a cada 3 s, se algo mudou, pega os dados de novo */\nfunction atualiza(){\n  if (!M || M.closed){ aviso('A folha que abriu esta guia foi fechada: abra a folha e toque em \"Visão geral\" de novo.'); return; }\n  let v; try { v = M.visaoVersao(); } catch (e){ aviso('A folha não respondeu (' + e.message + '). Volte à guia da folha e toque em \"Visão geral\".'); return; }\n  if (v === VER) return;\n  try { D = M.dadosVisao(); } catch (e){ aviso('erro ao ler a folha: ' + e.message); return; }\n  VER = v; if ($('#aviso').textContent.startsWith('A folha')) aviso('');\n  $('#tit').textContent = 'Visão geral — ' + (D.campanha || 'campanha');\n  $('#sub').textContent = (D.equipe ? D.equipe + ' · ' : '') + 'atualizado às ' + new Date().toLocaleTimeString('pt-BR').slice(0, 5);\n  document.title = 'Visão geral — ' + (D.equipe || D.campanha || 'campanha');\n  if (!S.fit) ajusta();\n  lista(); pinta();\n  if (S.sel) escolhe(S.sel, false);\n}\nwindow.visaoAtualiza = () => { VER = null; atualiza(); };\nsetInterval(() => { if (document.visibilityState === 'visible') atualiza(); }, 3000);\ndocument.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') atualiza(); });\nwindow.addEventListener('online', pinta); window.addEventListener('offline', pinta);\nsetTimeout(atualiza, 50);\n\u003c/script>\n\u003c/body>\n\u003c/html>\n";
 
 /* --- revisão no fim do dia (cartão da trilha) --- */
 function listaTrechos(){
@@ -15870,7 +16151,8 @@ function pintaHotel(){
     + '<b>QC</b>, qualidade do RINEX: ✓ ok · <b style="color:#B45309">!</b> atenção (perdas de ciclo, poucos satélites, '
     + 'multicaminho ou lacunas — o IBGE-PPP decide; se o desvio vier alto, remedir) · '
     + '<b style="color:#B91C1C">✗</b> remedir (arquivo corrompido, ocupação curta ou épocas faltando). '
-    + 'Para o GLONASS entrar na conta, leia junto o arquivo de navegação (.AAg). '
+    + 'Leia junto os arquivos de navegação (.AAn, .AAg): cada ponto recebe o recorte do seu rastreio (ou o arquivo inteiro, se não der para recortar), '
+    + 'e com o .AAg o GLONASS entra na conta. '
     + '<b>Altura</b>: a da coluna é a de antena, em metros; se foi anotada errada em campo, corrija aqui — a correção fica '
     + 'registrada no ponto (*), sai nas observações e pede o relatório e o PPP de novo.</p>';
   e.querySelectorAll('[data-halt]').forEach(inp => inp.addEventListener('change', () => {
@@ -15991,6 +16273,75 @@ async function divideRinexOcupacoes(file){
     return out;
   });
 }
+
+/* ---------- arquivos de navegação (.AAn, .AAg, …) de cada ponto (10/11/2026) ----------
+   Pedido da coordenação: o arquivo de observação com várias ocupações é dividido por ponto, mas os de
+   navegação (GPS .AAn, GLONASS .AAg) ficavam fora. Agora cada ponto recebe o recorte do arquivo de
+   navegação na janela do seu rastreio, com folga de 3 h antes e depois (efemérides transmitidas: GPS a cada
+   2 h, válidas por 4 h; GLONASS a cada 30 min) — cabeçalho inteiro e os registros da janela, sem mexer nas
+   linhas. Se o arquivo não for lido com segurança (formato inesperado, RINEX 4) ou a janela ficar vazia, o
+   ponto recebe o arquivo inteiro. RINEX 2.11 e 3.0x (IGS/RTCM, RINEX 2.11 e 3.05). */
+const NAV_FOLGA = 3 * 3600e3;
+function _tipoRinexTxt(t){
+  const l0 = String(t).split(/\r?\n/)[0] || '';
+  if (!/RINEX VERSION \/ TYPE/.test(l0)) return null;
+  return {versao: parseFloat(l0.slice(0, 9)), tipo: l0.slice(20, 21).toUpperCase(), sis: l0.slice(40, 41).toUpperCase()};
+}
+async function tipoRinexArq(f){
+  try { return _tipoRinexTxt(new TextDecoder('latin1').decode(await f.slice(0, 200).arrayBuffer())); } catch (e){ return null; }
+}
+const ehNav = t => !!t && t.tipo !== 'O' && t.tipo !== 'M' && t.tipo !== 'C';
+function recortaNav(txt, ini, fim){
+  const T = _tipoRinexTxt(txt); if (!T || T.versao >= 4) return null;
+  const L = txt.split(/\r?\n/), h = L.findIndex(l => _rotRx(l) === 'END OF HEADER'); if (h < 0) return null;
+  const v3 = T.versao >= 3;
+  const ini2 = /^[ \d]\d ([ \d]\d) ([ \d]\d) ([ \d]\d) ([ \d]\d) ([ \d]\d) ([ \d]\d\.\d)/;
+  const ini3 = /^[GRECJSI][ \d]\d (\d{4}) ([ \d]\d) ([ \d]\d) ([ \d]\d) ([ \d]\d) ([ \d]\d)/;
+  const recs = []; let cur = null;
+  for (let k = h + 1; k < L.length; k++){
+    const l = L[k]; if (!l.trim()){ continue; }
+    const m = (v3 ? ini3 : ini2).exec(l);
+    if (m){
+      let a = +m[1]; if (!v3) a += a < 80 ? 2000 : 1900;
+      const t = Date.UTC(a, +m[2] - 1, +m[3], +m[4], +m[5], Math.floor(+m[6]));
+      if (!isFinite(t)) return null;
+      cur = {t: t, linhas: [l]}; recs.push(cur);
+    } else { if (!cur || !/^\s/.test(l)) return null; cur.linhas.push(l); }
+  }
+  if (!recs.length) return null;
+  const a = ini - NAV_FOLGA, b = fim + NAV_FOLGA, fica = recs.filter(r => r.t >= a && r.t <= b);
+  if (!fica.length) return {vazio: true, n: recs.length};
+  const H = L.slice(0, h);
+  H.push(_linhaRx('Recorte da janela do rastreio, +- 3 h (folha de campo)'.slice(0, 60), 'COMMENT'));
+  H.push(L[h]);
+  return {txt: H.concat(...fica.map(r => r.linhas)).join('\n') + '\n', n: fica.length, de: recs.length,
+          t0: recs[0].t, t1: recs[recs.length - 1].t};
+}
+/* nome do recorte: o da observação do ponto com a letra do arquivo de navegação (RINEX 2: .AAn, .AAg, .AAl, .AAp…) */
+function nomeNavDoPonto(p, navNome){
+  const ob = ((p.arqs && p.arqs.rinex) || []).map(a => a.nome).find(n => /\.\d\d[od]$/i.test(n));
+  const m = String(navNome).match(/\.(\d\d)([a-z])$/i);
+  if (ob && m) return ob.replace(/\.\d\d[od]$/i, '.' + m[1] + m[2].toLowerCase());
+  return String(p.id || 'ponto').replace(/[^A-Za-z0-9_-]+/g, '_') + '_' + navNome;
+}
+/* entrega um arquivo de navegação a um ponto: o recorte da janela, ou o arquivo inteiro */
+async function guardaNavPonto(p, f, txt, soRecorte){
+  const ini = _msDe(p.rx_ini || p.ocup_ini), fim = _msDe(p.rx_fim || p.ocup_fim) || (ini != null ? ini + 2 * 3600e3 : null);
+  let r = null;
+  if (ini != null){ try { r = recortaNav(txt != null ? txt : new TextDecoder('latin1').decode(await f.arrayBuffer()), ini, fim); } catch (e){ r = null; } }
+  if (r && r.txt){
+    const nome = nomeNavDoPonto(p, f.name);
+    await guardaArqPonto(p, 'rinex', new File([_bytesLatin1(r.txt)], nome, {type: 'text/plain', lastModified: f.lastModified}), nome);
+    return 'recorte ' + nome + ' (' + r.n + ' de ' + r.de + ' efemérides)';
+  }
+  if (soRecorte) return null;
+  await guardaArqPonto(p, 'rinex', f);
+  return 'arquivo inteiro ' + f.name + (r && r.vazio ? ' (nenhuma efeméride na janela do rastreio)' : ini == null ? ' (sem horário do rastreio)' : ' (não deu para recortar)');
+}
+/* janela de tempo coberta por um arquivo de navegação (para casar pelo horário quando o nome não bate) */
+function janelaNav(txt){
+  try { const r = recortaNav(txt, -8.64e15, 8.64e15); return r && r.txt ? [r.t0, r.t1] : null; } catch (e){ return null; }
+}
 async function leRinexLote(files){
   const livres = F.dia.pontos.slice(), linhas = [], casou = {}, outros = [];
   /* canais GLONASS dos arquivos de navegação do dia, antes das observações: com
@@ -16025,11 +16376,21 @@ async function leRinexLote(files){
     linhas.push(f.name + (r.compacto ? ' (compacto, descompactado: ' + r.arquivo + ')' : '') + ' → ' + p.id + ' (' + como + ')'
       + (r.qc && r.qc.parecer ? ' · ' + qcTexto(r.qc) : ''));
   }
-  // navegação (.AAn, .AAg…) do mesmo nome vai junto com a observação, para o pacote
+  /* navegação (.AAn, .AAg…): vai a cada ponto da observação de mesmo nome — com o arquivo dividido por ocupação,
+     o recorte da janela de cada ponto; sem nome em comum, aos pontos do dia cujo rastreio cai no período do arquivo */
   for (const f of outros){
-    const P = casou[raiz(f.name)] || [];
-    for (const p of P){ await guardaArqPonto(p, 'rinex', f).catch(() => {}); }
-    if (P.length) linhas.push(f.name + ' → ' + P.map(p => p.id).join(', ') + ' (navegação, junto da observação)');
+    let txt = null; try { txt = new TextDecoder('latin1').decode(await f.arrayBuffer()); } catch (e){}
+    let P = casou[raiz(f.name)] || [], como = 'mesmo nome da observação';
+    if (!P.length && txt){
+      const J = janelaNav(txt);
+      if (J) { P = F.dia.pontos.filter(p => { const a = _msDe(p.rx_ini || p.ocup_ini); return a != null && a >= J[0] - NAV_FOLGA && a <= J[1] + NAV_FOLGA; });
+               como = 'período do arquivo'; }
+    }
+    if (!P.length){ linhas.push(f.name + ': navegação sem ponto correspondente (nome e horário não batem com nenhum ponto do dia)'); continue; }
+    const res = [], soRec = como !== 'mesmo nome da observação';   // casado só pelo período: só entra onde houver efeméride da janela
+    for (const p of P){ try { const x = await guardaNavPonto(p, f, txt, soRec); if (x) res.push(p.id + ': ' + x); } catch (e){ res.push(p.id + ': ' + e.message); } }
+    if (!res.length){ linhas.push(f.name + ': navegação sem efeméride na janela de nenhum ponto do dia'); continue; }
+    linhas.push(f.name + ' (navegação, ' + como + ') → ' + res.join('; '));
   }
   grava(); monta();
   $('#hotel_res').innerHTML = linhas.map(esc).join('<br>');
@@ -17695,7 +18056,7 @@ async function exportaLC(op){
   const feicoes = reg.filter(r => coordPonto(r.p)).map(r => {
     const p = r.p, c = coordPonto(p), g = ptconPonto((p.planejado && p.planejado.id) || '');
     return {g: [+c.lon, +c.lat], a: [r.num, r.data ? _iso(r.data) : '', lc, 'Dia juliano ' + r.ddd,
-      p.tipo || '', p.campo ? 'campo — círculo ' + (p.campo.circulo || '') : (g && g.opcao ? 'gabinete — opção ' + g.opcao : 'gabinete'),
+      (p.tipo || '') + (p.tipo ? ' (' + finalidadeDe(p) + ')' : ''), p.campo ? 'campo — círculo ' + (p.campo.circulo || '') : (g && g.opcao ? 'gabinete — opção ' + g.opcao : 'gabinete'),
       p.alvo || '', textoMunicipio(p) || p.localidade || '', [c.fonte === 'ppp' ? 'IBGE-PPP' : c.fonte, p.obs].filter(Boolean).join(' · '),
       F.campanha.equipe || '']};
   });
@@ -17723,7 +18084,7 @@ async function exportaLC(op){
   // relatórios
   const datas = reg.map(r => r.data).filter(Boolean).sort((a, b) => a - b);
   const ctx = {P: reg, dias: datas, equipeN: equipeN, orbitas: [...orbitas], munis: [...munis], ufs: [...ufs],
-    planialt: reg.filter(r => !/altim[eé]tric/i.test(r.p.serve || '') || /planim/i.test(r.p.serve || '')).length,
+    planialt: reg.filter(r => finalidadeDe(r.p) !== 'altimétrico').length,
     julianos: [...new Set(reg.map(r => r.ddd))].sort(), comRinex: comRinex,
     recortes: recOk === reg.length ? 'todos os pontos levantados têm recortes' : recOk + ' dos ' + reg.length + ' pontos têm recorte'};
   ctx.alt = reg.length - ctx.planialt;
@@ -17751,6 +18112,7 @@ async function exportaLC(op){
     'Processamento e medição dos pontos: com posicionamento estático, utilizando como tipo de processamento o PPP.',
     {h: '7 - QUANTITATIVO DA PRODUÇÃO CARTOGRÁFICA PARA REAMBULAÇÃO'}, 'Não aplicável',
     {h: '8 - Ocorrências, Dificuldades, Observações.'}, ...(F.dias || []).concat([F.dia]).map(d => d.ocorrencias).filter(Boolean),
+    ...textoOcorrReg(diasDaCampanha().map(e => e.dia)),
     {h: '9 – COMPOSIÇÃO DE CUSTOS DA EQUIPE'}, '(a preencher pela equipe)',
     'RESPONSÁVEL: ' + (F.campanha.responsavel || '')])});
   itens.push({nome: eqd + 'Relatório de Viagem.docx', dados: await docxDe([
@@ -18133,6 +18495,120 @@ function pedePPPdoPonto(p){
   };
   i.click();
 }
+
+/* ---------- Situação do IBGE-PPP: alerta por ponto (10/11/2026) ----------
+   Para cada ponto rastreado na campanha (todos os dias), a folha calcula quantos dias se passaram desde
+   o fim do rastreio, que órbita o IBGE-PPP usaria se o RINEX fosse processado hoje e quando a final deve
+   sair, e compara com o resultado já lido no ponto. Prazos (previsão; quem decide é o próprio IBGE-PPP):
+   · ultrarrápida: cerca de 3 h depois do rastreio (IBGE, 2023; NRCan, 2026: 90 min depois de cada hora);
+   · rápida: 17–18 h depois do fim do dia UTC do rastreio (NRCan, 2026; o Manual do IBGE-PPP dá 12–36 h);
+   · final: 12–15 dias depois do fim da semana GPS do rastreio (NRCan, 2026; IGS: cerca de 13 dias; o Manual
+     do IBGE-PPP dá 11–17 dias depois do rastreio). Aqui: "provável" a partir de 13 dias depois do fim da
+     semana GPS, "certa" a partir de 15. Desde 02/2024 o IBGE-PPP usa as órbitas finais do CODE e as
+     ultrarrápidas do NRCan (IBGE, página do serviço). */
+const PPP_PRAZO = {ultraH: 3, rapidaH: 18, finalProvD: 13, finalSegD: 15};
+function _fimRastreio(p){
+  for (const v of [p.rx_fim, p.ocup_fim]){ const m = _msDe(v); if (m != null) return {ms: m, est: false}; }
+  const i = _msDe(p.rx_ini || p.ocup_ini);
+  return i != null ? {ms: i + 2 * 3600e3, est: true} : null;
+}
+function orbitasPPP(fim){
+  const d = new Date(fim), y = d.getUTCFullYear(), m = d.getUTCMonth(), dd = d.getUTCDate();
+  const fimDia = Date.UTC(y, m, dd + 1), fimSem = Date.UTC(y, m, dd + (7 - d.getUTCDay()));
+  return {ultra: fim + PPP_PRAZO.ultraH * 3600e3, rapida: fimDia + PPP_PRAZO.rapidaH * 3600e3,
+          finalProv: fimSem + PPP_PRAZO.finalProvD * 864e5, finalSeg: fimSem + PPP_PRAZO.finalSegD * 864e5,
+          semanaGPS: Math.round((fimSem - Date.UTC(1980, 0, 6)) / (7 * 864e5)) - 1};
+}
+function orbitaSeHoje(O, agora){
+  return agora < O.ultra ? 'nenhuma' : agora < O.rapida ? 'ultrarrápida' : agora < O.finalProv ? 'rápida'
+       : agora < O.finalSeg ? 'final (provável)' : 'final';
+}
+const _dmh = ms => { const d = new Date(ms); return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0')
+  + ' ' + String(d.getHours()).padStart(2, '0') + 'h' + String(d.getMinutes()).padStart(2, '0'); };
+const _dm = ms => _dmh(ms).slice(0, 5);
+function situacaoPPP(agora){
+  agora = agora || Date.now();
+  const L = [];
+  for (const e of diasDaCampanha()) for (const p of e.dia.pontos || []){
+    if (!p.ocup_ini && !p.rx_ini && !p.rinex) continue;
+    const f = _fimRastreio(p); if (!f) continue;
+    const O = orbitasPPP(f.ms), hoje = orbitaSeHoje(O, agora);
+    const k = p.ppp_coord && p.ppp_coord.lat != null ? p.ppp_coord : null, rk = k ? _rankOrb(k.orbita) : 0;
+    const faltam = ms => { const n = Math.ceil((ms - agora) / 864e5); return n <= 1 ? 'amanhã' : 'em ' + n + ' dias'; };
+    let nivel, acao;
+    if (k && rk >= 3){ nivel = 0; acao = 'pronto: órbita final'; }
+    else if (hoje === 'final'){ nivel = 3; acao = k ? 'reenviar: a órbita final já saiu (o resultado atual é de órbita ' + String(k.orbita || '?').toLowerCase() + ')'
+                                                   : 'enviar: já sai com órbita final'; }
+    else if (hoje === 'final (provável)'){ nivel = 2; acao = (k ? 'reenviar' : 'enviar') + ': a final deve ter saído; se vier rápida, tente de novo depois de ' + _dm(O.finalSeg); }
+    else if (hoje === 'rápida'){
+      if (!k){ nivel = 2; acao = 'pode enviar (sai com órbita rápida, provisória); a final por volta de ' + _dm(O.finalProv) + ' (' + faltam(O.finalProv) + ')'; }
+      else if (rk <= 1){ nivel = 2; acao = 'reenviar: a rápida já saiu; a final por volta de ' + _dm(O.finalProv); }
+      else { nivel = 1; acao = 'aguardar a final: por volta de ' + _dm(O.finalProv) + ' (' + faltam(O.finalProv) + ')'; }
+    }
+    else if (hoje === 'ultrarrápida'){ nivel = 1; acao = (k ? 'aguardar' : 'se precisar já, sai com ultrarrápida (menos precisa); melhor aguardar') + ' a rápida, a partir de ' + _dmh(O.rapida); }
+    else { nivel = 1; acao = 'aguardar: o PPP processa a partir de ' + _dmh(O.ultra); }
+    L.push({p: p, dia: e.dia, fim: f.ms, est: f.est, dias: (agora - f.ms) / 864e5, O: O, hoje: hoje, k: k, rk: rk, nivel: nivel, acao: acao});
+  }
+  return L.sort((a, b) => b.nivel - a.nivel || a.fim - b.fim);
+}
+function resumoPPP(S){
+  S = S || situacaoPPP();
+  return {final: S.filter(x => x.nivel === 3).length, pode: S.filter(x => x.nivel === 2).length,
+          espera: S.filter(x => x.nivel === 1).length, ok: S.filter(x => x.nivel === 0).length,
+          semPPP: S.filter(x => !x.k).length, total: S.length};
+}
+function htmlSituacaoPPP(S){
+  if (!S.length) return '<p class="leg">Nenhum ponto rastreado na campanha ainda.</p>';
+  const cor = {3: '#B91C1C', 2: '#B45309', 1: '#46565f', 0: '#15803D'};
+  return '<div style="overflow-x:auto"><table class="tabcam" style="font-size:.9em"><tr><th>ponto</th><th>fim do rastreio</th><th>dias</th>'
+    + '<th>se processar hoje</th><th>resultado no ponto</th><th>final (previsão)</th><th>o que fazer</th><th></th></tr>'
+    + S.map((x, i) => '<tr><td><b>' + esc(x.p.id) + '</b></td><td>' + _dmh(x.fim) + (x.est ? ' <small title="sem o fim do rastreio: início + 2 h">(estimado)</small>' : '') + '</td>'
+      + '<td style="text-align:right">' + (x.dias < 1 ? Math.max(0, Math.round(x.dias * 24)) + ' h' : Math.floor(x.dias)) + '</td>'
+      + '<td>órbita ' + esc(x.hoje) + '</td>'
+      + '<td>' + (x.k ? 'órbita ' + esc(String(x.k.orbita || '?').toLowerCase()) + (x.k.slat != null ? '' : '') : '<i>sem PPP</i>') + '</td>'
+      + '<td>' + _dm(x.O.finalProv) + '–' + _dm(x.O.finalSeg) + ' <small>(semana GPS ' + x.O.semanaGPS + ')</small></td>'
+      + '<td style="color:' + cor[x.nivel] + '">' + (x.nivel >= 2 ? '<b>' : '') + esc(x.acao) + (x.nivel >= 2 ? '</b>' : '') + '</td>'
+      + '<td>' + (x.nivel >= 2 ? '<button type="button" class="btn sec peq" data-pppsit="' + i + '">' + (x.k ? 'Reenviar' : 'Enviar') + ' RINEX</button>' : '') + '</td></tr>').join('')
+    + '</table></div>';
+}
+let _SIT_PPP = [];
+function pintaSituacaoPPP(){
+  const S = _SIT_PPP = situacaoPPP(), R = resumoPPP(S);
+  const el = $('#ppp_sit');
+  if (el){
+    el.innerHTML = '<p class="leg">De ' + R.total + ' ponto(s) rastreado(s): <b style="color:#B91C1C">' + R.final + ' com a órbita final já publicada, a processar</b> · '
+      + '<b style="color:#B45309">' + R.pode + ' que já podem ir</b> (rápida ou final provável) · ' + R.espera + ' aguardando órbita · '
+      + '<span style="color:#15803D">' + R.ok + ' prontos, com órbita final</span>.</p>' + htmlSituacaoPPP(S);
+    el.querySelectorAll('[data-pppsit]').forEach(b => b.addEventListener('click', () => {
+      const x = _SIT_PPP[+b.dataset.pppsit]; if (!x) return;
+      if (!((F.config || {}).email_ppp || '').trim()){ $('#ppp_email').focus(); return marca('informe antes o e-mail que recebe o resultado do IBGE-PPP'); }
+      pedeEnvioPPPdoPonto(x.p); }));
+  }
+  const c = $('#bloco_ppp .conta');
+  if (c) c.textContent = R.final ? R.final + ' com final já publicada' : R.pode ? R.pode + ' podem ir ao PPP' : R.total ? (R.ok + ' de ' + R.total + ' com final') : 'dias depois';
+  const b = $('#b_pppalerta');
+  if (b){ const n = R.final + R.pode; b.hidden = MODO_PLAN || !n;
+    b.textContent = 'PPP: ' + (R.final ? R.final + ' já com final' : n + ' podem ir');
+    b.style.borderColor = b.style.color = R.final ? '#B91C1C' : '#B45309';
+    b.title = 'IBGE-PPP: ' + R.final + ' ponto(s) com a órbita final já publicada e sem resultado final; ' + R.pode + ' que já podem ser processados'; }
+  return R;
+}
+function abreSituacaoPPP(){
+  const t = document.querySelector('.abas button[data-aba="fechar"]'); if (t) t.click();
+  const d = $('#bloco_ppp'); if (d) d.open = true;
+  pintaSituacaoPPP();
+  setTimeout(() => { const s = $('#ppp_sit'); if (s) s.scrollIntoView({behavior: 'smooth', block: 'start'}); }, 250);
+}
+/* uma vez por dia, ao abrir a folha: o aviso na barra de estado */
+function avisaPPP(){
+  if (MODO_PLAN) return;
+  const R = pintaSituacaoPPP(), hoje = _isoLocal(Date.now());
+  if (!(R.final || R.pode) || (F.config && F.config.avisoPPP === hoje)) return;
+  F.config = F.config || {}; F.config.avisoPPP = hoje;
+  setTimeout(() => marca('IBGE-PPP: ' + (R.final ? R.final + ' ponto(s) já com órbita final para processar' : '')
+    + (R.final && R.pode ? '; ' : '') + (R.pode ? R.pode + ' que já podem ir' : '') + ' — toque em "PPP" na barra de baixo'), 4000);
+}
+setInterval(() => { try { if (!MODO_PLAN) pintaSituacaoPPP(); } catch (e){} }, 10 * 60e3);
 $('#b_ppp_lote').addEventListener('click', () => $('#f_ppp_lote').click());
 $('#b_ppp_envia').addEventListener('click', () => {
   if (!((F.config || {}).email_ppp || '').trim()){ $('#ppp_email').focus(); return marca('informe antes o e-mail que recebe o resultado do IBGE-PPP'); }
@@ -18685,6 +19161,7 @@ async function inicia(){
   monta();
   marca(F.dia.voos.length ? F.dia.voos.length + ' voo(s) nesta folha' : 'folha vazia');
   aplicaModo();
+  try { avisaPPP(); } catch (e){}
   aplicaKit().then(a => { aplicaModo(); if (a) pintaAlvos(); pintaConviteKit(); }).catch(e => marca('folha da equipe: ' + e.message));
   ligaCofreUI();
 }

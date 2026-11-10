@@ -4764,7 +4764,7 @@ function _baixa(blob, nome){
   const a = document.createElement('a');
   a.href = u; a.download = nome;
   document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(u), 60000);
+  setTimeout(() => URL.revokeObjectURL(u), 15 * 60e3);
 }
 
 function exportaRelatorio(p, formato){
@@ -6455,11 +6455,21 @@ function pintaCampanha(){
 }
 
 /* ---------- saídas ---------- */
+/* 10/11/2026: o Chrome segura o .cmd e o .bat ("pode ser perigoso — Manter?") e só busca o arquivo depois do
+   clique em Manter; com o endereço blob: já liberado, o download falhava com "Verifique a conexão com a Internet".
+   Arquivo executável vai por endereço data: (não expira); os demais ficam com o blob: por 15 min. */
+const _EXEC = /\.(cmd|bat|ps1|vbs|exe)$/i;
+async function _dataURL(b){ return await new Promise((ok, erro) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => erro(r.error); r.readAsDataURL(b); }); }
 function baixa(nome, conteudo, tipo){
   const b = conteudo instanceof Blob ? conteudo : new Blob([conteudo], {type: tipo});
+  if (_EXEC.test(nome)){
+    _dataURL(new Blob([b], {type: 'application/octet-stream'})).then(u => {
+      const a = document.createElement('a'); a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove(); });
+    return;
+  }
   const u = URL.createObjectURL(b);
-  const a = document.createElement('a'); a.href = u; a.download = nome; a.click();
-  setTimeout(() => URL.revokeObjectURL(u), 30000);
+  const a = document.createElement('a'); a.href = u; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 15 * 60e3);
 }
 
 /* ---------- nome dos arquivos de saída ----------
@@ -18630,10 +18640,7 @@ const BAT_PPP = {nome: 'GERA_TABELA_PONTOS_PPP_TEMPO.bat', sha256: '97780b4c0f52
 $('#b_ppp_bat').addEventListener('click', () => {
   const s = atob(BAT_PPP.b64), b = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([b], {type: 'application/octet-stream'}));
-  a.download = BAT_PPP.nome; document.body.appendChild(a); a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  baixa(BAT_PPP.nome, new Blob([b], {type: 'application/octet-stream'}));
   marca(BAT_PPP.nome + ' baixado (' + b.length + ' bytes)');
 });
 

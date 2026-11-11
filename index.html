@@ -1,3 +1,6 @@
+  const nav = n => /\.\d\d[nglhpbqcfm]$|_[A-Z][NM]\.(rnx|crx)$/i.test(n), obs = n => /\.\d\d[od]$|O\.(rnx|crx)$/i.test(n);
+  const L = ((p.arqs && p.arqs.rinex) || []).filter(a => a && a.chave && !a.no_drive && !nav(a.nome));
+  const ord = L.slice().sort((a, b) => (obs(b.nome) ? 1 : 0) - (obs(a.nome) ? 1 : 0) || (b.bytes || 0) - (a.bytes || 0));
 <!doctype html>
 <html lang="pt-BR">
 <head>
@@ -855,6 +858,15 @@ você cabe o que nenhum arquivo registra.</p>
       a rápida de 12 a 36 h depois e a final de 11 a 17 dias depois (Manual do Usuário IBGE-PPP, 2023). Reenviado
       depois, o resultado de órbita final substitui o de rápida. A <b>Situação do IBGE-PPP</b>, acima, mostra ponto
       a ponto o que sairia hoje e quando a final deve sair.</p>
+      <p><b>Vários pontos de uma vez.</b> Na Situação, <b>Enviar os N de uma vez</b> manda o RINEX
+      guardado em cada ponto que já pode ir, um depois do outro, cada um com a antena e a altura do
+      seu ponto, e aplica cada resultado. Sem internet boa, <b>Baixar um ZIP com os N</b> monta um
+      arquivo só para o formulário do IBGE-PPP, que processa vários RINEX compactados num arquivo;
+      como o formulário adota a mesma antena para todos e só troca a altura se a caixa for marcada,
+      a folha grava a altura de cada ponto no cabeçalho do seu RINEX (ANTENNA: DELTA H/E/N) e faz
+      um ZIP por modelo de antena. No site: escolha a antena indicada e não marque a caixa da altura.
+      O botão <b>Enviar RINEX</b> da linha também usa o arquivo guardado no ponto; só pede o arquivo
+      quando o ponto não o tem.</p>
     </details>
     <details class="ajuda">
       <summary>O .bat do PPP (computador Windows)</summary>
@@ -18387,10 +18399,9 @@ async function cabecalhoParaPPP(file){
   } catch (e){ return null; }
 }
 function _altNum(v){ const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isFinite(n) ? n : null; }
-async function enviaRinexPPP(file, p){
-  const email = ((F.config || {}).email_ppp || '').trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('informe o e-mail para o IBGE-PPP (quadro Coordenadas do IBGE-PPP, no fechamento)');
-  if (!navigator.onLine) throw new Error('sem internet neste aparelho');
+/* prepara o RINEX de observação para o IBGE-PPP: 3.x → 2.11, compacto (Hatanaka), até 20 MB,
+   antena e altura conhecidas e, com o ponto conhecido, o nome PPPPDDD.AAo das campanhas LC */
+async function preparaRinexPPP(file, p){
   let r = await cabecalhoParaPPP(file);
   if (r && r.nav) throw new Error(file.name + ' é de navegação; envie o de observação');
   let jaCompacto = eCompacto(new TextDecoder('latin1').decode(await file.slice(0, 200).arrayBuffer()));
@@ -18420,6 +18431,14 @@ async function enviaRinexPPP(file, p){
   let nomeEnvio = file.name;
   if (p){ const g = ptconPonto((p.planejado && p.planejado.id) || p.id), dt = _dataDoPonto(p, null);
           if (g && dt) nomeEnvio = nomeRinexLC(g.num, _diaJuliano(dt), file.name); }
+  return {file: file, nome: nomeEnvio, ant: ant, alt: alt};
+}
+async function enviaRinexPPP(file, p){
+  const email = ((F.config || {}).email_ppp || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('informe o e-mail para o IBGE-PPP (quadro Coordenadas do IBGE-PPP, no fechamento)');
+  if (!navigator.onLine) throw new Error('sem internet neste aparelho');
+  const P = await preparaRinexPPP(file, p), ant = P.ant, alt = P.alt, nomeEnvio = P.nome;
+  file = P.file;
   const fd = new FormData();
   fd.append('arquivo', file, nomeEnvio);
   fd.append('tipo-levantamento', 'estatico');
@@ -18468,10 +18487,124 @@ async function enviaPPPLote(files){
   }
   await aplicaResultadosPPP(res, linhas);
 }
-function pedeEnvioPPPdoPonto(p){
+/* ---------- vários pontos de uma vez (10/11/2026) ----------
+   A folha já guarda no ponto o RINEX de observação (compactado). Daqui saem dois caminhos:
+   · "Enviar todos": a folha manda, um depois do outro, o RINEX guardado de cada ponto pela API
+     (cada um com a antena e a altura do seu ponto) e aplica cada resultado — um toque só;
+   · "ZIP para o site": um único .zip com todos, para o formulário do IBGE-PPP, que processa
+     vários RINEX compactados num arquivo. No formulário, "os valores selecionados serão
+     adotados para todos os RINEX" do arquivo e a altura "somente será alterada" se a caixa
+     for marcada (IBGE, página do serviço IBGE-PPP): por isso a altura de cada ponto é
+     gravada no cabeçalho do RINEX que vai no ZIP (ANTENNA: DELTA H/E/N), e sai um ZIP por
+     modelo de antena. O arquivo guardado no ponto não muda. */
+async function rinexGuardadoDoPonto(p){
+  const L = ((p.arqs && p.arqs.rinex) || []).filter(a => a && a.chave && !a.no_drive
+    && !/\.\d\d[nglhpbqcf]$|_[A-Z][NM]\.rnx$|N\.rnx$/i.test(a.nome) || (a && /_MO\.(rnx|crx)$/i.test(a.nome) && !a.no_drive));
+  const ord = L.slice().sort((a, b) => (/\.\d\d[od]$|O\.(rnx|crx)$/i.test(b.nome) ? 1 : 0) - (/\.\d\d[od]$|O\.(rnx|crx)$/i.test(a.nome) ? 1 : 0) || (b.bytes || 0) - (a.bytes || 0));
+  for (const a of ord){
+    const b = await idbPega(a.chave).catch(() => null); if (!b) continue;
+    const f = new File([b], a.nome, {type: 'text/plain'});
+    const r = await cabecalhoParaPPP(f);
+    if (r && !r.nav) return f;
+  }
+  return null;
+}
+/* grava a altura (e, se faltar, o modelo) da antena no cabeçalho — vale para o RINEX 2.11
+   comum e para o compacto (Hatanaka), cujo cabeçalho RINEX segue em texto, linha a linha */
+function _linhaCab(conteudo, rotulo){ return (conteudo + ' '.repeat(60)).slice(0, 60) + rotulo; }
+function poeAntenaNoCabecalho(txt, alt, ant){
+  const nl = txt.indexOf('\r\n') >= 0 ? '\r\n' : '\n';
+  const L = txt.split(/\r?\n/), fimCab = L.findIndex(l => l.slice(60).trim() === 'END OF HEADER');
+  if (fimCab < 0) throw new Error('cabeçalho do RINEX sem END OF HEADER');
+  const f14 = v => (Number(v) || 0).toFixed(4).padStart(14);
+  let iD = -1, iA = -1;
+  for (let i = 0; i < fimCab; i++){ const r = L[i].slice(60).trim(); if (r === 'ANTENNA: DELTA H/E/N') iD = i; else if (r === 'ANT # / TYPE') iA = i; }
+  if (iD >= 0){
+    const e = parseFloat(L[iD].slice(14, 28)) || 0, n = parseFloat(L[iD].slice(28, 42)) || 0;
+    L[iD] = _linhaCab(f14(alt) + f14(e) + f14(n), 'ANTENNA: DELTA H/E/N');
+  } else L.splice(fimCab, 0, _linhaCab(f14(alt) + f14(0) + f14(0), 'ANTENNA: DELTA H/E/N'));
+  if (ant){
+    const i2 = L.findIndex((l, i) => i < fimCab + 1 && l.slice(60).trim() === 'ANT # / TYPE');
+    if (i2 < 0){ const fc = L.findIndex(l => l.slice(60).trim() === 'END OF HEADER'); L.splice(fc, 0, _linhaCab(' '.repeat(20) + (ant + ' '.repeat(20)).slice(0, 20), 'ANT # / TYPE')); }
+    else if (!L[i2].slice(20, 40).trim()) L[i2] = _linhaCab(L[i2].slice(0, 20).padEnd(20) + (ant + ' '.repeat(20)).slice(0, 20), 'ANT # / TYPE');
+  }
+  return L.join(nl);
+}
+/* os pontos que a Situação do IBGE-PPP diz que já podem ir (níveis 2 e 3) */
+function pontosParaPPP(){ return (_SIT_PPP.length ? _SIT_PPP : situacaoPPP()).filter(x => x.nivel >= 2); }
+async function _juntaGuardados(X, linhas){
+  const ok = [], sem = [];
+  for (let i = 0; i < X.length; i++){
+    const x = X[i];
+    marca('IBGE-PPP: lendo o RINEX guardado de ' + x.p.id + ' (' + (i + 1) + ' de ' + X.length + ')…');
+    const f = await rinexGuardadoDoPonto(x.p).catch(() => null);
+    if (f) ok.push({x: x, f: f}); else sem.push(x.p.id);
+  }
+  if (sem.length) linhas.push('· sem o RINEX de observação guardado neste aparelho (' + sem.length + '): ' + esc(sem.join(', '))
+    + ' — use o botão da linha do ponto para escolher o arquivo');
+  return ok;
+}
+async function enviaPPPTodos(){
+  const email = ((F.config || {}).email_ppp || '').trim();
+  if (!email){ $('#ppp_email').focus(); return marca('informe antes o e-mail que recebe o resultado do IBGE-PPP'); }
+  if (!navigator.onLine) return marca('IBGE-PPP: sem internet neste aparelho — use "Baixar ZIP" e envie pelo site quando houver');
+  const X = pontosParaPPP();
+  if (!X.length) return marca('IBGE-PPP: nenhum ponto pronto para ir agora');
+  if (!confirm('Enviar ao IBGE-PPP o RINEX guardado de ' + X.length + ' ponto(s), um depois do outro?\n\nCada um vai com a antena e a altura do seu ponto; o resultado de cada um entra no ponto assim que volta. Deixe a folha aberta até terminar.')) return;
+  const linhas = [], res = [], el = $('#ppp_res');
+  const ok = await _juntaGuardados(X, linhas);
+  for (let i = 0; i < ok.length; i++){
+    const {x, f} = ok[i];
+    marca('IBGE-PPP: enviando ' + x.p.id + ' (' + (i + 1) + ' de ' + ok.length + ')…');
+    if (el) el.innerHTML = linhas.concat(['… enviando ' + esc(x.p.id) + ' (' + (i + 1) + ' de ' + ok.length + ')']).join('<br>');
+    try {
+      const k = await enviaRinexPPP(f, x.p);
+      Object.defineProperty(k, '_ponto', {value: x.p, enumerable: false});
+      if (k.zip_pendente) linhas.push('· ' + esc(x.p.id) + ': o ZIP completo do PPP não baixou daqui — baixe-o pelo link do cartão e leia em “Ler resultado”');
+      res.push(k);
+    } catch (err){ linhas.push('✗ ' + esc(x.p.id) + ': ' + esc(err.message)); }
+  }
+  await aplicaResultadosPPP(res, linhas);
+  pintaSituacaoPPP();
+  const e2 = $('#ppp_res'); if (e2) e2.scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+const PPP_SITE = 'https://www.ibge.gov.br/geociencias/informacoes-sobre-posicionamento-geodesico/servicos-para-posicionamento-geodesico/16334-servico-online-para-pos-processamento-de-dados-gnss-ibge-ppp.html';
+async function zipPPPTodos(){
+  const X = pontosParaPPP();
+  if (!X.length) return marca('IBGE-PPP: nenhum ponto pronto para ir agora');
+  const linhas = [], grupos = {}, el = $('#ppp_res');
+  const ok = await _juntaGuardados(X, linhas);
+  for (let i = 0; i < ok.length; i++){
+    const {x, f} = ok[i];
+    marca('IBGE-PPP: preparando ' + x.p.id + ' (' + (i + 1) + ' de ' + ok.length + ')…');
+    try {
+      const P = await preparaRinexPPP(f, x.p);
+      const txt = poeAntenaNoCabecalho(new TextDecoder('latin1').decode(await P.file.arrayBuffer()), P.alt, P.ant);
+      (grupos[P.ant] = grupos[P.ant] || []).push({nome: P.nome, dados: _bytesLatin1(txt), id: x.p.id, alt: P.alt});
+    } catch (err){ linhas.push('✗ ' + esc(x.p.id) + ': ' + esc(err.message)); }
+  }
+  const ants = Object.keys(grupos);
+  if (!ants.length){ if (el) el.innerHTML = linhas.join('<br>'); return marca('IBGE-PPP: nenhum RINEX pronto para o ZIP'); }
+  for (const ant of ants){
+    const G = grupos[ant], vistos = {};
+    for (const g of G){ let n = g.nome, k = 2; while (vistos[n.toUpperCase()]) n = g.nome.replace(/(\.[^.]+)$/, '_' + (k++) + '$1'); vistos[n.toUpperCase()] = 1; g.nome = n; }
+    const sufixo = ants.length > 1 ? '_' + ant.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '') : '';
+    const nome = nomeSaida('PPP_' + G.length + '_pontos' + sufixo, '') + '.zip';
+    baixa(nome, await zipGuardaGrande(G.map(g => ({nome: g.nome, dados: g.dados}))));
+    linhas.push('✓ <b>' + esc(nome) + '</b>: ' + G.length + ' RINEX (' + esc(G.map(g => g.id).join(', ')) + ')'
+      + ' · no formulário: <b>Tipo de antena ' + esc(ant) + '</b>, modo estático, e <b>sem marcar</b> a caixa da altura —'
+      + ' a altura de cada ponto já está no cabeçalho do seu RINEX');
+  }
+  linhas.push('Envie pelo <a href="' + PPP_SITE + '" target="_blank" rel="noopener">IBGE-PPP</a>; o resultado chega por e-mail.'
+    + ' Depois, leia o ZIP que voltar em <b>Ler resultado do IBGE-PPP</b>: cada ponto é reconhecido pelo nome do RINEX.');
+  if (el) el.innerHTML = linhas.join('<br>');
+  marca('IBGE-PPP: ' + ants.length + ' ZIP(s) baixado(s) com ' + ants.reduce((t, a) => t + grupos[a].length, 0) + ' RINEX');
+}
+async function pedeEnvioPPPdoPonto(p, escolher){
   const i = $('#f_ppp_env1');
-  i.onchange = async e => {
-    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  /* com o RINEX de observação guardado no ponto, vai ele mesmo, sem escolher arquivo */
+  const g = escolher ? null : await rinexGuardadoDoPonto(p).catch(() => null);
+  const envia = async f => {
     try {
       marca('IBGE-PPP: enviando ' + f.name + '…');
       const k = await enviaRinexPPP(f, p);
@@ -18480,10 +18613,12 @@ function pedeEnvioPPPdoPonto(p){
       const av = aplicaPPP(p, k);
       await guardaArqsPPP(p, k).catch(() => {});
       if (k.zip_pendente) av.push('o ZIP completo do PPP não baixou daqui — baixe-o pelo link do cartão e leia em “Ler o arquivo do PPP deste ponto”, para entrar no pacote');
-      grava(); pintaPontos();
+      grava(); pintaPontos(); try { pintaSituacaoPPP(); } catch (e){}
       marca('IBGE-PPP para ' + p.id + ': ' + textoSigmaPPP(k) + ' · órbita ' + (k.orbita || '?').toLowerCase() + (av.length ? ' — ⚠ ' + av.join('; ') : ''));
     } catch (err){ marca('IBGE-PPP: ' + err.message); }
   };
+  if (g){ marca('IBGE-PPP: ' + p.id + ' — vai o RINEX guardado no ponto (' + g.name + ')'); return envia(g); }
+  i.onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) envia(f); };
   i.click();
 }
 /* Pelo cartão: o resultado deste ponto, mesmo que o MARCO não bata. */
@@ -18588,7 +18723,18 @@ function pintaSituacaoPPP(){
   if (el){
     el.innerHTML = '<p class="leg">De ' + R.total + ' ponto(s) rastreado(s): <b style="color:#B91C1C">' + R.final + ' com a órbita final já publicada, a processar</b> · '
       + '<b style="color:#B45309">' + R.pode + ' que já podem ir</b> (rápida ou final provável) · ' + R.espera + ' aguardando órbita · '
-      + '<span style="color:#15803D">' + R.ok + ' prontos, com órbita final</span>.</p>' + htmlSituacaoPPP(S);
+      + '<span style="color:#15803D">' + R.ok + ' prontos, com órbita final</span>.</p>'
+      + ((R.final + R.pode) ? '<div class="acoes" id="ppp_todos"><button type="button" class="btn peq" data-ppptodos="api">Enviar os ' + (R.final + R.pode) + ' de uma vez</button>'
+        + '<button type="button" class="btn sec peq" data-ppptodos="zip">Baixar um ZIP com os ' + (R.final + R.pode) + ' (site do IBGE-PPP)</button></div>'
+        + '<p class="leg">Vai o RINEX guardado em cada ponto. <b>De uma vez</b>: a folha manda um depois do outro, cada um com a antena e a altura do seu ponto, e aplica cada resultado. '
+        + '<b>ZIP</b>: um arquivo só para o formulário do IBGE-PPP, com a altura de cada ponto gravada no cabeçalho do seu RINEX; o resultado chega por e-mail.</p>' : '')
+      + htmlSituacaoPPP(S);
+    el.querySelectorAll('[data-ppptodos]').forEach(b => b.addEventListener('click', async () => {
+      const todos = el.querySelectorAll('[data-ppptodos]'); todos.forEach(x => x.disabled = true);
+      try { await (b.dataset.ppptodos === 'zip' ? zipPPPTodos() : enviaPPPTodos()); }
+      catch (err){ marca('IBGE-PPP: ' + err.message); }
+      finally { todos.forEach(x => x.disabled = false); }
+    }));
     el.querySelectorAll('[data-pppsit]').forEach(b => b.addEventListener('click', () => {
       const x = _SIT_PPP[+b.dataset.pppsit]; if (!x) return;
       if (!((F.config || {}).email_ppp || '').trim()){ $('#ppp_email').focus(); return marca('informe antes o e-mail que recebe o resultado do IBGE-PPP'); }

@@ -1,6 +1,3 @@
-  const nav = n => /\.\d\d[nglhpbqcfm]$|_[A-Z][NM]\.(rnx|crx)$/i.test(n), obs = n => /\.\d\d[od]$|O\.(rnx|crx)$/i.test(n);
-  const L = ((p.arqs && p.arqs.rinex) || []).filter(a => a && a.chave && !a.no_drive && !nav(a.nome));
-  const ord = L.slice().sort((a, b) => (obs(b.nome) ? 1 : 0) - (obs(a.nome) ? 1 : 0) || (b.bytes || 0) - (a.bytes || 0));
 <!doctype html>
 <html lang="pt-BR">
 <head>
@@ -18498,9 +18495,9 @@ async function enviaPPPLote(files){
      gravada no cabeçalho do RINEX que vai no ZIP (ANTENNA: DELTA H/E/N), e sai um ZIP por
      modelo de antena. O arquivo guardado no ponto não muda. */
 async function rinexGuardadoDoPonto(p){
-  const L = ((p.arqs && p.arqs.rinex) || []).filter(a => a && a.chave && !a.no_drive
-    && !/\.\d\d[nglhpbqcf]$|_[A-Z][NM]\.rnx$|N\.rnx$/i.test(a.nome) || (a && /_MO\.(rnx|crx)$/i.test(a.nome) && !a.no_drive));
-  const ord = L.slice().sort((a, b) => (/\.\d\d[od]$|O\.(rnx|crx)$/i.test(b.nome) ? 1 : 0) - (/\.\d\d[od]$|O\.(rnx|crx)$/i.test(a.nome) ? 1 : 0) || (b.bytes || 0) - (a.bytes || 0));
+  const nav = n => /\.\d\d[nglhpbqcfm]$|_[A-Z][NM]\.(rnx|crx)$/i.test(n), obs = n => /\.\d\d[od]$|O\.(rnx|crx)$/i.test(n);
+  const L = ((p.arqs && p.arqs.rinex) || []).filter(a => a && a.chave && !a.no_drive && !nav(a.nome));
+  const ord = L.slice().sort((a, b) => (obs(b.nome) ? 1 : 0) - (obs(a.nome) ? 1 : 0) || (b.bytes || 0) - (a.bytes || 0));
   for (const a of ord){
     const b = await idbPega(a.chave).catch(() => null); if (!b) continue;
     const f = new File([b], a.nome, {type: 'text/plain'});

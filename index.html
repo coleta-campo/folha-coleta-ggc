@@ -1468,7 +1468,8 @@ async function carrega(){
     }
   } catch (e){ /* navegador sem armazenamento: segue em memória */ }
 }
-function marca(m){ $('#estado').textContent = m; }
+const ETAPA = {el: null, rodando: false, passos: [], atual: -1, t0: 0, oculta: false, trava: null};
+function marca(m){ $('#estado').textContent = m; try { _etapaMarca(m); } catch (e){} }
 
 /* ---------- caminhos "a.b" ---------- */
 function pega(o, cam){ return cam.split('.').reduce((x,k) => (x||{})[k], o); }
@@ -7587,7 +7588,15 @@ function exportaRegistro(){
   EXPORTADO = true;                  // o que está na tela saiu do aparelho
 }
 $('#b_json').addEventListener('click', exportaRegistro);
-$('#b_salvar').addEventListener('click', () => copiaCompleta().catch(e => marca('cópia não saiu: ' + e.message)));
+$('#b_salvar').addEventListener('click', async () => {
+  etapaAbre('Cópia completa da folha (.fcp)', ['Juntar os pontos, fotos, RINEX e trilhas', 'Cifrar com a senha da cópia', 'Gravar ou enviar o arquivo']);
+  try {
+    await copiaCompleta();
+    const m = $('#estado').textContent || '';
+    if (/cancelad/.test(m)) return etapaFecha(true);
+    etapaFim(/gravada|enviada/.test(m), esc(m.replace(/^cópia/, 'Cópia')) + '.<br>Guarde a cópia fora do aparelho (Drive da campanha ou computador).', [], null);
+  } catch (e){ etapaFim(false, 'A cópia não saiu: ' + esc(e.message), [], null); }
+});
 
 /* ---------- cópia completa: registro + fotos + trajetos + trilha, num ZIP ----------
    É o que salva o trabalho se o celular quebrar ou sumir, e o que passa a folha de
@@ -7634,7 +7643,7 @@ async function copiaCompleta(){
   const z = zipGuarda(itens);
   const senha = await pedeSenhaCopia(true);
   if (senha == null) return marca('cópia cancelada — nada saiu do aparelho');
-  marca('criptografando a cópia…');
+  marca('criptografando a cópia…'); try { etapaPasso(1); } catch (e){}
   const fcp = await cifraFCP(new Uint8Array(await z.arrayBuffer()), senha,
     {campanha: F.campanha.nome || '', gerado: new Date().toISOString()});      // o nome da campanha já está no nome do arquivo; nada mais fica aberto
   const nome = nomeSaida('copia_completa') + '.fcp';
@@ -16764,9 +16773,7 @@ $('#b_hotel_rede').addEventListener('click', () =>
   completaComRede().catch(e => marca('internet: ' + e.message)));
 $('#b_hotel_envia').addEventListener('click', () => { const b = $('#srv_box'); if (b) b.open = true; $('#b_srv_envia').click(); });
 
-$('#b_ptcon').addEventListener('click', () => {
-  exportaLC().catch(e => marca('pacote da campanha não gerado: ' + e.message));
-});
+$('#b_ptcon').addEventListener('click', () => { etapaPacoteLC(); });
 (function(){
   const s = _srv(), u = $('#srv_url'), c = $('#srv_chave');
   u.value = s.url || ''; c.value = s.chave || '';
@@ -17033,7 +17040,20 @@ async function limpaConferidos(){
   await apagaConferidos(_limpaveis(r.L, r.m, _srv().url.trim()));
 }
 async function enviaAoServidor(){
-  if (ENVIO.rodando) return marca('servidor: o envio já está em andamento');
+  if (ENVIO.rodando){ if (ETAPA.el){ ETAPA.el.hidden = false; ETAPA.oculta = false; } return marca('servidor: o envio já está em andamento'); }
+  etapaAbre('Enviar ao servidor (Drive da campanha)', ['Montar o pacote da campanha: relatórios e PDFs de cada dia', 'Conferir o que já está no servidor', 'Enviar os arquivos que faltam', 'Conferir o resultado']);
+  ENVIO.ultimo = null;
+  try { await _enviaAoServidor(); }
+  catch (e){ etapaFim(false, 'O envio parou: ' + esc(e.message), [], {rotulo: 'Tentar de novo', acao: () => enviaAoServidor().catch(err => marca('servidor: ' + err.message))}); throw e; }
+  const U = ENVIO.ultimo;
+  if (!U) return etapaFim(false, 'O envio não começou (veja a mensagem do servidor).', [], null);
+  if (U.falhas.length){ etapaMarcaPasso(2, 'falha', U.env + ' enviado(s), ' + U.falhas.length + ' com falha'); }
+  if (U.falhas.length) etapaFim(false, U.env + ' enviado(s), ' + U.ig + ' já estavam lá, <b>' + U.falhas.length + ' com falha</b>. Toque para repetir só esses.',
+    U.falhas.map(esc), {rotulo: 'Repetir só os que falharam', acao: () => enviaAoServidor().catch(err => marca('servidor: ' + err.message))});
+  else etapaFim(true, '<b>' + esc(U.lc + ', Equipe ' + U.equipe) + '</b>: ' + U.env + ' arquivo(s) enviado(s) e ' + U.ig + ' que já estavam no servidor sem mudança. '
+    + 'Tudo conferido pelo tamanho e pela assinatura de cada arquivo.' + (U.faltas ? '<br>Pendências do pacote: ' + U.faltas + ' (veja em Pacote da campanha).' : ''), [], proximoPassoEntrega());
+}
+async function _enviaAoServidor(){
   _confereSrv();
   const s = _srv(); grava();
   await testaServidor();
@@ -17045,6 +17065,7 @@ async function enviaAoServidor(){
     if (!R_){ s.pendente = false; grava(); return; }
     const P = R_.P, m = R_.m, falhas = R_.falhas;
     const fila = R_.L.filter(x => !x.igual), ig = R_.L.length - fila.length;
+    etapaPasso(1, R_.L.length + ' arquivo(s) no pacote'); etapaPasso(2, ig + ' já estão no servidor; ' + fila.length + ' a enviar');
     const tot = fila.reduce((t, x) => t + x.u.length, 0), t0 = Date.now(), amostras = [];
     let feito = 0, env = 0, prox = 0, k = ENVIO.paralelo, seguidas = 0, para = false, vel = _velEnvio();
     const progresso = () => {
@@ -17082,6 +17103,8 @@ async function enviaAoServidor(){
     const aj = _ajustaVel(amostras);
     if (aj) try { localStorage.setItem(CHAVE + '_velEnvio', JSON.stringify({a: +aj.a.toFixed(3), b: aj.b, quando: new Date().toISOString()})); } catch (e){}
     const durou = (Date.now() - t0) / 1000;
+    etapaPasso(3, env + ' de ' + fila.length + ' enviado(s)');
+    ENVIO.ultimo = {env: env, ig: ig, falhas: falhas.slice(), lc: P.lc, equipe: P.equipeN, faltas: (P.faltas || []).length};
     s.ultimoEnvio = new Date().toISOString(); s.pendente = falhas.length ? (ENVIO.saiu ? true : 'falhas') : false; grava();
     // falhas porque a tela apagou no meio: repete sozinho, uma vez, com a tela de volta
     if (falhas.length && ENVIO.saiu && !ENVIO.repetiu && document.visibilityState === 'visible' && navigator.onLine){
@@ -18677,7 +18700,7 @@ async function lePPPLote(files){
   if (!res.length) linhas.push('✗ nenhum resultado do IBGE-PPP nos arquivos escolhidos (o ZIP do PPP, o &lt;rinex&gt;.txt ou a tabela do .bat)');
   await aplicaResultadosPPP(res, linhas);
 }
-let RESUMO_PPP = null;
+let RESUMO_PPP = null, _ultResumoPPP = null;
 function _zeraResumoPPP(env){ RESUMO_PPP = {enviados: env || 0, certos: 0, aviso: 0, falhas: 0, mantidos: 0, pacote: 0, semPacote: 0, semPonto: 0}; }
 async function aplicaResultadosPPP(res, linhas){
   const P = pontosDaCampanha(), mudouPPP = [];
@@ -18707,7 +18730,7 @@ async function aplicaResultadosPPP(res, linhas){
       + av.map(a => '<br>&nbsp;&nbsp;⚠ ' + esc(a)).join(''));
   }
   grava(); monta();
-  const R = RESUMO_PPP; RESUMO_PPP = null;
+  const R = RESUMO_PPP; RESUMO_PPP = null; _ultResumoPPP = R; ETAPA.mudou = mudouPPP.slice();
   R.semPonto = linhas.filter(l => /sem ponto correspondente/.test(l)).length;
   if (!R.enviados) R.falhas = linhas.filter(l => /^✗/.test(l)).length;
   const txt = (R.enviados ? R.enviados + ' enviado(s): ' : res.length + ' resultado(s) lido(s): ')
@@ -18723,7 +18746,9 @@ async function aplicaResultadosPPP(res, linhas){
   try { navigator.vibrate && navigator.vibrate(R.falhas ? [300, 100, 300, 100, 300] : [150, 80, 150]); } catch (err){}
   marca('IBGE-PPP: ' + txt);
   try { pintaEntrega(); } catch (err){}
-  if (mudouPPP.length) setTimeout(() => refazRelatorios(mudouPPP).catch(() => {}), 1500);
+  if (mudouPPP.length && !ETAPA.relEmSeguida) setTimeout(() => refazRelatorios(mudouPPP).catch(() => {}), 1500);
+  ETAPA.relEmSeguida = false;
+  if (ETAPA.el && ETAPA.pinta && ETAPA.titulo && /Pacotes do IBGE-PPP/.test(ETAPA.titulo)){ const L = ETAPA.pinta(); if (!L.length) _fimPacotes(); else etapaPasso(0); }
   return n;
 }
 /* ---------- envio direto ao IBGE-PPP, pela API ----------
@@ -18898,8 +18923,11 @@ async function enviaPPPTodos(){
   const X = pontosParaPPP();
   if (!X.length) return marca('IBGE-PPP: nenhum ponto pronto para ir agora');
   if (!confirm('Enviar ao IBGE-PPP o RINEX guardado de ' + X.length + ' ponto(s), um depois do outro?\n\nCada um vai com a antena e a altura do seu ponto; o resultado de cada um entra no ponto assim que volta. Deixe a folha aberta até terminar.')) return;
+  etapaAbre('Enviar ' + X.length + ' ponto(s) ao IBGE-PPP', ['Ler o RINEX guardado de cada ponto', 'Enviar ao IBGE-PPP, um por um', 'Aplicar as coordenadas nos pontos', 'Refazer os relatórios com a coordenada nova']);
+  try {
   const linhas = [], res = [], el = $('#ppp_res');
   const ok = await _juntaGuardados(X, linhas);
+  etapaPasso(1, ok.length + ' de ' + X.length + ' com o RINEX no aparelho');
   _zeraResumoPPP(X.length);
   RESUMO_PPP.falhas = X.length - ok.length;
   for (const x of X) if (!ok.some(o => o.x === x)) x.p.ppp_envio = {quando: new Date().toISOString(), ok: false, motivo: 'sem o RINEX de observação guardado neste aparelho'};
@@ -18915,9 +18943,17 @@ async function enviaPPPTodos(){
     } catch (err){ linhas.push('✗ ' + esc(x.p.id) + ': ' + esc(err.message)); RESUMO_PPP.falhas++;
       x.p.ppp_envio = {quando: new Date().toISOString(), ok: false, motivo: err.message}; }
   }
+  etapaPasso(2, res.length + ' resultado(s) recebido(s)');
+  ETAPA.relEmSeguida = true;
   await aplicaResultadosPPP(res, linhas);
   pintaSituacaoPPP();
-  const e2 = $('#ppp_res'); if (e2) e2.scrollIntoView({behavior: 'smooth', block: 'center'});
+  const R = _ultResumoPPP || {};
+  etapaPasso(3);
+  await refazRelatorios(ETAPA.mudou || [], false, true); ETAPA.mudou = null;
+  const okT = !R.falhas;
+  etapaFim(okT, X.length + ' enviado(s): <b>' + (R.certos || 0) + ' certo(s)</b>' + (R.aviso ? ', ' + R.aviso + ' com aviso' : '') + (R.falhas ? ', <b>' + R.falhas + ' falharam</b>' : '')
+    + (R.semPacote ? '.<br>' + R.semPacote + ' ficaram sem o pacote completo (PDF, .sum): o próximo passo os traz.' : '.'), linhas, proximoPassoEntrega());
+  } catch (err){ etapaFim(false, 'O envio parou: ' + esc(err.message), [], {rotulo: 'Tentar de novo', acao: () => enviaPPPTodos()}); }
 }
 const PPP_SITE = 'https://www.ibge.gov.br/geociencias/informacoes-sobre-posicionamento-geodesico/servicos-para-posicionamento-geodesico/16334-servico-online-para-pos-processamento-de-dados-gnss-ibge-ppp.html';
 async function zipPPPTodos(){
@@ -19198,7 +19234,7 @@ function pintaEntrega(){
   const el = $('#entrega'); if (!el || MODO_PLAN) return;
   const L = _ENT = situacaoEntrega(), R = placarEntrega(L);
   const b = $('#b_pppalerta');
-  if (b){ b.hidden = !R.total; b.textContent = 'Entrega ' + R.prontos + '/' + R.total;
+  if (b && !(ETAPA.el && ETAPA.oculta)){ b.hidden = !R.total; b.textContent = 'Entrega ' + R.prontos + '/' + R.total;
     const urg = R.pppFalta || R.pacote || R.relatorio || R.campo;
     b.style.borderColor = b.style.color = R.prontos === R.total ? '#15803D' : urg ? '#B91C1C' : '#B45309';
     b.title = R.prontos + ' de ' + R.total + ' ponto(s) prontos para entrega — toque para ver o que falta'; }
@@ -19218,7 +19254,8 @@ function pintaEntrega(){
     + '<b style="font-size:1.15em">' + esc(((F.config || {}).kit || {}).equipe || nomeEquipe()) + ': ' + R.prontos + ' de ' + R.total + ' ponto(s) prontos para entrega</b>'
     + (partes.length ? '<br>' + partes.join(' · ') : '<br><b style="color:#15803D">Tudo pronto: PPP com órbita final, pacotes, relatórios e envio.</b>') + '</div>'
     + '<div class="acoes">'
-    + (pend.length ? '<button type="button" class="btn peq" id="b_ent_baixa">Baixar o próximo pacote do PPP (' + pend.length + ' faltam)</button>'
+    + (R.prontos < R.total ? '<button type="button" class="btn" id="b_ent_prox">' + esc((proximoPassoEntrega() || {rotulo: 'O que falta agora'}).rotulo.replace(/^Próximo: /, 'Fazer agora: ')) + '</button>' : '')
+    + (pend.length ? '<button type="button" class="btn sec peq" id="b_ent_baixa">Pacotes do PPP: tela da etapa (' + pend.length + ' faltam)</button>'
       + '<button type="button" class="btn sec peq" id="b_ent_le">Ler os pacotes baixados</button>' : '')
     + (nRel ? '<button type="button" class="btn sec peq" id="b_ent_rel">Refazer os ' + nRel + ' relatório(s)</button>' : '')
     + (R.pppFalta ? '<button type="button" class="btn sec peq" id="b_ent_ppp">Ir ao envio do IBGE-PPP</button>' : '') + '</div>'
@@ -19237,10 +19274,11 @@ function pintaEntrega(){
     + '<p class="leg">Colunas: ' + L[0].E.map(e => esc(_ABR[e.k] || e.k) + ' = ' + esc(e.k)).join(' · ') + '. Toque numa linha para ver o detalhe de cada etapa.</p>';
   el.querySelectorAll('[data-entl]').forEach(tr => tr.addEventListener('click', ev => { if (ev.target.closest('button')) return;
     const d = el.querySelector('[data-entd="' + tr.dataset.entl + '"]'); if (d) d.hidden = !d.hidden; }));
-  const bb = $('#b_ent_baixa'); if (bb) bb.onclick = () => { const x = pend[0]; if (x) baixaPacotePPP(x.p); };
+  const bb = $('#b_ent_baixa'); if (bb) bb.onclick = () => etapaPacotes();
   el.querySelectorAll('[data-entbaixa]').forEach(b2 => b2.onclick = () => { const x = L.find(y => y.p.id === b2.dataset.entbaixa); if (x) baixaPacotePPP(x.p); });
   const bl = $('#b_ent_le'); if (bl) bl.onclick = () => $('#f_ppp_pacotes').click();
-  const br = $('#b_ent_rel'); if (br) br.onclick = () => refazRelatorios(L.filter(x => x.E.some(e => e.k === 'relatório' && e.st === 'nao') && x.p.ppp_coord).map(x => x.p)).catch(err => marca('relatórios: ' + err.message));
+  const br = $('#b_ent_rel'); if (br) br.onclick = () => refazRelatorios(L.filter(x => x.E.some(e => e.k === 'relatório' && e.st === 'nao') && x.p.ppp_coord).map(x => x.p), true).catch(err => marca('relatórios: ' + err.message));
+  const bpx = $('#b_ent_prox'); if (bpx) bpx.onclick = fazProximoPasso;
   const bp = $('#b_ent_ppp'); if (bp) bp.onclick = () => { const d = $('#bloco_ppp'); if (d) d.open = true; const s2 = $('#ppp_sit'); if (s2) s2.scrollIntoView({behavior: 'smooth', block: 'start'}); };
 }
 /* o próximo da lista de "baixar": os já abertos vão para o fim (o operador pode não ter salvo o arquivo) */
@@ -19252,9 +19290,11 @@ function baixaPacotePPP(p){
   setTimeout(() => { try { pintaEntrega(); } catch (e){} }, 800);
 }
 /* relatórios a refazer, um por vez (cada um desenha o recorte e o croqui) */
-async function refazRelatorios(L){
+async function refazRelatorios(L, tela, dentro){
   L = (L || []).filter(p => p && coordPonto(p)); if (!L.length) return;
-  if (refazRelatorios._rodando){ refazRelatorios._fila = (refazRelatorios._fila || []).concat(L); return; }
+  if (tela && !dentro) etapaAbre('Refazer ' + L.length + ' relatório(s) de ponto', ['Montar o relatório de cada ponto com a coordenada do IBGE-PPP', 'Conferir']);
+  if (refazRelatorios._rodando && !(tela || dentro)){ refazRelatorios._fila = (refazRelatorios._fila || []).concat(L); return; }
+  while (refazRelatorios._rodando) await new Promise(r => setTimeout(r, 400));
   refazRelatorios._rodando = true; let ok = 0; const falhou = [];
   try {
     for (let i = 0; i < L.length; i++){
@@ -19266,8 +19306,182 @@ async function refazRelatorios(L){
     }
   } finally { refazRelatorios._rodando = false; }
   if (ok || falhou.length) marca('relatórios refeitos com o PPP: ' + ok + (falhou.length ? ' · não saíram ' + falhou.length + ' (' + falhou.join('; ') + ')' : ''));
+  if (tela && !dentro){ etapaPasso(1); etapaFim(!falhou.length, ok + ' relatório(s) refeito(s) com a coordenada do IBGE-PPP' + (falhou.length ? '; <b>' + falhou.length + ' não saíram</b> (sem internet para as imagens? tente com rede)' : '.'),
+    falhou.map(esc), falhou.length ? {rotulo: 'Tentar de novo os que faltaram', acao: () => refazRelatorios(L, true)} : proximoPassoEntrega()); }
   try { pintaEntrega(); pintaPontos(); } catch (e){}
   const fila = refazRelatorios._fila; refazRelatorios._fila = null; if (fila && fila.length) refazRelatorios(fila);
+}
+/* ---------- Tela da etapa (15/11/2026) ----------
+   "Há etapas que devem ser mais explícitas, com o usuário focado numa tela da etapa." As etapas longas —
+   enviar ao servidor, enviar ao IBGE-PPP, baixar e ler os pacotes do PPP, refazer os relatórios, gerar o
+   pacote da campanha e a cópia completa — abrem uma tela própria, por cima da folha: o nome da etapa, os
+   passos com a situação de cada um, o que está acontecendo agora, a barra de progresso (lida das próprias
+   mensagens da folha, "n de m") e o aviso para manter a folha aberta e a tela acesa. No fim, um resultado
+   claro (✓ concluída ou ✗ com falhas, contado) e o botão do próximo passo da entrega. "Esconder" deixa a
+   etapa seguir por baixo; o botão Entrega, na barra, volta para ela. */
+function etapaAbre(titulo, passos, extra){
+  etapaFecha(true);
+  if (!document.getElementById('etapa_css')){ const st = document.createElement('style'); st.id = 'etapa_css';
+    st.textContent = '#etapa_tela[hidden]{display:none!important}'; document.head.appendChild(st); }
+  const v = document.createElement('div'); v.id = 'etapa_tela'; v.className = 'naoimprime';
+  v.style.cssText = 'position:fixed;inset:0;z-index:88;background:#f6f7f5;display:flex;flex-direction:column;overflow:auto';
+  v.innerHTML = '<div style="background:#0A2E52;color:#fff;padding:14px 16px">'
+    + '<div id="et_sit" style="font-size:13px;letter-spacing:1px;text-transform:uppercase;opacity:.85">Etapa em andamento</div>'
+    + '<div style="font-size:22px;font-weight:700;line-height:1.2" id="et_tit"></div></div>'
+    + '<div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px;max-width:760px;width:100%;margin:0 auto">'
+    + '<div id="et_aviso" style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:10px;padding:10px 12px;font-weight:600">'
+    + 'Mantenha a folha aberta e a tela acesa até o fim desta etapa. Não troque de aplicativo.</div>'
+    + '<ol id="et_passos" style="margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:6px"></ol>'
+    + '<div id="et_agora" style="font-size:17px;min-height:1.4em"></div>'
+    + '<div style="background:#dfe5e8;border-radius:8px;height:14px;overflow:hidden"><div id="et_barra" style="height:100%;width:0;background:#0B6FA4;transition:width .3s"></div></div>'
+    + '<div id="et_tempo" class="leg"></div>'
+    + '<div id="et_extra"></div>'
+    + '<div id="et_fim" hidden></div>'
+    + '<div class="acoes" id="et_bot" style="justify-content:flex-start;flex-wrap:wrap">'
+    + '<button type="button" class="btn sec peq" id="et_esconde">Esconder (a etapa continua)</button></div></div>';
+  document.body.appendChild(v);
+  ETAPA.el = v; ETAPA.rodando = true; ETAPA.fim = false; ETAPA.oculta = false; ETAPA.t0 = Date.now(); ETAPA.atual = -1; ETAPA.titulo = titulo;
+  ETAPA.passos = (passos || []).map(t => ({t: t, st: 'espera', obs: ''}));
+  v.querySelector('#et_tit').textContent = titulo;
+  if (extra) v.querySelector('#et_extra').innerHTML = extra;
+  v.querySelector('#et_esconde').onclick = () => { v.hidden = true; ETAPA.oculta = true; _etapaBotao();
+    marca('a etapa "' + titulo + '" continua — toque em "Etapa…" na barra de baixo para voltar a ela'); };
+  try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(t => { ETAPA.trava = t; }).catch(() => {}); } catch (e){}
+  _etapaPinta(); _etapaBotao();
+  if (ETAPA.passos.length) etapaPasso(0);
+  return v;
+}
+function _etapaPinta(){
+  const el = ETAPA.el && ETAPA.el.querySelector('#et_passos'); if (!el) return;
+  const ic = {espera: '○', vai: '●', ok: '✓', falha: '✗', pula: '–'}, cor = {espera: '#8a979e', vai: '#0B6FA4', ok: '#15803D', falha: '#B91C1C', pula: '#8a979e'};
+  el.innerHTML = ETAPA.passos.map((p, i) => '<li style="display:flex;gap:10px;align-items:flex-start;font-size:16px;' + (p.st === 'vai' ? 'font-weight:700' : '') + '">'
+    + '<span style="color:' + cor[p.st] + ';font-size:20px;width:22px;text-align:center;line-height:1.1">' + ic[p.st] + '</span>'
+    + '<span><span style="color:#46565f">' + (i + 1) + '.</span> ' + esc(p.t) + (p.obs ? '<br><small style="color:' + cor[p.st] + '">' + esc(p.obs) + '</small>' : '') + '</span></li>').join('');
+}
+function etapaPasso(i, obsAnterior){
+  if (!ETAPA.el) return;
+  for (let k = 0; k < ETAPA.passos.length; k++){
+    const p = ETAPA.passos[k];
+    if (k < i && (p.st === 'vai' || p.st === 'espera')){ p.st = 'ok'; if (k === i - 1 && obsAnterior) p.obs = obsAnterior; }
+    if (k === i) p.st = 'vai';
+  }
+  ETAPA.atual = i; _etapaBarra(null); _etapaPinta();
+}
+function etapaMarcaPasso(i, st, obs){ if (!ETAPA.el || !ETAPA.passos[i]) return; ETAPA.passos[i].st = st; if (obs != null) ETAPA.passos[i].obs = obs; _etapaPinta(); }
+function _etapaBarra(frac){
+  const b = ETAPA.el && ETAPA.el.querySelector('#et_barra'); if (!b) return;
+  if (frac == null){ b.style.width = '0'; return; }
+  b.style.width = Math.max(2, Math.min(100, frac * 100)).toFixed(1) + '%';
+  const dt = (Date.now() - ETAPA.t0) / 1000, t = ETAPA.el.querySelector('#et_tempo');
+  if (t) t.textContent = 'Desde o início: ' + _tempoEtapa(dt) + (frac > 0.05 && frac < 1 ? ' · resta, nesta parte, cerca de ' + _tempoEtapa(dt * (1 - frac) / frac) : '');
+}
+function _tempoEtapa(s){ s = Math.round(s); return s < 60 ? s + ' s' : s < 3600 ? Math.floor(s / 60) + ' min ' + String(s % 60).padStart(2, '0') + ' s' : Math.floor(s / 3600) + ' h ' + Math.floor(s % 3600 / 60) + ' min'; }
+/* as mensagens da folha alimentam a tela: "PDF: página 29 de 53", "servidor: 12 de 40", "(3 de 19)" */
+function _etapaMarca(m){
+  if (!ETAPA.el || !ETAPA.rodando) return;
+  const a = ETAPA.el.querySelector('#et_agora'); if (a) a.textContent = m;
+  const q = String(m).match(/(\d+)\s+de\s+(\d+)/);
+  if (q && +q[2] > 0) _etapaBarra(+q[1] / +q[2]);
+}
+function etapaFim(ok, resumo, linhas, proximo){
+  if (!ETAPA.el) return;
+  ETAPA.rodando = false; ETAPA.fim = true;
+  for (const p of ETAPA.passos) if (p.st === 'vai') p.st = ok ? 'ok' : 'falha';
+  if (ok) for (const p of ETAPA.passos) if (p.st === 'espera') p.st = 'ok';
+  _etapaPinta();
+  const v = ETAPA.el; v.hidden = false; ETAPA.oculta = false;
+  v.querySelector('#et_aviso').hidden = true;
+  const b = v.querySelector('#et_barra'); if (b){ b.style.width = '100%'; b.style.background = ok ? '#15803D' : '#B91C1C'; }
+  v.querySelector('#et_agora').textContent = '';
+  v.querySelector('#et_sit').textContent = ok ? 'Etapa concluída' : 'Etapa com falhas';
+  const tt = v.querySelector('#et_tempo'); if (tt) tt.textContent = 'Duração: ' + _tempoEtapa((Date.now() - ETAPA.t0) / 1000);
+  const f = v.querySelector('#et_fim'); f.hidden = false;
+  f.innerHTML = '<div style="border-radius:12px;padding:14px 16px;' + (ok ? 'background:#F0FDF4;border:2px solid #22C55E' : 'background:#FEF2F2;border:2px solid #EF4444') + '">'
+    + '<div style="font-size:26px;font-weight:800;color:' + (ok ? '#15803D' : '#B91C1C') + '">' + (ok ? '✓ Etapa concluída' : '✗ Etapa com falhas') + '</div>'
+    + '<div style="font-size:17px;margin-top:4px">' + resumo + '</div>'
+    + (linhas && linhas.length ? '<details style="margin-top:8px"' + (ok ? '' : ' open') + '><summary>Detalhe</summary><div class="leg" style="max-height:40vh;overflow:auto">' + linhas.join('<br>') + '</div></details>' : '')
+    + '</div>';
+  const bt = v.querySelector('#et_bot');
+  bt.innerHTML = (proximo ? '<button type="button" class="btn" id="et_prox">' + esc(proximo.rotulo) + '</button>' : '')
+    + '<button type="button" class="btn sec" id="et_fecha">Fechar e ver a situação da entrega</button>';
+  if (proximo) v.querySelector('#et_prox').onclick = () => { etapaFecha(true); proximo.acao(); };
+  v.querySelector('#et_fecha').onclick = () => { etapaFecha(true); try { abreEntrega(); } catch (e){} };
+  try { ETAPA.trava && ETAPA.trava.release(); } catch (e){} ETAPA.trava = null;
+  try { navigator.vibrate && navigator.vibrate(ok ? [150, 80, 150] : [300, 100, 300, 100, 300]); } catch (e){}
+  _etapaBotao();
+}
+function etapaFecha(forca){
+  if (!ETAPA.el) return;
+  if (ETAPA.rodando && !forca) return;
+  ETAPA.el.remove(); ETAPA.el = null; ETAPA.rodando = false; _etapaBotao();
+}
+function _etapaBotao(){
+  const b = $('#b_pppalerta'); if (!b) return;
+  if (ETAPA.el && ETAPA.oculta){ b.hidden = false; b.textContent = ETAPA.fim ? 'Etapa ✓' : 'Etapa…'; b.style.borderColor = b.style.color = '#0B6FA4'; }
+  else try { pintaEntrega(); } catch (e){}
+}
+window.addEventListener('beforeunload', e => { if (ETAPA.rodando){ e.preventDefault(); e.returnValue = ''; } });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && ETAPA.rodando && ETAPA.el){
+    const a = ETAPA.el.querySelector('#et_aviso');
+    if (a){ a.hidden = false; a.innerHTML = 'A folha saiu da tela durante a etapa. Ela continua de onde estava, mas <b>não troque de aplicativo nem apague a tela</b> até o fim.'; }
+    try { if (navigator.wakeLock && !ETAPA.trava) navigator.wakeLock.request('screen').then(t => { ETAPA.trava = t; }).catch(() => {}); } catch (e){}
+  }
+});
+/* o próximo passo da entrega, na ordem: PPP a enviar → pacotes do PPP → relatórios → envio */
+function proximoPassoEntrega(){
+  const L = situacaoEntrega(), R = placarEntrega(L), srv = !!(_srv().url || '').trim();
+  if (R.pppFalta && pontosParaPPP().length) return {rotulo: 'Próximo: enviar ' + pontosParaPPP().length + ' ponto(s) ao IBGE-PPP', acao: () => enviaPPPTodos()};
+  if (R.pacote) return {rotulo: 'Próximo: os pacotes do PPP (' + R.pacote + ')', acao: () => etapaPacotes()};
+  const rel = L.filter(x => x.E.some(e => e.k === 'relatório' && e.st === 'nao') && x.p.ppp_coord).map(x => x.p);
+  if (rel.length) return {rotulo: 'Próximo: refazer ' + rel.length + ' relatório(s)', acao: () => refazRelatorios(rel, true)};
+  if (R.entrega) return {rotulo: srv ? 'Próximo: enviar ao servidor (Drive)' : 'Próximo: gerar o pacote da campanha', acao: () => srv ? enviaAoServidor().catch(e => marca('servidor: ' + e.message)) : etapaPacoteLC()};
+  return null;
+}
+function fazProximoPasso(){
+  const p = proximoPassoEntrega();
+  if (p) return p.acao();
+  const R = placarEntrega();
+  etapaAbre('Situação da entrega', []);
+  etapaFim(R.prontos === R.total, R.prontos === R.total ? 'Todos os ' + R.total + ' pontos estão prontos para entrega.'
+    : R.prontos + ' de ' + R.total + ' prontos. ' + (R.aguardaFinal ? R.aguardaFinal + ' aguardam a órbita final' + (R.finalEm ? ' (até ~' + R.finalEm + ')' : '') + ': nada a fazer agora. ' : '')
+      + (R.campo ? R.campo + ' com falta em campo: veja na tabela.' : ''), [], null);
+}
+/* tela dos pacotes do PPP: a lista dos que faltam, um botão por ponto e a leitura de todos de uma vez */
+function etapaPacotes(){
+  etapaAbre('Pacotes do IBGE-PPP (PDF, .sum, .pos, .kml)', ['Baixar o pacote de cada ponto (abre o link no navegador)', 'Ler os pacotes baixados', 'Conferir']);
+  ETAPA.el.querySelector('#et_aviso').innerHTML = 'O site do IBGE não deixa a folha baixar sozinha (verificação contra robôs). '
+    + 'Toque em <b>baixar</b> em cada ponto: o navegador abre o link e salva o ZIP em Downloads. Volte a esta tela e, no fim, <b>Ler os pacotes baixados</b>, escolhendo todos de uma vez.';
+  const pinta = () => {
+    const L = situacaoEntrega().filter(x => x.E.some(e => e.k === 'pacote PPP' && e.st === 'nao') && x.p.ppp_coord);
+    const ex = ETAPA.el && ETAPA.el.querySelector('#et_extra'); if (!ex) return L;
+    if (ETAPA.pacTot == null) ETAPA.pacTot = L.length;
+    if (ETAPA.pacTot) _etapaBarra((ETAPA.pacTot - L.length) / ETAPA.pacTot);
+    ex.innerHTML = L.length ? '<div style="font-weight:700;margin-bottom:6px">' + L.length + ' pacote(s) a trazer'
+      + (ETAPA.pacTot > L.length ? ' · ' + (ETAPA.pacTot - L.length) + ' já lido(s) nesta tela' : '') + '</div>'
+      + '<div class="acoes" style="margin:0 0 10px"><button type="button" class="btn" id="et_le">Ler os pacotes baixados</button></div>'
+      + '<div style="display:flex;flex-direction:column;gap:6px">' + L.map(x => { const n = (x.p.ppp_coord.pacote_aberto || []).length;
+        return '<div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #c9d2d6;border-radius:8px;padding:6px 10px">'
+          + '<b style="flex:1">' + esc(x.p.id) + '</b><small class="leg">' + (n ? 'aberto ' + n + '×' : 'não aberto') + '</small>'
+          + (x.p.ppp_coord.link ? '<button type="button" class="btn sec peq" data-etbx="' + esc(x.p.id) + '">baixar</button>' : '<small>sem link: leia o ZIP do e-mail</small>') + '</div>'; }).join('') + '</div>'
+      : '<b style="color:#15803D">Todos os pacotes do PPP estão nos pontos.</b>';
+    ex.querySelectorAll('[data-etbx]').forEach(b => b.onclick = () => { const x = L.find(y => y.p.id === b.dataset.etbx); if (x){ baixaPacotePPP(x.p); setTimeout(pinta, 600); } });
+    const bl = ex.querySelector('#et_le'); if (bl) bl.onclick = () => { etapaPasso(1); $('#f_ppp_pacotes').click(); };
+    return L;
+  };
+  ETAPA.pinta = pinta; ETAPA.pacTot = null;
+  ETAPA.rodando = false;   /* etapa conduzida pelo operador: pode sair para o navegador baixar */
+  if (!pinta().length) _fimPacotes();
+}
+function _fimPacotes(){
+  const n = situacaoEntrega().filter(x => x.E.some(e => e.k === 'pacote PPP' && e.st === 'nao')).length;
+  etapaPasso(2);
+  etapaFim(!n, n ? 'Ainda faltam ' + n + ' pacote(s). Baixe os que faltam e leia de novo.' : 'Todos os pacotes do PPP estão nos pontos.', [], n ? {rotulo: 'Voltar aos pacotes que faltam', acao: etapaPacotes} : proximoPassoEntrega());
+}
+async function etapaPacoteLC(){
+  etapaAbre('Pacote da campanha (padrão LC)', ['Montar os relatórios e os PDFs', 'Juntar os arquivos no ZIP', 'Baixar o ZIP']);
+  try { await exportaLC(); etapaFim(true, 'O pacote da campanha foi gerado e baixado.', [], proximoPassoEntrega()); }
+  catch (e){ etapaFim(false, 'O pacote não saiu: ' + esc(e.message), [], {rotulo: 'Tentar de novo', acao: etapaPacoteLC}); }
 }
 /* uma vez por dia, ao abrir a folha: o aviso na barra de estado */
 function avisaPPP(){
@@ -19285,6 +19499,7 @@ $('#f_ppp_pacotes').addEventListener('change', async e => {
   if (L.length) await lePPPLote(L).catch(err => marca('IBGE-PPP: ' + err.message));
 });
 function abreEntrega(){
+  if (ETAPA.el && ETAPA.oculta){ ETAPA.el.hidden = false; ETAPA.oculta = false; _etapaBotao(); return; }
   const t = document.querySelector('.abas button[data-aba="fechar"]'); if (t) t.click();
   pintaEntrega();
   setTimeout(() => { const s = $('#cart_entrega'); if (s) s.scrollIntoView({behavior: 'smooth', block: 'start'}); }, 250);

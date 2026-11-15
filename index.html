@@ -20004,6 +20004,22 @@ function avalCalcula(L, ext){
     const k = rr.filter(x => x <= AVAL_PEC.A[1] * 1e-3 * esc).length;
     return {esc: esc, classePEC: clPEC, classeChi: cl, dentroA: k / rr.length}; })};
   R.refOk = R.refSxy != null ? 3 * R.refSxy <= R.r.rmse : null;
+  /* translação pela média (deslocamento em E e N; H não se aplica: sem MDT). Avalia o produto como seria depois de
+     corrigido o deslocamento sistemático — prática de Silva e Nazareno (2009) e Menezes et al. (2019); a ASPRS (2023,
+     seç. 7.2) pede que vieses sejam investigados e removidos antes da avaliação e recomenda média < 25 % do RMSE-alvo.
+     Resíduo de validação cruzada "deixa um de fora" (Stone, 1974): eᵢ = dᵢ − média sem i = n/(n−1)·(dᵢ − média),
+     para a amostra não ser avaliada com a média que ela mesma gerou. O PEC oficial continua o do produto entregue. */
+  { const n = S.length, f = n / (n - 1), tq = AE.tppf(0.95, n - 1), mE = R.E.media, mN = R.N.media;
+    S.forEach(r => { r.dEt = f * (r.dE - mE); r.dNt = f * (r.dN - mN); r.rt = Math.hypot(r.dEt, r.dNt); });
+    const rt = S.map(r => r.rt), T = {E: mE, N: mN, icE: tq * R.E.dp / Math.sqrt(n), icN: tq * R.N.dp / Math.sqrt(n),
+      pE: R.t.E && R.t.E.p, pN: R.t.N && R.t.N.p, sig: !!(R.tendE || R.tendN), mod: Math.hypot(mE, mN), az: (Math.atan2(mE, mN) * 180 / Math.PI + 360) % 360,
+      rmseE: AE.rms(S.map(r => r.dEt)), rmseN: AE.rms(S.map(r => r.dNt)), rmse: Math.sqrt(AE.media(rt.map(x => x * x))),
+      ce90: AE.pct(rt, 90), ce95: AE.pct(rt, 95), nmad: AE.nmad(rt), max: Math.max(...rt), pec: {}};
+    for (const c in AVAL_PEC){ const [ep, pec] = AVAL_PEC[c]; T.pec[c] = Math.max(T.ce90 / (pec * 1e-3), T.rmse / (ep * 1e-3)); }
+    T.escalas = AVAL_ESCALAS.map(esc => ({esc: esc, classe: ['A', 'B', 'C'].find(c => { const [ep, pec] = AVAL_PEC[c]; return T.ce90 <= pec * 1e-3 * esc && T.rmse <= ep * 1e-3 * esc; }) || null}));
+    // ASPRS (2023, 7.2): |média| < 25 % do RMSE-alvo; aqui o alvo é o EP da Classe A na escala-padrão atingida pelo produto entregue
+    const escA = avalEscPadrao(R.pec.A); T.escAlvo = escA; T.razaoASPRS = escA ? T.mod / (AVAL_PEC.A[0] * 1e-3 * escA) : null;
+    R.trans = T; }
   return R;
 }
 try { const ca = document.getElementById('cart_aval'); if (ca) ca.addEventListener('toggle', () => { if (ca.open) try { pintaAval(); } catch (e){ marca('avaliação planimétrica: ' + e.message); } }); } catch (e){}
@@ -20087,6 +20103,9 @@ function pintaAval(){
       + 'RMSE<sub>r</sub> ' + _af2(R.r.rmse) + ' m · CE90 ' + _af2(R.r.ce90) + ' m · NMAD<sub>r</sub> ' + _af2(R.r.nmad) + ' m<br>'
       + '<b>PEC (Decreto 89.817/1984):</b> Classe A a partir de ' + avalFmtEsc(cA) + ' (escala-padrão ' + (avalEscPadrao(cA) ? avalFmtEsc(avalEscPadrao(cA)) : '—') + ') · '
       + 'B a partir de ' + avalFmtEsc(cB) + ' · C a partir de ' + avalFmtEsc(cC)
+      + (R.trans ? '<br><b>Com translação pela média</b> (E ' + _af2(R.trans.E) + ' ± ' + _af2(R.trans.icE) + ' m · N ' + _af2(R.trans.N) + ' ± ' + _af2(R.trans.icN)
+        + ' m, IC 90 %): RMSE<sub>r</sub> ' + _af2(R.trans.rmse) + ' m · CE90 ' + _af2(R.trans.ce90) + ' m · Classe A a partir de ' + avalFmtEsc(R.trans.pec.A)
+        + ' <small>(produto corrigido pelo deslocamento; o PEC acima é o do produto entregue)</small>' : '')
       + (R.distPrevia.semExtensao ? '' : '<br>Distribuição: ' + R.distPrevia.quadOcup + '/4 quadrantes · vizinho mais próximo R = ' + _af2((R.distPrevia.vmp || [])[0] && R.distPrevia.vmp[0].R)
         + ' (' + ((R.distPrevia.vmp || [])[0] ? R.distPrevia.vmp[0].padrao : '—') + ')')
       + '</div>');
@@ -20291,13 +20310,34 @@ function avalRelatorio(R){
       + '</table><p>Estatística circular dos vetores de erro (Santos et al., 2016): direção média ' + R.circ.azimute.toFixed(0) + '° (azimute), comprimento médio resultante R̄ = ' + _af2(R.circ.R) + ', variância circular = ' + _af2(R.circ.var_circular)
       + '; teste de Rayleigh p = ' + _ap3(R.circ.p) + (R.circ.p < 0.05 ? ' — <b>os erros têm direção preferencial</b> (tendência).' : ' — sem direção preferencial.') + '</p>'
       + '<p>Vetor de tendência (medianas): ' + _af2(R.vies.mod) + ' m no azimute ' + R.vies.az.toFixed(0) + '°. ' + (R.tendE || R.tendN || R.circ.p < 0.05 ? 'Uma tendência sistemática é típica de deslocamento do georreferenciamento da imagem (datum ou apoio) e merece verificação antes da avaliação final.' : '') + '</p>';
+    if (R.trans){ const T = R.trans;
+      h += '<h2>3b Translação pela média (deslocamento em E e N)</h2>'
+        + '<p>Cada discrepância é avaliada sem a média do conjunto — o que fica é o desvio em torno da média, isto é, o produto como seria depois de corrigido o deslocamento sistemático '
+        + '(Silva; Nazareno, 2009; Menezes et al., 2019). Em H não se aplica: não há MDT nesta prévia. O resíduo de cada ponto é calculado com a média dos <b>demais</b> pontos '
+        + '(validação cruzada “deixa um de fora”; Stone, 1974): eᵢ = n/(n−1)·(dᵢ − média), para a amostra não ser avaliada com a translação que ela mesma estimou.</p>'
+        + '<table><tr><th></th><th>deslocamento = média (m)</th><th>IC 90 % (±m)</th><th>t, p</th><th>significativo (α = 10 %)</th><th>RMSE após (m)</th></tr>'
+        + '<tr><td>E</td><td>' + _af2(T.E) + '</td><td>' + _af2(T.icE) + '</td><td>' + _ap3(T.pE) + '</td><td>' + (R.tendE ? 'sim' : 'não') + '</td><td>' + _af2(T.rmseE) + '</td></tr>'
+        + '<tr><td>N</td><td>' + _af2(T.N) + '</td><td>' + _af2(T.icN) + '</td><td>' + _ap3(T.pN) + '</td><td>' + (R.tendN ? 'sim' : 'não') + '</td><td>' + _af2(T.rmseN) + '</td></tr>'
+        + '<tr><td>vetor</td><td>' + _af2(T.mod) + ' no azimute ' + T.az.toFixed(0) + '°</td><td>—</td><td>—</td><td>' + (T.sig ? 'sim' : 'não') + '</td><td>RMSE<sub>r</sub> ' + _af2(T.rmse) + '</td></tr></table>'
+        + '<table><tr><th></th><th>Produto entregue</th><th>Após a translação</th></tr>'
+        + '<tr><td>RMSE<sub>r</sub> (m)</td><td>' + _af2(R.r.rmse) + '</td><td>' + _af2(T.rmse) + '</td></tr>'
+        + '<tr><td>CE90 (m)</td><td>' + _af2(R.r.ce90) + '</td><td>' + _af2(T.ce90) + '</td></tr>'
+        + '<tr><td>NMAD<sub>r</sub> (m)</td><td>' + _af2(R.r.nmad) + '</td><td>' + _af2(T.nmad) + '</td></tr>'
+        + ['A', 'B', 'C'].map(c => '<tr><td>PEC Classe ' + c + ' a partir de</td><td>' + avalFmtEsc(R.pec[c]) + '</td><td>' + avalFmtEsc(T.pec[c]) + '</td></tr>').join('')
+        + '<tr><td>Classe por escala-padrão</td><td>' + R.chi.escalas.map(e => avalFmtEsc(e.esc) + ': ' + (e.classePEC || '—')).join('<br>') + '</td><td>'
+        + T.escalas.map(e => avalFmtEsc(e.esc) + ': ' + (e.classe || '—')).join('<br>') + '</td></tr></table>'
+        + (T.razaoASPRS != null ? '<p>ASPRS (2023, seç. 7.2; complementar, não homologado): recomenda média &lt; 25 % do RMSE-alvo, com investigação da causa quando passa disso. Aqui, |média| = '
+          + Math.round(T.razaoASPRS * 100) + ' % do EP da Classe A em ' + avalFmtEsc(T.escAlvo) + (T.razaoASPRS > 0.25 ? ' — <b>acima de 25 %: investigar a causa do deslocamento</b>.' : '.') + '</p>' : '')
+        + '<div class="av"><b>Como ler.</b> A translação só faz sentido se o deslocamento for significativo e tiver causa identificada (georreferenciamento da imagem, datum, apoio). '
+        + 'Ela não melhora o produto entregue: o PEC oficial é o da seção 1, porque a tendência é erro. O resultado desta seção diz quanto o produto ganharia se fosse corrigido por essa translação — '
+        + 'que é estimada com a mesma amostra de checagem e, por isso, precisa ser confirmada com pontos independentes. Aplicar o deslocamento sem achar a causa é má prática (Graham, 2014).</div>'; }
   } else h += '<p>Menos de 3 pontos de gabinete com PPP: sem estatística.</p>';
   h += '<h2>4 Distribuição espacial dos pontos</h2>' + _svgMapa(R) + _htmlDist(R.distPrevia, 'Pontos da prévia (gabinete)') + _htmlDist(R.distTodos, 'Todos os pontos de checagem (gabinete + escolhidos em campo)')
     + '<p><small>Vizinho mais próximo de ordem k: R = d observada/d esperada sob aleatoriedade completa, com teste Z (Clark; Evans, 1954; Santos et al., 2016). Função K de Ripley (Ripley, 1977) com L(h) = √(K/π) e envelope de 99 simulações '
     + 'aleatórias dentro da própria extensão (o efeito de borda entra igual na observação e nas simulações). Quadrantes: divisão da caixa da extensão pelo centro.</small></p>'
-    + '<h2>5 Pontos</h2><table><tr><th>Ponto</th>' + (MODO_PLAN ? '<th>Equipe</th>' : '') + '<th>Opção ligada</th><th>Opção ocupada</th><th>Órbita</th><th>σ PPP (m)</th><th>dE</th><th>dN</th><th>r</th><th>Situação</th></tr>'
+    + '<h2>5 Pontos</h2><table><tr><th>Ponto</th>' + (MODO_PLAN ? '<th>Equipe</th>' : '') + '<th>Opção ligada</th><th>Opção ocupada</th><th>Órbita</th><th>σ PPP (m)</th><th>dE</th><th>dN</th><th>r</th><th>r após translação</th><th>Situação</th></tr>'
     + R.linhas.map(r => '<tr><td>' + esc(r.id) + '</td>' + (MODO_PLAN ? '<td>' + esc(r.equipe) + '</td>' : '') + '<td>' + esc(r.lig || '—') + '</td><td>' + esc(r.op === 'campo' ? 'escolhido em campo' : r.op || '—') + '</td><td>' + esc(r.orbita || '—')
-      + '</td><td>' + _af2(r.sxy) + '</td><td>' + _af2(r.dE) + '</td><td>' + _af2(r.dN) + '</td><td>' + _af2(r.r) + '</td><td>' + sit(r) + (r.conf && r.r > AVAL_LIM ? ' (confirmado)' : '') + '</td></tr>').join('') + '</table>'
+      + '</td><td>' + _af2(r.sxy) + '</td><td>' + _af2(r.dE) + '</td><td>' + _af2(r.dN) + '</td><td>' + _af2(r.r) + '</td><td>' + (r.sit === 'gabinete' ? _af2(r.rt) : '—') + '</td><td>' + sit(r) + (r.conf && r.r > AVAL_LIM ? ' (confirmado)' : '') + '</td></tr>').join('') + '</table>'
     + '<h2>6 Próximo passo: PlugIBGE</h2><p>No QGIS, painel <b>Verificação Planialtimétrica</b> do PlugIBGE: carregue a imagem avaliada em <i>Ortoimagem</i>, deixe o MDT vazio (só planimetria) e, em <i>Pontos de checagem</i>, escolha a fonte '
     + '<b>Avaliação da folha de coleta (GGC)</b> com o arquivo <code>…_avaliacao_pontos_checagem.csv</code>. Modo <b>Manual</b>: marque na imagem a feição de cada ponto '
     + (R.nCampo ? '— os <b>' + R.nCampo + ' escolhidos em campo</b> não têm leitura de gabinete e só entram na avaliação por aí' : '') + '. A marcação no plugin é cega (sem a posição de gabinete na tela), para não herdar a leitura do analista. '
@@ -20313,6 +20353,11 @@ function avalRelatorio(R){
     + '<p>ROYSTON, P. Remark AS R94: a remark on algorithm AS 181: the W-test for normality. <i>Journal of the Royal Statistical Society: Series C (Applied Statistics)</i>, v. 44, n. 4, p. 547-551, 1995.</p>'
     + '<p>SANTOS, A. de P. dos. <i>Software GeoPEC</i>: versão 3.4. Viçosa, MG, 2017.</p>'
     + '<p>SANTOS, A. de P. dos; RODRIGUES, D. D.; SANTOS, N. T.; GRIPP JUNIOR, J. Avaliação da acurácia posicional em dados espaciais utilizando técnicas de estatística espacial: proposta de método e exemplo utilizando a norma brasileira. <i>Boletim de Ciências Geodésicas</i>, v. 22, n. 4, p. 630-650, 2016. DOI: 10.1590/S1982-21702016000400036.</p>'
+    + '<p>AMERICAN SOCIETY FOR PHOTOGRAMMETRY AND REMOTE SENSING. <i>ASPRS positional accuracy standards for digital geospatial data</i>. 2. ed. Bethesda: ASPRS, 2023.</p>'
+    + '<p>GRAHAM, L. Random points: accurately speaking. <i>LIDAR Magazine</i>, 30 set. 2014.</p>'
+    + '<p>MENEZES, R. R. V.; LISBOA, M. H. M.; SANTOS, A. P. dos; DIAS, J. dos S. Avaliação da acurácia planimétrica das imagens do Google Earth para produção de base cartográfica. <i>Revista Brasileira de Cartografia</i>, v. 71, n. 2, p. 367-391, 2019. DOI: 10.14393/rbcv71n2-46327.</p>'
+    + '<p>SILVA, L. A.; NAZARENO, N. R. X. Análise do padrão de exatidão cartográfica da imagem do Google Earth tendo como área de estudo a imagem da cidade de Goiânia. In: SIMPÓSIO BRASILEIRO DE SENSORIAMENTO REMOTO, 14., 2009, Natal. <i>Anais</i> [...]. São José dos Campos: INPE, 2009. p. 1723-1730.</p>'
+    + '<p>STONE, M. Cross-validatory choice and assessment of statistical predictions. <i>Journal of the Royal Statistical Society: Series B</i>, v. 36, n. 2, p. 111-147, 1974.</p>'
     + '<p>ZAR, J. H. <i>Biostatistical analysis</i>. 5. ed. Upper Saddle River: Prentice Hall, 2010.</p></small>'
     + '<p><small>Gerado pela folha de coleta de pontos (GGC/SES-CE). Desenvolvimento assistido por IA, empregada como ferramenta, sob revisão e responsabilidade técnica do autor.</small></p></bo' + 'dy></html>';
   return h;
@@ -20343,11 +20388,11 @@ async function avalProdutos(R, pasta){
   const base = avalBase(), pre = pasta || '';
   const comPPP = R.linhas.filter(r => r.campos && r.lat != null && r.sit !== 'excluido');
   const campos = [['ID_PONTO', 'C', 40], ['EQUIPE', 'C', 40], ['OPCAO_LIG', 'C', 12], ['OPCAO_OCUP', 'C', 20], ['SITUACAO', 'C', 12], ['AVALIACAO', 'C', 60],
-    ['SIGMA_XY', 'N', 10, 3], ['DE', 'N', 12, 3], ['DN', 'N', 12, 3], ['R', 'N', 12, 3]].concat(AVAL_CAMPOS_BAT.map(k => [k, 'C', 60]));
+    ['SIGMA_XY', 'N', 10, 3], ['DE', 'N', 12, 3], ['DN', 'N', 12, 3], ['R', 'N', 12, 3], ['DE_TRANSL', 'N', 12, 3], ['DN_TRANSL', 'N', 12, 3], ['R_TRANSL', 'N', 12, 3]].concat(AVAL_CAMPOS_BAT.map(k => [k, 'C', 60]));
   const aval = r => r.sit === 'gabinete' ? 'prévia de gabinete (marcar de novo no PlugIBGE)' : r.sit === 'campo' ? 'marcação manual no PlugIBGE' : 'conferir a opção ocupada';
   const cam = [
     {nome: 'CHECAGEM_PPP', tipo: 'POINT', descricao: 'Pontos de checagem: coordenada IBGE-PPP (SIRGAS 2000)', campos: campos,
-      feicoes: comPPP.map(r => ({g: [r.lon, r.lat], a: [r.id, r.equipe, r.lig, r.op === 'campo' ? 'escolhido em campo' : r.op, r.sit, aval(r), r.sxy, r.dE, r.dN, r.r]
+      feicoes: comPPP.map(r => ({g: [r.lon, r.lat], a: [r.id, r.equipe, r.lig, r.op === 'campo' ? 'escolhido em campo' : r.op, r.sit, aval(r), r.sxy, r.dE, r.dN, r.r, r.sit === 'gabinete' ? r.dEt : null, r.sit === 'gabinete' ? r.dNt : null, r.sit === 'gabinete' ? r.rt : null]
         .concat(AVAL_CAMPOS_BAT.map(k => (r.campos || {})[k] || ''))}))},
     {nome: 'POSICAO_GABINETE', tipo: 'POINT', descricao: 'Posição de gabinete (leitura na imagem) da opção ocupada', campos: [['ID_PONTO', 'C', 40], ['OPCAO', 'C', 12]],
       feicoes: comPPP.filter(r => r.gab).map(r => ({g: [r.gab.lon, r.gab.lat], a: [r.id, r.gab.id]}))},

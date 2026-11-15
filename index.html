@@ -794,6 +794,14 @@ você cabe o que nenhum arquivo registra.</p>
     <div id="entrega"></div>
     <input type="file" id="f_ppp_pacotes" multiple accept=".zip,.txt,.csv" class="oculto">
   </div>
+  <details class="cart naoimprime" id="cart_aval">
+    <summary><b>Avaliação planimétrica preliminar da imagem</b> — posição de gabinete × PPP de campo</summary>
+    <p class="leg">Os pontos de gabinete foram escolhidos <b>sobre a imagem avaliada</b>: a diferença entre a posição de gabinete da opção
+    ocupada e o PPP é o erro planimétrico da imagem no ponto (mais o de identificação do analista). Só planimetria — não há MDT.
+    Os <b>escolhidos em campo</b> não têm leitura de gabinete: vão para a marcação manual no PlugIBGE. A análise de distribuição pede a
+    <b>extensão do produto avaliado</b> (GeoTIFF, GeoPackage, GeoJSON ou KML).</p>
+    <div id="aval_plan"></div>
+  </details>
   <div class="cart naoimprime" id="cart_qual_dia" style="display:none"></div>
   <div class="cart naoimprime" id="cart_hotel">
     <h3>Na hospedagem — fechar o dia em 4 passos</h3>
@@ -16965,14 +16973,18 @@ function _tempoTxt(s){ s = Math.max(0, Math.round(s)); return s < 90 ? s + ' s' 
 async function _listaEnvio(){
   const P = await exportaLC({soItens: true});
   if (!P || !P.itens) return null;
-  const itens = _itensRegistro();
+  const itens = _itensRegistro(), falhas0 = [];
   try { const v = await _txTraj('readonly', l => l.get('trajetos'));
         if (v) itens.push({nome: '_registros/' + idAparelho() + '/trajetos.json', dados: JSON.stringify(v)}); } catch (e){}
   for (const d of diasDaCampanha()) if (d.dia.trilha_id){
     const T = await trilhaDoDia(d.dia).catch(() => null);
     if (T && T.length) itens.push({nome: '_registros/' + idAparelho() + '/trilha_' + (d.dia.data || d.dia.trilha_id) + '.json', dados: JSON.stringify(T)});
   }
-  const L = [], falhas = [], m = _enviados(), url = _srv().url.trim();
+  /* 15/11/2026: a avaliação planimétrica preliminar vai ao Drive fora do pacote LC (o pacote segue só o padrão LC),
+     para o planejador juntar as tabelas das equipes */
+  try { const RA = avalAtualiza(); if (RA.linhas.some(r => r.campos)) (await avalProdutos(RA, '_avaliacao_planimetrica/')).itens.forEach(x => itens.push(x)); }
+  catch (e){ falhas0.push('avaliação planimétrica: ' + e.message); }
+  const L = [], falhas = falhas0, m = _enviados(), url = _srv().url.trim();
   for (const it of P.itens.concat(itens)){
     try { const u = await _bytesDe(it.dados); L.push({nome: it.nome, u: u, igual: m[url + '|' + it.nome] === u.length + ':' + _fnv(u), src: it.src}); }
     catch (e){ falhas.push(it.nome + ': ' + e.message); }
@@ -17421,6 +17433,15 @@ function _gpGeom(tipo, g, srs){
     const b = new DataView(new ArrayBuffer(8 + 21));
     b.setUint8(0, 0x47); b.setUint8(1, 0x50); b.setUint8(2, 0); b.setUint8(3, 0x01); b.setInt32(4, srs, true);
     b.setUint8(8, 1); b.setUint32(9, 1, true); b.setFloat64(13, g[0], true); b.setFloat64(21, g[1], true);
+    return new Uint8Array(b.buffer);
+  }
+  if (tipo === 'POLYGON'){
+    const n = g.length, b = new DataView(new ArrayBuffer(8 + 32 + 13 + 16 * n));
+    const xs = g.map(q => q[0]), ys = g.map(q => q[1]);
+    b.setUint8(0, 0x47); b.setUint8(1, 0x50); b.setUint8(2, 0); b.setUint8(3, 0x03); b.setInt32(4, srs, true);
+    _gpMinMax(xs).concat(_gpMinMax(ys)).forEach((v, i) => b.setFloat64(8 + 8 * i, v, true));
+    b.setUint8(40, 1); b.setUint32(41, 3, true); b.setUint32(45, 1, true); b.setUint32(49, n, true);
+    g.forEach((q, i) => { b.setFloat64(53 + 16 * i, q[0], true); b.setFloat64(61 + 16 * i, q[1], true); });
     return new Uint8Array(b.buffer);
   }
   const n = g.length, b = new DataView(new ArrayBuffer(8 + 32 + 9 + 16 * n));
@@ -19679,6 +19700,669 @@ function pintaConviteInstalar(){
     try { const r = await p.userChoice; marca(r.outcome === 'accepted' ? 'folha instalada na tela inicial' : 'instalação adiada'); } catch (e){} pintaConviteInstalar(); };
 }
 window.addEventListener('appinstalled', () => { try { const el = $('#aviso_instalar'); if (el) el.remove(); } catch (e){} marca('folha instalada na tela inicial'); });
+/* ---------- estatística da avaliação planimétrica (15/11/2026) ----------
+   Funções puras, conferidas contra o SciPy (scipy.stats 1.x) nos testes da folha:
+   Shapiro-Wilk pelo algoritmo de Royston (1995, AS R94), D'Agostino-Pearson (D'Agostino;
+   Belanger; D'Agostino Jr., 1990), t de Student e qui-quadrado pelas funções beta e gama
+   incompletas regularizadas (Press et al., 2007), Rayleigh (Zar, 2010). */
+const AE = (() => {
+  const soma = a => a.reduce((s, x) => s + x, 0);
+  const media = a => soma(a) / a.length;
+  const ord = a => a.slice().sort((x, y) => x - y);
+  function pct(a, p){ const s = ord(a), n = s.length; if (!n) return NaN; const h = (n - 1) * p / 100, i = Math.floor(h);
+    return i + 1 < n ? s[i] + (h - i) * (s[i + 1] - s[i]) : s[n - 1]; }      // = numpy.percentile (linear)
+  const mediana = a => pct(a, 50);
+  const nmad = a => { const m = mediana(a); return 1.4826 * mediana(a.map(x => Math.abs(x - m))); };
+  const dp = a => { const m = media(a); return Math.sqrt(soma(a.map(x => (x - m) ** 2)) / (a.length - 1)); };
+  const rms = a => Math.sqrt(media(a.map(x => x * x)));
+  // ---- funções especiais
+  function lgama(x){ const c = [676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61503916999185,
+      12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+    if (x < 0.5) return Math.log(Math.PI / Math.abs(Math.sin(Math.PI * x))) - lgama(1 - x);
+    x -= 1; let a = 0.99999999999980993; const t = x + 7.5; for (let i = 0; i < 8; i++) a += c[i] / (x + i + 1);
+    return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a); }
+  function betacf(a, b, x){ let m2, aa, c = 1, d = 1 - (a + b) * x / (a + 1), del, h;
+    if (Math.abs(d) < 1e-300) d = 1e-300; d = 1 / d; h = d;
+    for (let m = 1; m <= 300; m++){ m2 = 2 * m;
+      aa = m * (b - m) * x / ((a - 1 + m2) * (a + m2)); d = 1 + aa * d; if (Math.abs(d) < 1e-300) d = 1e-300; c = 1 + aa / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d; h *= d * c;
+      aa = -(a + m) * (a + b + m) * x / ((a + m2) * (a + 1 + m2)); d = 1 + aa * d; if (Math.abs(d) < 1e-300) d = 1e-300; c = 1 + aa / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d;
+      del = d * c; h *= del; if (Math.abs(del - 1) < 3e-16) break; }
+    return h; }
+  function ibeta(x, a, b){ if (x <= 0) return 0; if (x >= 1) return 1;
+    const bt = Math.exp(lgama(a + b) - lgama(a) - lgama(b) + a * Math.log(x) + b * Math.log(1 - x));
+    return x < (a + 1) / (a + b + 2) ? bt * betacf(a, b, x) / a : 1 - bt * betacf(b, a, 1 - x) / b; }
+  function gammap(a, x){ if (x <= 0) return 0;
+    if (x < a + 1){ let ap = a, s = 1 / a, d = s; for (let n = 0; n < 500; n++){ ap++; d *= x / ap; s += d; if (Math.abs(d) < Math.abs(s) * 1e-16) break; }
+      return s * Math.exp(-x + a * Math.log(x) - lgama(a)); }
+    let b = x + 1 - a, c = 1e300, d = 1 / b, h = d;
+    for (let i = 1; i < 500; i++){ const an = -i * (i - a); b += 2; d = an * d + b; if (Math.abs(d) < 1e-300) d = 1e-300; c = b + an / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d; const del = d * c; h *= del; if (Math.abs(del - 1) < 1e-16) break; }
+    return 1 - Math.exp(-x + a * Math.log(x) - lgama(a)) * h; }
+  const ncdf = z => 0.5 * (1 + erf(z / Math.SQRT2));
+  function erf(x){ // Abramowitz-Stegun 7.1.26 não basta: usa a gama incompleta (exata)
+    return x >= 0 ? gammap(0.5, x * x) : -gammap(0.5, x * x); }
+  function nppf(p){ // Acklam, refinado por Newton
+    const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.3577518672690, -30.66479806614716, 2.506628277459239],
+      b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572],
+      c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783],
+      d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+    let q, r, x;
+    if (p < 0.02425){ q = Math.sqrt(-2 * Math.log(p)); x = (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+    else if (p > 1 - 0.02425){ q = Math.sqrt(-2 * Math.log(1 - p)); x = -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+    else { q = p - 0.5; r = q * q; x = (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1); }
+    for (let i = 0; i < 2; i++){ const e = ncdf(x) - p, u = e * Math.sqrt(2 * Math.PI) * Math.exp(x * x / 2); x = x - u / (1 + x * u / 2); }
+    return x; }
+  const tcdf = (t, nu) => { const x = nu / (nu + t * t), p = 0.5 * ibeta(x, nu / 2, 0.5); return t > 0 ? 1 - p : p; };
+  const tppf = (p, nu) => { let lo = -1e3, hi = 1e3; for (let i = 0; i < 200; i++){ const m = (lo + hi) / 2; if (tcdf(m, nu) < p) lo = m; else hi = m; } return (lo + hi) / 2; };
+  const chi2cdf = (x, k) => gammap(k / 2, x / 2);
+  const chi2ppf = (p, k) => { let lo = 0, hi = Math.max(10, k * 10); for (let i = 0; i < 200; i++){ const m = (lo + hi) / 2; if (chi2cdf(m, k) < p) lo = m; else hi = m; } return (lo + hi) / 2; };
+  // ---- Shapiro-Wilk (Royston, 1995; tradução do swilk.c usado pelo SciPy)
+  function poly(c, x){ let r = c[c.length - 1]; for (let i = c.length - 2; i >= 0; i--) r = r * x + c[i]; return r; }
+  function shapiro(x0){
+    const x = ord(x0), n = x.length; if (n < 3) return null;
+    const nn2 = Math.floor(n / 2), a = new Array(nn2 + 1).fill(0);
+    const small = 1e-19, g = [-2.273, 0.459], c1 = [0, 0.221157, -0.147981, -2.07119, 4.434685, -2.706056],
+      c2 = [0, 0.042981, -0.293762, -1.752461, 5.682633, -3.582633], c3 = [0.544, -0.39978, 0.025054, -6.714e-4],
+      c4 = [1.3822, -0.77857, 0.062767, -0.0020322], c5 = [-1.5861, -0.31082, -0.083751, 0.0038915], c6 = [-0.4803, -0.082676, 0.0030302];
+    const an = n;
+    if (n === 3) a[1] = Math.SQRT1_2;
+    else {
+      const an25 = an + 0.25; let summ2 = 0; const m = [];
+      for (let i = 1; i <= nn2; i++){ m[i] = nppf((i - 0.375) / an25); summ2 += m[i] * m[i]; }
+      summ2 *= 2; const ssumm2 = Math.sqrt(summ2), rsn = 1 / Math.sqrt(an);
+      const a1 = poly(c1, rsn) - m[1] / ssumm2;
+      let i1, fac;
+      if (n > 5){ i1 = 3; const a2 = -m[2] / ssumm2 + poly(c2, rsn);
+        fac = Math.sqrt((summ2 - 2 * m[1] * m[1] - 2 * m[2] * m[2]) / (1 - 2 * a1 * a1 - 2 * a2 * a2)); a[2] = a2; }
+      else { i1 = 2; fac = Math.sqrt((summ2 - 2 * m[1] * m[1]) / (1 - 2 * a1 * a1)); }
+      a[1] = a1; for (let i = i1; i <= nn2; i++) a[i] = -m[i] / fac;
+    }
+    const range = x[n - 1] - x[0]; if (range < small) return null;
+    // W pela forma direta: (Σ aᵢ·(x₍ₙ₊₁₋ᵢ₎ − x₍ᵢ₎))² / Σ(xᵢ − x̄)²
+    const xm = media(x); let num = 0, den = 0;
+    for (let i = 0; i < nn2; i++) num += a[i + 1] * (x[n - 1 - i] - x[i]);
+    for (let i = 0; i < n; i++) den += (x[i] - xm) ** 2;
+    let w = num * num / den; if (w > 1) w = 1;
+    const w1 = 1 - w;
+    let pw;
+    if (n === 3){ const pi6 = 6 / Math.PI, stqr = Math.PI / 3; pw = Math.max(0, pi6 * (Math.asin(Math.sqrt(w)) - stqr)); return {W: w, p: pw}; }
+    const y = Math.log(w1), xl = Math.log(an);
+    let mm, s;
+    if (n <= 11){ const gamma = poly(g, an); if (y >= gamma) return {W: w, p: 1e-99};
+      const yy = -Math.log(gamma - y); mm = poly(c3, an); s = Math.exp(poly(c4, an)); pw = 1 - ncdf((yy - mm) / s); }
+    else { mm = poly(c5, xl); s = Math.exp(poly(c6, xl)); pw = 1 - ncdf((y - mm) / s); }
+    return {W: w, p: pw};
+  }
+  // ---- D'Agostino-Pearson K² (= scipy.stats.normaltest)
+  function dagostino(x){
+    const n = x.length; if (n < 8) return null;
+    const m = media(x), m2 = media(x.map(v => (v - m) ** 2)), m3 = media(x.map(v => (v - m) ** 3)), m4 = media(x.map(v => (v - m) ** 4));
+    const b2 = m3 / Math.pow(m2, 1.5), k = m4 / (m2 * m2);
+    const y = b2 * Math.sqrt((n + 1) * (n + 3) / (6 * (n - 2)));
+    const beta2 = 3 * (n * n + 27 * n - 70) * (n + 1) * (n + 3) / ((n - 2) * (n + 5) * (n + 7) * (n + 9));
+    const W2 = -1 + Math.sqrt(2 * (beta2 - 1)), delta = 1 / Math.sqrt(0.5 * Math.log(W2)), alpha = Math.sqrt(2 / (W2 - 1));
+    const yy = y === 0 ? 1 : y, Zs = delta * Math.log(yy / alpha + Math.sqrt((yy / alpha) ** 2 + 1));
+    const E = 3 * (n - 1) / (n + 1), varb2 = 24 * n * (n - 2) * (n - 3) / ((n + 1) * (n + 1) * (n + 3) * (n + 5));
+    const xk = (k - E) / Math.sqrt(varb2);
+    const sqrtbeta1 = 6 * (n * n - 5 * n + 2) / ((n + 7) * (n + 9)) * Math.sqrt(6 * (n + 3) * (n + 5) / (n * (n - 2) * (n - 3)));
+    const A = 6 + 8 / sqrtbeta1 * (2 / sqrtbeta1 + Math.sqrt(1 + 4 / (sqrtbeta1 * sqrtbeta1)));
+    const term1 = 1 - 2 / (9 * A), denom = 1 + xk * Math.sqrt(2 / (A - 4));
+    const term2 = Math.sign(denom) * Math.pow((1 - 2 / A) / Math.abs(denom), 1 / 3);
+    const Zk = (term1 - term2) / Math.sqrt(2 / (9 * A));
+    const K2 = Zs * Zs + Zk * Zk;
+    return {K2: K2, p: 1 - chi2cdf(K2, 2), assimetria: b2, curtose: k - 3};
+  }
+  function tteste(x, mu){ const n = x.length; if (n < 2) return null; const s = dp(x); if (!(s > 0)) return null;
+    const t = (media(x) - (mu || 0)) / (s / Math.sqrt(n)); return {t: t, gl: n - 1, p: 2 * (1 - tcdf(Math.abs(t), n - 1))}; }
+  // estatística circular dos vetores de discrepância (Santos et al., 2016; Zar, 2010)
+  function circular(dx, dy){
+    const n = dx.length; let C = 0, S = 0;
+    for (let i = 0; i < n; i++){ const r = Math.hypot(dx[i], dy[i]); if (r > 0){ C += dx[i] / r; S += dy[i] / r; } }
+    const Rb = Math.hypot(C, S) / n, az = (Math.atan2(C, S) * 180 / Math.PI + 360) % 360;   // azimute a partir do norte
+    const Z = n * Rb * Rb, p = Math.exp(Math.sqrt(1 + 4 * n + 4 * (n * n - n * n * Rb * Rb)) - (1 + 2 * n));
+    return {azimute: az, R: Rb, var_circular: 1 - Rb, rayleigh_Z: Z, p: Math.min(1, Math.max(0, p))}; }
+  return {soma, media, mediana, nmad, dp, rms, pct, shapiro, dagostino, tteste, circular, tcdf, tppf, chi2cdf, chi2ppf, ncdf, nppf, lgama};
+})();
+
+/* ---------- avaliação planimétrica preliminar: imagem de gabinete × verdade de campo (15/11/2026) ----------
+   Os pontos de checagem da campanha foram escolhidos em gabinete SOBRE a imagem que se quer avaliar: a posição de
+   gabinete de cada opção (A–D) é a leitura da feição na própria imagem. Ocupada a opção em campo e processado o
+   RINEX no IBGE-PPP, a diferença posição de gabinete − PPP é o erro planimétrico da imagem naquele ponto (somado ao
+   erro de identificação do analista). Só planimetria: não há MDT a avaliar.
+   · Compara-se SÓ com a opção ocupada em campo (escolha do Fábio, 15/11/2026); a folha propõe a opção ligada ao ponto
+     e o operador corrige. Acima de AVAL_LIM metros, o ponto fica "a conferir" e fora da prévia até alguém confirmar.
+   · Ponto escolhido em campo (sem opção de gabinete) não tem leitura na imagem: vai para a marcação MANUAL no PlugIBGE.
+   · Convenção: erro = imagem (gabinete) − campo (PPP), em UTM SIRGAS 2000 de um fuso único (o do centro).
+   · A distribuição espacial exige a extensão do produto avaliado, que o operador informa (não se presume).
+   Testes como no GeoPEC (Santos, 2017; Santos et al., 2016): valores atípicos, normalidade, tendência (t de Student e
+   estatística circular), precisão (qui-quadrado; Galo; Camargo, 1994), PEC do Decreto nº 89.817/1984 e distribuição
+   (quadrantes, vizinho mais próximo de ordem 1 a 3 e função K de Ripley). */
+const AVAL_LIM = 10;
+const AVAL_ESCALAS = [1000, 2000, 5000, 10000, 25000, 50000, 100000];
+const AVAL_PEC = {A: [0.3, 0.5], B: [0.5, 0.8], C: [0.6, 1.0]};                       // Decreto 89.817/1984 (EP, PEC) mm
+const AVAL_PCD = {A: [0.17, 0.28], B: [0.30, 0.50], C: [0.50, 0.80], D: [0.60, 1.00]}; // ET-CQDG/DSG 2016 — NÃO homologado
+function utmFuso(lat, lon, fuso){
+  const a = 6378137, f = 1/298.257222101, k0 = 0.9996, mc = -183 + 6 * fuso;
+  const n = f / (2 - f), n2 = n*n, n3 = n2*n, A = a / (1 + n) * (1 + n2/4 + n2*n2/64);
+  const al = [n/2 - 2*n2/3 + 5*n3/16, 13*n2/48 - 3*n3/5, 61*n3/240];
+  const r = Math.PI / 180, fi = lat * r, dl = (lon - mc) * r, e = Math.sqrt(f * (2 - f));
+  const t = Math.sinh(Math.atanh(Math.sin(fi)) - e * Math.atanh(e * Math.sin(fi)));
+  const xi = Math.atan2(t, Math.cos(dl)), eta = Math.atanh(Math.sin(dl) / Math.sqrt(1 + t*t));
+  let X = xi, Y = eta;
+  for (let j = 1; j <= 3; j++){ X += al[j-1] * Math.sin(2*j*xi) * Math.cosh(2*j*eta); Y += al[j-1] * Math.cos(2*j*xi) * Math.sinh(2*j*eta); }
+  return {E: 500000 + k0 * A * Y, N: (lat < 0 ? 10000000 : 0) + k0 * A * X};
+}
+function _gmsDec(s){
+  const t = String(s || '').trim(); if (!t) return null;
+  const p = t.replace(',', '.').split(/\s+/).map(Number); if (p.some(isNaN)) return null;
+  const v = Math.abs(p[0]) + (p[1] || 0) / 60 + (p[2] || 0) / 3600;
+  return /^-/.test(t) ? -v : v;
+}
+const _numBR0 = s => { const x = parseFloat(String(s == null ? '' : s).replace(',', '.')); return isFinite(x) ? x : null; };
+const AVAL_CAMPOS_BAT = ['PASTA', 'PROCES', 'RINEX', 'MARCO', 'INICIO', 'FIM', 'TEMPO', 'MODO', 'ANTENA', 'ALTANT', 'INTERV', 'FREQ', 'OBSERV',
+  'ORBITA', 'DATUM', 'LAT', 'LON', 'HGEO', 'SLAT', 'SLON', 'SHGEO', 'UTMN', 'UTME', 'MC', 'MODELO', 'FATCOR', 'INCERT', 'HNOR'];
+const AVAL_EXTRAS = ['ID_PONTO', 'EQUIPE', 'OPCAO_LIGADA', 'OPCAO_OCUPADA', 'SITUACAO', 'LAT_GABINETE', 'LON_GABINETE'];
+
+/* ---- uma linha por ponto rastreado ---- */
+function _circuloDe(p){
+  if (p.planejado && p.planejado.id) return String(p.planejado.id).replace(/[A-Z]$/i, '');
+  if (p.campo && p.campo.circulo) return String(p.campo.circulo);
+  return String(p.id || '').split(':').pop();
+}
+function avalOpcoesDoCirculo(circ, alvos){ return (alvos || []).filter(a => String(a.id).replace(/[A-Z]$/i, '') === circ).map(a => a.id).sort(); }
+function avalLinha(o){
+  // o: {id, equipe, lig, op, conf, campos, lat, lon, alvos}
+  const r = {id: o.id, equipe: o.equipe || '', lig: o.lig || '', op: o.op, conf: !!o.conf, campos: o.campos || null, circ: o.circ || '',
+    lat: o.lat, lon: o.lon, orbita: (o.campos && o.campos.ORBITA) || '', sxy: null, gab: null, sit: ''};
+  if (o.campos){ const a = _numBR0(o.campos.SLAT), b = _numBR0(o.campos.SLON); if (a != null && b != null) r.sxy = Math.hypot(a, b); }
+  if (r.lat == null || r.lon == null){ r.sit = 'sem_ppp'; return r; }
+  if (r.op === 'excluir'){ r.sit = 'excluido'; return r; }
+  if (!r.op || r.op === 'campo'){ r.sit = 'campo'; return r; }
+  const a = (o.alvos || []).find(x => x.id === r.op) || (o.gab && o.gab.lat != null ? {id: r.op, lat: o.gab.lat, lon: o.gab.lon} : null);
+  if (!a){ r.sit = 'campo'; r.semAlvo = true; return r; }
+  r.gab = {id: a.id, lat: +a.lat, lon: +a.lon};
+  r.sit = 'gabinete';
+  return r;
+}
+function avalLinhasDaFolha(){
+  const L = [], alvos = F.campanha.alvos || [];
+  for (const p of pontosDaCampanha()){
+    if (!(p.rx_ini || p.rinex || p.ppp_coord)) continue;
+    const k = p.ppp_coord || null, c = k && k.campos ? k.campos : null;
+    const lat = k && k.lat != null ? k.lat : c ? _gmsDec(c.LAT) : null, lon = k && k.lon != null ? k.lon : c ? _gmsDec(c.LON) : null;
+    const lig = p.planejado && p.planejado.id ? p.planejado.id : '';
+    const op = p.aval_op || (p.campo ? 'campo' : lig || 'campo');
+    L.push(avalLinha({id: p.id, equipe: (F.campanha.ptcon_equipe || (F.config.kit && F.config.kit.equipe) || ''), lig: lig, op: op, conf: p.aval_conf,
+      campos: c, lat: lat, lon: lon, alvos: alvos, circ: _circuloDe(p)}));
+    L[L.length - 1].p = p;
+  }
+  return L;
+}
+
+/* ---- geometria da extensão do produto (anéis em lon/lat) ---- */
+function _anelUTM(anel, fuso){ return anel.map(c => { const u = utmFuso(c[1], c[0], fuso); return [u.E, u.N]; }); }
+function _areaAnel(a){ let s = 0; for (let i = 0, j = a.length - 1; i < a.length; j = i++) s += (a[j][0] + a[i][0]) * (a[j][1] - a[i][1]); return Math.abs(s / 2); }
+function _dentroAnel(x, y, a){ let d = false; for (let i = 0, j = a.length - 1; i < a.length; j = i++){
+  const xi = a[i][0], yi = a[i][1], xj = a[j][0], yj = a[j][1];
+  if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) d = !d; } return d; }
+function _dentroExt(x, y, aneis){ return aneis.some(a => _dentroAnel(x, y, a)); }
+function _rng(semente){ let s = semente >>> 0 || 1; return () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; }; }
+
+/* ---- distribuição espacial ---- */
+function avalDistribuicao(xy, aneis){
+  const n = xy.length, o = {n: n};
+  if (!aneis || !aneis.length){ o.semExtensao = true; return o; }
+  const A = aneis.reduce((s, a) => s + _areaAnel(a), 0);
+  const xs = aneis.flat().map(c => c[0]), ys = aneis.flat().map(c => c[1]);
+  const bb = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  o.area = A; o.bb = bb;
+  o.fora = xy.filter(p => !_dentroExt(p[0], p[1], aneis)).length;
+  const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
+  o.centro = [cx, cy];
+  o.quad = [0, 0, 0, 0];      // NE, NO, SO, SE
+  xy.forEach(p => { o.quad[p[0] >= cx ? (p[1] >= cy ? 0 : 3) : (p[1] >= cy ? 1 : 2)]++; });
+  o.quadOcup = o.quad.filter(q => q > 0).length;
+  if (n < 3) return o;
+  const lam = n / A, d = xy.map(p => xy.map(q => Math.hypot(p[0] - q[0], p[1] - q[1])));
+  // vizinho mais próximo de ordem k (Clark; Evans, 1954; Santos et al., 2016): E[d_k] = Γ(k+½)/((k−1)!·√(πλ))
+  o.vmp = [1, 2, 3].filter(k => k < n).map(k => {
+    const dk = d.map((l, i) => l.filter((_, j) => j !== i).sort((a, b) => a - b)[k - 1]);
+    const obs = AE.media(dk);
+    const esp = Math.exp(AE.lgama(k + 0.5) - AE.lgama(k)) / Math.sqrt(Math.PI * lam);
+    const varK = k / (Math.PI * lam) - esp * esp, ep = Math.sqrt(varK / n);
+    const z = (obs - esp) / ep, p = 2 * (1 - AE.ncdf(Math.abs(z)));
+    return {k: k, obs: obs, esp: esp, R: obs / esp, z: z, p: p,
+      padrao: p >= 0.05 ? 'aleatório' : obs < esp ? 'agrupado' : 'disperso'};
+  });
+  // função K de Ripley, L(h) = √(K/π), envelope de 99 simulações de aleatoriedade completa na própria extensão
+  const hmax = Math.min(bb[2] - bb[0], bb[3] - bb[1]) / 2, nh = 24, H = Array.from({length: nh}, (_, i) => hmax * (i + 1) / nh);
+  const Lde = pts => { const m = pts.length, D = []; for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) D.push(Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]));
+    D.sort((a, b) => a - b); let c = 0; return H.map(h => { while (c < D.length && D[c] <= h) c++; return Math.sqrt(A * 2 * c / (m * m) / Math.PI); }); };
+  const Lobs = Lde(xy), rnd = _rng(20261115), sims = [];
+  for (let s = 0; s < 99; s++){
+    const pts = []; let tent = 0;
+    while (pts.length < n && tent++ < n * 2000){ const x = bb[0] + rnd() * (bb[2] - bb[0]), y = bb[1] + rnd() * (bb[3] - bb[1]); if (_dentroExt(x, y, aneis)) pts.push([x, y]); }
+    sims.push(Lde(pts));
+  }
+  const lo = H.map((_, i) => Math.min(...sims.map(s => s[i]))), hi = H.map((_, i) => Math.max(...sims.map(s => s[i])));
+  const cls = H.map((_, i) => Lobs[i] > hi[i] ? 'agrupado' : Lobs[i] < lo[i] ? 'disperso' : 'aleatório');
+  o.ripley = {h: H, L: Lobs, lo: lo, hi: hi, cls: cls,
+    agrupado: cls.filter(c => c === 'agrupado').length, disperso: cls.filter(c => c === 'disperso').length, aleatorio: cls.filter(c => c === 'aleatório').length};
+  return o;
+}
+
+/* ---- avaliação completa ---- */
+function avalCalcula(L, ext){
+  const ok = L.filter(r => r.sit === 'gabinete');
+  const todos = L.filter(r => r.sit === 'gabinete' || r.sit === 'campo' || r.sit === 'confira');
+  const lons = todos.map(r => r.lon).sort((a, b) => a - b);
+  const fuso = lons.length ? Math.floor((lons[Math.floor(lons.length / 2)] + 180) / 6) + 1 : 25;
+  L.forEach(r => {
+    if (r.lat == null) return;
+    const u = utmFuso(r.lat, r.lon, fuso); r.E = u.E; r.N = u.N;
+    if (r.gab){ const g = utmFuso(r.gab.lat, r.gab.lon, fuso); r.Eg = g.E; r.Ng = g.N; r.dE = g.E - u.E; r.dN = g.N - u.N; r.r = Math.hypot(r.dE, r.dN);
+      if (r.r > AVAL_LIM && !r.conf){ r.sit = 'confira'; } }
+  });
+  const S = L.filter(r => r.sit === 'gabinete');
+  const R = {fuso: fuso, epsg: 31960 + fuso, linhas: L, n: S.length, nCampo: L.filter(r => r.sit === 'campo').length,
+    nConfira: L.filter(r => r.sit === 'confira').length, nSemPPP: L.filter(r => r.sit === 'sem_ppp').length,
+    nExcl: L.filter(r => r.sit === 'excluido').length, ext: ext || null};
+  const extUTM = ext && ext.aneis ? ext.aneis.map(a => _anelUTM(a, fuso)) : null;
+  R.distPrevia = avalDistribuicao(S.map(r => [r.E, r.N]), extUTM);
+  R.distTodos = avalDistribuicao(L.filter(r => ['gabinete', 'campo', 'confira'].includes(r.sit)).map(r => [r.E, r.N]), extUTM);
+  R.extUTM = extUTM;
+  const ref = L.filter(r => r.sxy != null).map(r => r.sxy);
+  R.refSxy = ref.length ? AE.mediana(ref) : null;
+  R.nRapida = S.filter(r => !/FINAL/i.test(r.orbita)).length;
+  if (S.length < 3) return R;
+  const dE = S.map(r => r.dE), dN = S.map(r => r.dN), rr = S.map(r => r.r);
+  const d1 = a => ({media: AE.media(a), mediana: AE.mediana(a), dp: AE.dp(a), nmad: AE.nmad(a), rmse: AE.rms(a), max: Math.max(...a.map(Math.abs))});
+  R.E = d1(dE); R.N = d1(dN);
+  R.r = {media: AE.media(rr), mediana: AE.mediana(rr), nmad: AE.nmad(rr), rmse: Math.sqrt(AE.media(rr.map(x => x * x))), ce90: AE.pct(rr, 90), ce95: AE.pct(rr, 95), max: Math.max(...rr)};
+  R.vies = {E: R.E.mediana, N: R.N.mediana, mod: Math.hypot(R.E.mediana, R.N.mediana), az: (Math.atan2(R.E.mediana, R.N.mediana) * 180 / Math.PI + 360) % 360};
+  // atípicos: |e − mediana|/NMAD > 3 em qualquer componente (Höhle; Höhle, 2009), só com n ≥ 5
+  R.atipicos = S.length >= 5 ? S.filter(r => Math.abs(r.dE - R.E.mediana) / R.E.nmad > 3 || Math.abs(r.dN - R.N.mediana) / R.N.nmad > 3).map(r => r.id) : [];
+  // normalidade
+  R.norm = {E: {sw: AE.shapiro(dE), da: AE.dagostino(dE)}, N: {sw: AE.shapiro(dN), da: AE.dagostino(dN)}};
+  const pn = c => Math.min(...[R.norm[c].sw && R.norm[c].sw.p, R.norm[c].da && R.norm[c].da.p].filter(v => v != null));
+  R.normal = pn('E') >= 0.05 && pn('N') >= 0.05;
+  // tendência: t de Student (α = 10 %, como no GeoPEC) e estatística circular (Santos et al., 2016)
+  R.t = {E: AE.tteste(dE, 0), N: AE.tteste(dN, 0), alfa: 0.10};
+  R.t.tab = AE.tppf(1 - R.t.alfa / 2, S.length - 1);
+  R.tendE = R.t.E && Math.abs(R.t.E.t) > R.t.tab; R.tendN = R.t.N && Math.abs(R.t.N.t) > R.t.tab;
+  R.circ = AE.circular(dE, dN);
+  // PEC do Decreto 89.817/1984: 90 % dos pontos com r ≤ PEC (CE90 empírico, tendência incluída) e RMSE_r ≤ EP (na resultante)
+  R.pec = {};
+  for (const c in AVAL_PEC){ const [ep, pec] = AVAL_PEC[c]; R.pec[c] = Math.max(R.r.ce90 / (pec * 1e-3), R.r.rmse / (ep * 1e-3)); }
+  R.pcd = {};
+  for (const c in AVAL_PCD){ const [ep, pec] = AVAL_PCD[c]; R.pcd[c] = Math.max(R.r.ce90 / (pec * 1e-3), R.r.rmse / (ep * 1e-3)); }
+  // precisão pelo qui-quadrado (Galo; Camargo, 1994): σ admissível por componente = EP/√2; aceita se χ² ≤ χ²(n−1; 90 %)
+  const gl = S.length - 1, chiTab = AE.chi2ppf(0.90, gl);
+  R.chi = {gl: gl, tab: chiTab, escalas: AVAL_ESCALAS.map(esc => {
+    const cl = ['A', 'B', 'C'].find(c => { const sig = AVAL_PEC[c][0] * 1e-3 * esc / Math.SQRT2;
+      return gl * R.E.dp ** 2 / sig ** 2 <= chiTab && gl * R.N.dp ** 2 / sig ** 2 <= chiTab; }) || null;
+    const clPEC = ['A', 'B', 'C'].find(c => { const [ep, pec] = AVAL_PEC[c]; return R.r.ce90 <= pec * 1e-3 * esc && R.r.rmse <= ep * 1e-3 * esc; }) || null;
+    const k = rr.filter(x => x <= AVAL_PEC.A[1] * 1e-3 * esc).length;
+    return {esc: esc, classePEC: clPEC, classeChi: cl, dentroA: k / rr.length}; })};
+  R.refOk = R.refSxy != null ? 3 * R.refSxy <= R.r.rmse : null;
+  return R;
+}
+try { const ca = document.getElementById('cart_aval'); if (ca) ca.addEventListener('toggle', () => { if (ca.open) try { pintaAval(); } catch (e){ marca('avaliação planimétrica: ' + e.message); } }); } catch (e){}
+const avalEscPadrao = den => AVAL_ESCALAS.find(e => e >= den) || null;
+const avalFmtEsc = den => '1:' + Math.round(den).toLocaleString('pt-BR');
+
+/* ---- extensão do produto avaliado: o operador informa (GeoTIFF, GeoPackage, GeoJSON ou KML) ---- */
+function _aneisGeoJSON(j){
+  const A = [], vai = g => { if (!g) return;
+    if (g.type === 'FeatureCollection') g.features.forEach(f => vai(f.geometry));
+    else if (g.type === 'Feature') vai(g.geometry);
+    else if (g.type === 'Polygon') A.push(g.coordinates[0].map(c => [c[0], c[1]]));
+    else if (g.type === 'MultiPolygon') g.coordinates.forEach(p => A.push(p[0].map(c => [c[0], c[1]])));
+    else if (g.type === 'GeometryCollection') g.geometries.forEach(vai); };
+  vai(j); return A;
+}
+function _aneisKML(t){
+  const A = [];
+  for (const m of t.matchAll(/<Polygon[\s\S]*?<outerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>/gi))
+    A.push(m[1].trim().split(/\s+/).map(s => s.split(',').map(Number)).filter(c => isFinite(c[0]) && isFinite(c[1])).map(c => [c[0], c[1]]));
+  return A;
+}
+function _aneisCaixa(pj, x0, y0, x1, y1){
+  const c = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]].map(([x, y]) => { const g = pj.paraGeo(x, y); return [g.lon, g.lat]; });
+  return [c];
+}
+async function avalLeExtensao(files){
+  files = Array.from(files || []); if (!files.length) return null;
+  const f = files.find(x => /\.(tiff?|gpkg|geojson|json|kml)$/i.test(x.name)) || files[0];
+  let aneis = [], tipo = '', gsd = null;
+  if (/\.tiff?$/i.test(f.name)){
+    const r = await abreGeoTIFF(f, files.filter(x => x !== f), 'extensão'); const c = r.camadas[0];
+    aneis = _aneisCaixa(c.pj, c.minx, c.miny, c.maxx, c.maxy); tipo = 'GeoTIFF (limites da imagem)';
+    if (c.W) gsd = (c.maxx - c.minx) / c.W * (c.pj.metro || 1);
+  } else if (/\.gpkg$/i.test(f.name)){
+    const r = await abreGPKG(f, 'extensão');
+    const ras = r.camadas.find(c => c.tipo === 'raster'), vet = r.camadas.find(c => c.tipo === 'vetor' && /POLYGON/i.test(c.geom || ''));
+    if (vet){ const F2 = await feicoesGPKG(vet, 5000); F2.forEach(x => x.g.filter(p => p.t === 'a').forEach(p => aneis.push(p.c))); tipo = 'GeoPackage, polígono "' + vet.nome + '"'; }
+    else if (ras){ aneis = _aneisCaixa(ras.pj, ras.minx, ras.miny, ras.maxx, ras.maxy); tipo = 'GeoPackage, limites da imagem "' + ras.nome + '"'; }
+  } else if (/\.kml$/i.test(f.name)){ aneis = _aneisKML(await f.text()); tipo = 'KML (polígono)'; }
+  else { aneis = _aneisGeoJSON(JSON.parse(await f.text())); tipo = 'GeoJSON (polígono)'; }
+  aneis = aneis.filter(a => a.length >= 4);
+  if (!aneis.length) throw new Error(f.name + ': nenhum polígono nem limite de imagem encontrado');
+  return {arquivo: f.name, tipo: tipo, aneis: aneis, gsd: gsd, quando: new Date().toISOString()};
+}
+
+/* ---- estado e quadro na folha / no planejador ---- */
+let _AVAL = null;
+function avalLinhas(){
+  if (MODO_PLAN){
+    const I = (F.campanha.aval_importados || []), alvos = F.campanha.alvos || [];
+    return I.flatMap(arq => arq.linhas.map(x => { const r = avalLinha({id: x.ID_PONTO || x.MARCO, equipe: x.EQUIPE || arq.equipe || '', lig: x.OPCAO_LIGADA || '',
+      op: x._op || x.OPCAO_OCUPADA || 'campo', conf: x._conf || x.SITUACAO === 'gabinete', campos: x, lat: _gmsDec(x.LAT), lon: _gmsDec(x.LON),
+      alvos: alvos, circ: String(x.OPCAO_LIGADA || x.OPCAO_OCUPADA || '').replace(/[A-Z]$/i, ''),
+      gab: {lat: _numBR0(x.LAT_GABINETE), lon: _numBR0(x.LON_GABINETE)}}); r.x = x; return r; }));
+  }
+  return avalLinhasDaFolha();
+}
+function avalAtualiza(){ _AVAL = avalCalcula(avalLinhas(), F.campanha.aval_ext); return _AVAL; }
+const _af2 = v => v == null || !isFinite(v) ? '—' : v.toFixed(2).replace('.', ',');
+const _ap3 = v => v == null || !isFinite(v) ? '—' : v < 0.001 ? '< 0,001' : v.toFixed(3).replace('.', ',');
+const AVAL_SIT = {gabinete: ['prévia', '#15803D'], campo: ['manual no PlugIBGE', '#B45309'], confira: ['a conferir', '#B91C1C'], sem_ppp: ['sem PPP', '#6B7280'], excluido: ['excluído', '#6B7280']};
+function pintaAval(){
+  const el = $('#aval_plan'); if (!el) return;
+  const R = avalAtualiza(), L = R.linhas, ext = F.campanha.aval_ext;
+  const h = [];
+  h.push('<p style="margin:4px 0"><b>Extensão do produto avaliado:</b> ' + (ext ? esc(ext.arquivo) + ' — ' + esc(ext.tipo)
+    + (ext.gsd ? ' · pixel ' + _af2(ext.gsd) + ' m' : '') + ' <button type="button" class="btn sec peq" id="b_aval_ext">trocar</button>'
+    : '<b style="color:#B91C1C">não informada</b> — sem ela não há análise de distribuição. <button type="button" class="btn peq" id="b_aval_ext">Informar a extensão do produto</button>')
+    + '<input type="file" id="f_aval_ext" class="oculto" multiple accept=".tif,.tiff,.tfw,.prj,.gpkg,.geojson,.json,.kml"></p>');
+  if (!L.length){
+    h.push('<p class="leg">' + (MODO_PLAN ? 'Junte aqui as tabelas <code>…_avaliacao_pontos_checagem.csv</code> das equipes (vão ao Drive com o envio de cada folha, na pasta <code>_avaliacao_planimetrica</code>).' : 'Nenhum ponto rastreado ainda.') + '</p>'
+      + (MODO_PLAN ? '<div class="acoes"><button type="button" class="btn sec peq" id="b_aval_junta">Juntar tabelas das equipes (.csv)</button></div><input type="file" id="f_aval_junta" class="oculto" multiple accept=".csv,.tsv,.txt">' : ''));
+    el.innerHTML = h.join(''); _avalLiga(); return;
+  }
+  if (R.n >= 3){
+    const cA = R.pec.A, cB = R.pec.B, cC = R.pec.C;
+    h.push('<div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:8px 10px;margin:6px 0">'
+      + '<b>Prévia com ' + R.n + ' ponto(s) de gabinete</b>' + (R.n < 20 ? ' <span style="color:#B45309">(n &lt; 20: indicativa — Merchant, 1982)</span>' : '') + '<br>'
+      + 'Tendência (mediana): E ' + _af2(R.vies.E) + ' m · N ' + _af2(R.vies.N) + ' m' + (R.tendE || R.tendN ? ' <b style="color:#B45309">significativa (t, α = 10 %)</b>' : ' — não significativa') + '<br>'
+      + 'RMSE<sub>r</sub> ' + _af2(R.r.rmse) + ' m · CE90 ' + _af2(R.r.ce90) + ' m · NMAD<sub>r</sub> ' + _af2(R.r.nmad) + ' m<br>'
+      + '<b>PEC (Decreto 89.817/1984):</b> Classe A a partir de ' + avalFmtEsc(cA) + ' (escala-padrão ' + (avalEscPadrao(cA) ? avalFmtEsc(avalEscPadrao(cA)) : '—') + ') · '
+      + 'B a partir de ' + avalFmtEsc(cB) + ' · C a partir de ' + avalFmtEsc(cC)
+      + (R.distPrevia.semExtensao ? '' : '<br>Distribuição: ' + R.distPrevia.quadOcup + '/4 quadrantes · vizinho mais próximo R = ' + _af2((R.distPrevia.vmp || [])[0] && R.distPrevia.vmp[0].R)
+        + ' (' + ((R.distPrevia.vmp || [])[0] ? R.distPrevia.vmp[0].padrao : '—') + ')')
+      + '</div>');
+  } else h.push('<p class="leg">A prévia precisa de pelo menos 3 pontos de gabinete com PPP.</p>');
+  const cont = s => L.filter(r => r.sit === s).length;
+  h.push('<p class="leg" style="margin:4px 0">' + Object.keys(AVAL_SIT).map(s => cont(s) ? '<b style="color:' + AVAL_SIT[s][1] + '">' + cont(s) + ' ' + AVAL_SIT[s][0] + '</b>' : '').filter(Boolean).join(' · ')
+    + '. Compara-se só com a <b>opção ocupada</b>; acima de ' + AVAL_LIM + ' m o ponto fica <i>a conferir</i> até a opção ser confirmada.</p>');
+  h.push('<div style="overflow:auto;max-height:52vh"><table class="tab" style="font-size:.88em;width:100%"><tr><th>Ponto</th>' + (MODO_PLAN ? '<th>Eq.</th>' : '')
+    + '<th>Ligada</th><th>Ocupada</th><th>Órbita</th><th>dE</th><th>dN</th><th>r</th><th>Situação</th></tr>'
+    + L.map((r, i) => {
+      const ops = avalOpcoesDoCirculo(r.circ, F.campanha.alvos);
+      if (r.op && !['campo', 'excluir'].includes(r.op) && !ops.includes(r.op)) ops.push(r.op);
+      const sel = '<select data-avalop="' + i + '" style="min-width:6.5em;max-width:10em">' + ops.map(o => '<option value="' + esc(o) + '"' + (o === r.op ? ' selected' : '') + '>' + esc(o) + '</option>').join('')
+        + '<option value="campo"' + (r.op === 'campo' ? ' selected' : '') + '>escolhido em campo</option><option value="excluir"' + (r.op === 'excluir' ? ' selected' : '') + '>excluir</option></select>';
+      const s = AVAL_SIT[r.sit] || ['', '#000'];
+      return '<tr><td>' + esc(r.id) + '</td>' + (MODO_PLAN ? '<td>' + esc(r.equipe) + '</td>' : '') + '<td>' + esc(r.lig || '—') + '</td><td>' + sel + '</td><td>' + esc((r.orbita || '').slice(0, 6)) + '</td>'
+        + '<td>' + _af2(r.dE) + '</td><td>' + _af2(r.dN) + '</td><td>' + _af2(r.r) + '</td><td style="color:' + s[1] + '">' + s[0]
+        + (r.sit === 'confira' ? ' <button type="button" class="btn sec peq" data-avalconf="' + i + '">confirmar</button>' : '')
+        + (r.sit === 'gabinete' && r.conf && r.r > AVAL_LIM ? ' (confirmado)' : '') + (R.atipicos && R.atipicos.includes(r.id) ? ' · <b>atípico</b>' : '') + '</td></tr>'; }).join('') + '</table></div>');
+  h.push('<div class="acoes">' + (MODO_PLAN ? '<button type="button" class="btn sec peq" id="b_aval_junta">Juntar tabelas das equipes (.csv)</button>' : '')
+    + '<button type="button" class="btn peq" id="b_aval_rel"' + (R.n >= 3 ? '' : ' disabled') + '>Ver o relatório da prévia</button>'
+    + '<button type="button" class="btn sec peq" id="b_aval_baixa">Baixar o produto para o PlugIBGE (GPKG + CSV + relatório)</button></div>'
+    + (MODO_PLAN ? '<input type="file" id="f_aval_junta" class="oculto" multiple accept=".csv,.tsv,.txt">' : ''));
+  el.innerHTML = h.join('');
+  _avalLiga();
+}
+function _avalLiga(){
+  const el = $('#aval_plan'); if (!el) return;
+  const R = _AVAL;
+  el.querySelectorAll('[data-avalop]').forEach(s => s.onchange = () => {
+    const r = R.linhas[+s.dataset.avalop];
+    if (MODO_PLAN && r.x){ r.x._op = s.value; r.x._conf = false; } else if (r.p){ r.p.aval_op = s.value; r.p.aval_conf = false; }
+    grava(); pintaAval(); });
+  el.querySelectorAll('[data-avalconf]').forEach(b => b.onclick = () => {
+    const r = R.linhas[+b.dataset.avalconf];
+    if (!confirm(r.id + ': a posição de gabinete de ' + r.op + ' está a ' + _af2(r.r) + ' m do PPP.\n\nConfirma que a feição ocupada em campo é mesmo a da opção ' + r.op + '?\n(Se não for, troque a opção ocupada ou marque "escolhido em campo".)')) return;
+    if (MODO_PLAN && r.x) r.x._conf = true; else if (r.p) r.p.aval_conf = true;
+    grava(); pintaAval(); });
+  const be = $('#b_aval_ext'); if (be) be.onclick = () => $('#f_aval_ext').click();
+  const fe = $('#f_aval_ext'); if (fe) fe.onchange = async e => { const fs = Array.from(e.target.files); e.target.value = '';
+    try { F.campanha.aval_ext = await avalLeExtensao(fs); grava(); marca('extensão do produto avaliado: ' + F.campanha.aval_ext.arquivo); pintaAval(); }
+    catch (err){ marca('extensão do produto: ' + err.message); } };
+  const br = $('#b_aval_rel'); if (br) br.onclick = () => { const w = window.open('', '_blank'); if (!w) return marca('o navegador bloqueou a janela do relatório');
+    w.document.open(); w.document.write(avalRelatorio(_AVAL)); w.document.close(); };
+  const bb = $('#b_aval_baixa'); if (bb) bb.onclick = async () => {
+    if (!F.campanha.aval_ext && confirm('A extensão do produto avaliado não foi informada: sem ela, o produto sai sem a análise de distribuição dos pontos.\n\nInformar agora? (OK = informar a extensão; Cancelar = baixar assim mesmo)')){ $('#f_aval_ext').click(); return; }
+    try { const it = await avalProdutos(avalAtualiza()); baixa(it.nomeZip, zipGuarda(it.itens)); marca('produto da avaliação planimétrica baixado: ' + it.nomeZip); }
+    catch (err){ marca('avaliação planimétrica: ' + err.message); } };
+  const bj = $('#b_aval_junta'); if (bj) bj.onclick = () => $('#f_aval_junta').click();
+  const fj = $('#f_aval_junta'); if (fj) fj.onchange = async e => { const fs = Array.from(e.target.files); e.target.value = '';
+    let n = 0; F.campanha.aval_importados = F.campanha.aval_importados || [];
+    for (const f of fs){ try { const t = await f.text(), L = _avalLeTSV(t);
+        if (!L.length) throw new Error('sem linhas no formato da tabela de avaliação');
+        F.campanha.aval_importados = F.campanha.aval_importados.filter(a => a.arquivo !== f.name).concat([{arquivo: f.name, equipe: L[0].EQUIPE || '', linhas: L}]); n += L.length; }
+      catch (err){ marca(f.name + ': ' + err.message); } }
+    // a mesma observação (RINEX) vinda de duas tabelas conta uma vez só
+    const vistos = new Set(); F.campanha.aval_importados.forEach(a => { a.linhas = a.linhas.filter(x => { const k = (x.RINEX || x.ID_PONTO || '').toUpperCase(); if (vistos.has(k)) return false; vistos.add(k); return true; }); });
+    grava(); marca(n + ' linha(s) de avaliação juntada(s) de ' + fs.length + ' arquivo(s)'); pintaAval(); };
+}
+function _avalLeTSV(t){
+  const L = String(t).replace(/^﻿/, '').split(/\r?\n/).filter(x => x.trim());
+  if (L.length < 2) return [];
+  const sep = L[0].includes('\t') ? '\t' : ';', cab = L[0].split(sep).map(s => s.trim().toUpperCase());
+  if (!['MARCO', 'LAT', 'LON'].every(c => cab.includes(c))) throw new Error('cabeçalho não é o da tabela do PPP (MARCO, LAT, LON)');
+  return L.slice(1).map(l => { const v = l.split(sep), o = {}; cab.forEach((c, i) => { o[c] = (v[i] || '').trim(); }); return o; });
+}
+
+/* ---- relatório da prévia (HTML autossuficiente, com figuras em SVG) ---- */
+function _svgMapa(R){
+  const L = R.linhas.filter(r => r.E != null && ['gabinete', 'campo', 'confira'].includes(r.sit));
+  const ext = R.extUTM, W = 640, Hm = 520, M = 24;
+  let xs = L.map(r => r.E), ys = L.map(r => r.N);
+  if (ext) ext.forEach(a => a.forEach(c => { xs.push(c[0]); ys.push(c[1]); }));
+  if (!xs.length) return '';
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const esc_ = Math.min((W - 2 * M) / Math.max(1, x1 - x0), (Hm - 2 * M) / Math.max(1, y1 - y0));
+  const X = x => M + (x - x0) * esc_, Y = y => Hm - M - (y - y0) * esc_;
+  const rs = L.filter(r => r.r != null).map(r => r.r), medr = rs.length ? AE.mediana(rs) : 1;
+  const amp = Math.max(1, Math.round(0.035 * Math.max(x1 - x0, y1 - y0) / Math.max(medr, 0.01) / 10) * 10);
+  const cor = {gabinete: '#15803D', campo: '#B45309', confira: '#B91C1C'};
+  let s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + (W + 230) + ' ' + Hm + '" width="100%" style="max-width:870px;font-family:sans-serif;font-size:12px">'
+    + '<rect x="0" y="0" width="' + W + '" height="' + Hm + '" fill="#fff" stroke="#c9d2d6"/>';
+  if (ext) ext.forEach(a => { s += '<polygon points="' + a.map(c => X(c[0]).toFixed(1) + ',' + Y(c[1]).toFixed(1)).join(' ') + '" fill="#EEF4FA" stroke="#0A2E52" stroke-width="1.2"/>'; });
+  const D = R.distTodos;
+  if (D && D.centro){ s += '<line x1="' + X(D.bb[0]) + '" y1="' + Y(D.centro[1]) + '" x2="' + X(D.bb[2]) + '" y2="' + Y(D.centro[1]) + '" stroke="#64748B" stroke-dasharray="5 4" stroke-opacity=".7"/>'
+    + '<line x1="' + X(D.centro[0]) + '" y1="' + Y(D.bb[1]) + '" x2="' + X(D.centro[0]) + '" y2="' + Y(D.bb[3]) + '" stroke="#64748B" stroke-dasharray="5 4" stroke-opacity=".7"/>'; }
+  L.forEach(r => {
+    if (r.sit === 'gabinete' && r.dE != null) s += '<line x1="' + X(r.E).toFixed(1) + '" y1="' + Y(r.N).toFixed(1) + '" x2="' + X(r.E + amp * r.dE).toFixed(1) + '" y2="' + Y(r.N + amp * r.dN).toFixed(1)
+      + '" stroke="#7C3AED" stroke-opacity=".75" stroke-width="1.6"/>';
+    s += '<circle cx="' + X(r.E).toFixed(1) + '" cy="' + Y(r.N).toFixed(1) + '" r="4" fill="' + cor[r.sit] + '" stroke="#fff" stroke-width="1"/>';
+  });
+  // barra de escala
+  const bar = [100, 200, 500, 1000, 2000, 5000, 10000].find(b => b * esc_ > 60) || 10000;
+  s += '<line x1="' + (M) + '" y1="' + (Hm - 10) + '" x2="' + (M + bar * esc_) + '" y2="' + (Hm - 10) + '" stroke="#111" stroke-width="3"/><text x="' + (M + bar * esc_ + 6) + '" y="' + (Hm - 6) + '">' + (bar >= 1000 ? bar / 1000 + ' km' : bar + ' m') + '</text>';
+  // legenda fora da área do mapa
+  const lg = [['#15803D', 'ponto de gabinete (prévia)'], ['#B45309', 'escolhido em campo (manual no PlugIBGE)'], ['#B91C1C', 'a conferir (fora da prévia)']];
+  let ly = 24; s += '<text x="' + (W + 14) + '" y="' + ly + '" font-weight="bold">Legenda</text>';
+  lg.forEach(([c, t]) => { ly += 22; s += '<circle cx="' + (W + 20) + '" cy="' + (ly - 4) + '" r="5" fill="' + c + '"/><text x="' + (W + 32) + '" y="' + ly + '">' + t.replace(' (', '</text><text x="' + (W + 32) + '" y="' + (ly += 14) + '">(') + '</text>'; });
+  ly += 24; s += '<line x1="' + (W + 14) + '" y1="' + (ly - 4) + '" x2="' + (W + 28) + '" y2="' + (ly - 4) + '" stroke="#7C3AED" stroke-width="2"/><text x="' + (W + 32) + '" y="' + ly + '">erro imagem − campo,</text><text x="' + (W + 32) + '" y="' + (ly += 14) + '">ampliado ' + amp + '×</text>';
+  if (ext){ ly += 24; s += '<rect x="' + (W + 14) + '" y="' + (ly - 11) + '" width="14" height="10" fill="#EEF4FA" stroke="#0A2E52"/><text x="' + (W + 32) + '" y="' + ly + '">extensão do produto</text>'; }
+  if (D && D.centro){ ly += 22; s += '<line x1="' + (W + 14) + '" y1="' + (ly - 4) + '" x2="' + (W + 28) + '" y2="' + (ly - 4) + '" stroke="#64748B" stroke-dasharray="4 3"/><text x="' + (W + 32) + '" y="' + ly + '">divisão em quadrantes</text>'; }
+  ly += 22; s += '<text x="' + (W + 14) + '" y="' + ly + '">UTM ' + R.fuso + 'S, SIRGAS 2000</text>';
+  return s + '</svg>';
+}
+function _svgDispersao(R){
+  const S = R.linhas.filter(r => r.sit === 'gabinete'); if (!S.length) return '';
+  const W = 420, M = 40, c = W / 2;
+  const escA = avalEscPadrao(R.pec.A), pecA = escA ? AVAL_PEC.A[1] * 1e-3 * escA : null;
+  const lim = Math.max(...S.map(r => Math.max(Math.abs(r.dE), Math.abs(r.dN))), R.r.ce90, pecA || 0) * 1.15;
+  const k = (W / 2 - M) / lim, X = v => c + v * k, Y = v => c - v * k;
+  let s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + (W + 250) + ' ' + W + '" width="100%" style="max-width:670px;font-family:sans-serif;font-size:12px">'
+    + '<rect x="0" y="0" width="' + W + '" height="' + W + '" fill="#fff" stroke="#c9d2d6"/>'
+    + '<line x1="' + M + '" y1="' + c + '" x2="' + (W - M) + '" y2="' + c + '" stroke="#94A3B8"/><line x1="' + c + '" y1="' + M + '" x2="' + c + '" y2="' + (W - M) + '" stroke="#94A3B8"/>'
+    + '<text x="' + (W - M + 4) + '" y="' + (c + 4) + '">dE</text><text x="' + (c - 8) + '" y="' + (M - 6) + '">dN</text>'
+    + '<circle cx="' + c + '" cy="' + c + '" r="' + (R.r.ce90 * k) + '" fill="none" stroke="#0B6FA4" stroke-dasharray="6 4" stroke-width="1.5"/>';
+  if (pecA) s += '<circle cx="' + c + '" cy="' + c + '" r="' + (pecA * k) + '" fill="none" stroke="#15803D" stroke-width="1.5" stroke-opacity=".8"/>';
+  S.forEach(r => { s += '<circle cx="' + X(r.dE).toFixed(1) + '" cy="' + Y(r.dN).toFixed(1) + '" r="4" fill="' + (R.atipicos.includes(r.id) ? '#B91C1C' : '#15803D') + '" fill-opacity=".85"/>'; });
+  s += '<path d="M' + (X(R.vies.E) - 6) + ' ' + Y(R.vies.N) + 'h12M' + X(R.vies.E) + ' ' + (Y(R.vies.N) - 6) + 'v12" stroke="#7C3AED" stroke-width="2.5"/>';
+  const tick = [0.5, 1, 2, 5, 10, 20, 50].find(t => t * k > 40) || 50;
+  for (let v = -Math.floor(lim / tick) * tick; v <= lim; v += tick) if (v) s += '<text x="' + X(v) + '" y="' + (c + 14) + '" text-anchor="middle" fill="#475569">' + String(v).replace('.', ',') + '</text>';
+  let ly = 24; const lx = W + 14;
+  s += '<text x="' + lx + '" y="' + ly + '" font-weight="bold">Legenda (metros)</text>';
+  s += '<circle cx="' + (lx + 6) + '" cy="' + (ly += 22) + '" r="4" fill="#15803D"/><text x="' + (lx + 18) + '" y="' + (ly + 4) + '">erro do ponto (dE, dN)</text>';
+  if (R.atipicos.length) s += '<circle cx="' + (lx + 6) + '" cy="' + (ly += 20) + '" r="4" fill="#B91C1C"/><text x="' + (lx + 18) + '" y="' + (ly + 4) + '">atípico (|e − med|/NMAD &gt; 3)</text>';
+  s += '<path d="M' + lx + ' ' + (ly += 20) + 'h12M' + (lx + 6) + ' ' + (ly - 6) + 'v12" stroke="#7C3AED" stroke-width="2.5"/><text x="' + (lx + 18) + '" y="' + (ly + 4) + '">tendência (medianas)</text>';
+  s += '<line x1="' + lx + '" y1="' + (ly += 20) + '" x2="' + (lx + 12) + '" y2="' + ly + '" stroke="#0B6FA4" stroke-dasharray="4 3" stroke-width="2"/><text x="' + (lx + 18) + '" y="' + (ly + 4) + '">CE90 = ' + _af2(R.r.ce90) + ' m</text>';
+  if (pecA) s += '<line x1="' + lx + '" y1="' + (ly += 20) + '" x2="' + (lx + 12) + '" y2="' + ly + '" stroke="#15803D" stroke-width="2"/><text x="' + (lx + 18) + '" y="' + (ly + 4) + '">PEC Classe A em ' + avalFmtEsc(escA) + '</text><text x="' + (lx + 18) + '" y="' + (ly += 15) + '">(' + _af2(pecA) + ' m)</text>';
+  return s + '</svg>';
+}
+function _svgRipley(D){
+  if (!D || !D.ripley) return '';
+  const Rp = D.ripley, W = 560, Hh = 300, M = 48;
+  const ys = Rp.L.map((v, i) => v - Rp.h[i]).concat(Rp.lo.map((v, i) => v - Rp.h[i]), Rp.hi.map((v, i) => v - Rp.h[i]));
+  const y0 = Math.min(0, ...ys), y1 = Math.max(0, ...ys), hx = Rp.h[Rp.h.length - 1];
+  const X = h => M + h / hx * (W - 2 * M), Y = v => Hh - M - (v - y0) / Math.max(1e-9, y1 - y0) * (Hh - 2 * M);
+  const env = Rp.h.map((h, i) => X(h) + ',' + Y(Rp.hi[i] - h)).concat(Rp.h.slice().reverse().map((h, j) => { const i = Rp.h.length - 1 - j; return X(h) + ',' + Y(Rp.lo[i] - h); }));
+  let s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + (W + 230) + ' ' + Hh + '" width="100%" style="max-width:790px;font-family:sans-serif;font-size:12px">'
+    + '<rect x="0" y="0" width="' + W + '" height="' + Hh + '" fill="#fff" stroke="#c9d2d6"/>'
+    + '<polygon points="' + env.join(' ') + '" fill="#CBD5E1" fill-opacity=".7"/>'
+    + '<line x1="' + M + '" y1="' + Y(0) + '" x2="' + (W - M) + '" y2="' + Y(0) + '" stroke="#64748B" stroke-dasharray="4 3"/>'
+    + '<polyline points="' + Rp.h.map((h, i) => X(h) + ',' + Y(Rp.L[i] - h)).join(' ') + '" fill="none" stroke="#0A2E52" stroke-width="2"/>'
+    + '<text x="' + (W / 2) + '" y="' + (Hh - 10) + '" text-anchor="middle">h (km)</text>'
+    + '<text x="14" y="' + (Hh / 2) + '" text-anchor="middle" transform="rotate(-90 14 ' + (Hh / 2) + ')">L(h) − h (km)</text>'
+    + [y0, 0, y1].filter((v, i, a) => a.indexOf(v) === i).map(v => '<text x="' + (M - 6) + '" y="' + (Y(v) + 4) + '" text-anchor="end" fill="#475569">' + (v / 1000).toFixed(1).replace('.', ',') + '</text>').join('');
+  [0.25, 0.5, 0.75, 1].forEach(f => { s += '<text x="' + X(hx * f) + '" y="' + (Hh - M + 16) + '" text-anchor="middle" fill="#475569">' + (hx * f / 1000).toFixed(1).replace('.', ',') + '</text>'; });
+  let ly = 24; const lx = W + 14;
+  s += '<text x="' + lx + '" y="' + ly + '" font-weight="bold">Legenda</text>'
+    + '<line x1="' + lx + '" y1="' + (ly += 20) + '" x2="' + (lx + 14) + '" y2="' + ly + '" stroke="#0A2E52" stroke-width="2"/><text x="' + (lx + 20) + '" y="' + (ly + 4) + '">L(h) − h observada</text>'
+    + '<rect x="' + lx + '" y="' + (ly += 14) + '" width="14" height="10" fill="#CBD5E1"/><text x="' + (lx + 20) + '" y="' + (ly + 9) + '">envelope de 99 simulações</text><text x="' + (lx + 20) + '" y="' + (ly + 23) + '">aleatórias na extensão</text>'
+    + '<text x="' + lx + '" y="' + (ly += 50) + '">acima do envelope: agrupado</text><text x="' + lx + '" y="' + (ly += 16) + '">abaixo: disperso</text><text x="' + lx + '" y="' + (ly += 16) + '">dentro: aleatório</text>';
+  return s + '</svg>';
+}
+function _htmlDist(D, tit){
+  if (!D) return '';
+  if (D.semExtensao) return '<p><b>' + tit + ':</b> <span style="color:#B91C1C">extensão do produto avaliado não informada — distribuição não avaliada.</span></p>';
+  let h = '<h3>' + tit + ' (n = ' + D.n + ')</h3><p>Área da extensão: ' + (D.area / 1e6).toFixed(1).replace('.', ',') + ' km²'
+    + (D.fora ? ' · <b style="color:#B91C1C">' + D.fora + ' ponto(s) fora da extensão</b>' : '') + '. Quadrantes (NE, NO, SO, SE): ' + D.quad.join(', ')
+    + ' — ' + D.quadOcup + ' de 4 ocupados.</p>';
+  if (D.vmp) h += '<table><tr><th>Vizinho de ordem k</th><th>d observada (m)</th><th>d esperada (m)</th><th>R</th><th>Z</th><th>p</th><th>Padrão (α = 5 %)</th></tr>'
+    + D.vmp.map(v => '<tr><td>' + v.k + '</td><td>' + v.obs.toFixed(0) + '</td><td>' + v.esp.toFixed(0) + '</td><td>' + _af2(v.R) + '</td><td>' + _af2(v.z) + '</td><td>' + _ap3(v.p) + '</td><td>' + v.padrao + '</td></tr>').join('') + '</table>';
+  if (D.ripley) h += '<p>Função K de Ripley, de 0 a ' + (D.ripley.h[D.ripley.h.length - 1] / 1000).toFixed(1).replace('.', ',') + ' km (metade do menor lado da extensão), em 24 distâncias: '
+    + D.ripley.aleatorio + ' aleatórias, ' + D.ripley.agrupado + ' agrupadas e ' + D.ripley.disperso + ' dispersas.</p>' + _svgRipley(D);
+  return h;
+}
+function avalRelatorio(R){
+  const S = R.linhas.filter(r => r.sit === 'gabinete'), lc = F.campanha.ptcon_lc || '', camp = F.campanha.nome || '';
+  const ext = R.ext, quando = new Date().toLocaleString('pt-BR').slice(0, 17).replace(',', '');
+  const sit = r => (AVAL_SIT[r.sit] || [''])[0];
+  const css = 'body{font-family:system-ui,sans-serif;max-width:960px;margin:24px auto;padding:0 16px;color:#1b2a33;line-height:1.45}h1{font-size:22px;color:#0A2E52}h2{font-size:18px;color:#0e5a7d;border-bottom:1px solid #c9d2d6;padding-bottom:3px;margin-top:28px}h3{font-size:15px}'
+    + 'table{border-collapse:collapse;margin:8px 0;font-size:13px}th,td{border:1px solid #c9d2d6;padding:3px 7px;text-align:right}th{background:#EEF4FA}td:first-child,th:first-child{text-align:left}.av{background:#FEF3C7;border:1px solid #F59E0B;padding:8px 12px;border-radius:8px}.ok{background:#F0FDF4;border:1px solid #86EFAC;padding:8px 12px;border-radius:8px}small{color:#475569}@media print{h2{break-after:avoid}}';
+  const av = [];
+  av.push('Esta é uma <b>prévia</b>: a posição de gabinete foi lida na imagem por um analista, então o erro medido soma o erro da imagem e o de identificação da feição. A avaliação final é a do PlugIBGE.');
+  if (R.n < 20) av.push('n = ' + R.n + ' &lt; 20 pontos: resultado indicativo, não conclusivo (Merchant, 1982).');
+  if (R.nRapida) av.push(R.nRapida + ' ponto(s) com órbita rápida do IBGE-PPP: refaça a prévia quando a órbita final sair.');
+  if (R.nConfira) av.push(R.nConfira + ' ponto(s) <b>a conferir</b> (mais de ' + AVAL_LIM + ' m da opção ligada) ficaram fora: confirme a opção ocupada ou marque como escolhido em campo.');
+  if (R.refOk === false) av.push('A referência (PPP, σ mediano ' + _af2(R.refSxy) + ' m) não é 3× melhor que o RMSE da imagem: o que se mede é concordância, não PEC.');
+  if (!ext) av.push('Extensão do produto avaliado não informada: sem análise de distribuição.');
+  let h = '<!doctype html><html lang="pt-BR"><he' + 'ad><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Avaliação planimétrica preliminar — ' + esc(lc || camp) + '</title><style>' + css + '</style></he' + 'ad><bo' + 'dy>'
+    + '<h1>Avaliação planimétrica preliminar da imagem — posição de gabinete × PPP de campo</h1>'
+    + '<p><b>Campanha:</b> ' + esc(camp) + (lc ? ' (' + esc(lc) + ')' : '') + ' · <b>Gerado em:</b> ' + quando + (MODO_PLAN ? ' · consolidado das equipes' : ' · ' + esc(F.campanha.ptcon_equipe || '')) + '<br>'
+    + '<b>Produto avaliado (extensão):</b> ' + (ext ? esc(ext.arquivo) + ' — ' + esc(ext.tipo) + (ext.gsd ? ' · pixel ' + _af2(ext.gsd) + ' m' : '') : '<span style="color:#B91C1C">não informado</span>') + '<br>'
+    + '<b>Referência:</b> coordenadas IBGE-PPP (SIRGAS 2000) dos pontos ocupados · <b>Erro</b> = posição de gabinete na imagem − PPP, em UTM ' + R.fuso + 'S (EPSG:' + R.epsg + ').</p>'
+    + '<div class="av">' + av.map(x => '• ' + x).join('<br>') + '</div>';
+  if (R.n >= 3){
+    h += '<h2>1 Resultado</h2><div class="ok"><b>PEC — Decreto nº 89.817/1984 (único padrão homologado):</b> Classe A a partir de <b>' + avalFmtEsc(R.pec.A) + '</b>'
+      + (avalEscPadrao(R.pec.A) ? ' (escala-padrão ' + avalFmtEsc(avalEscPadrao(R.pec.A)) + ')' : '') + '; Classe B a partir de ' + avalFmtEsc(R.pec.B) + '; Classe C a partir de ' + avalFmtEsc(R.pec.C) + '.<br>'
+      + 'Critério: 90 % dos pontos com erro resultante ≤ PEC (CE90 empírico, com a tendência) e RMSE<sub>r</sub> ≤ EP. Com n = ' + R.n + ', CE90 = ' + _af2(R.r.ce90) + ' m e RMSE<sub>r</sub> = ' + _af2(R.r.rmse) + ' m.</div>'
+      + '<table><tr><th>Escala</th><th>PEC A (m)</th><th>Classe (90 % e EP)</th><th>Precisão χ² (classe)</th><th>% de r ≤ PEC A</th></tr>'
+      + R.chi.escalas.map(e => '<tr><td>' + avalFmtEsc(e.esc) + '</td><td>' + _af2(AVAL_PEC.A[1] * 1e-3 * e.esc) + '</td><td>' + (e.classePEC || 'não atende') + '</td><td>' + (e.classeChi || 'não atende') + '</td><td>' + Math.round(e.dentroA * 100) + '</td></tr>').join('')
+      + '</table><small>Qui-quadrado: σ admissível por componente = EP/√2; aceita se (n−1)·s²/σ² ≤ χ²(' + R.chi.gl + '; 90 %) = ' + _af2(R.chi.tab) + ' nas duas componentes (Galo; Camargo, 1994).</small>'
+      + '<p><small>Complementar, <b>não homologado pela CONGeo</b>: PEC-PCD (ET-CQDG/DSG, 2016) — Classe A a partir de ' + avalFmtEsc(R.pcd.A) + ', B ' + avalFmtEsc(R.pcd.B) + ', C ' + avalFmtEsc(R.pcd.C) + ', D ' + avalFmtEsc(R.pcd.D) + '.</small></p>'
+      + '<h2>2 Estatística das discrepâncias (m)</h2><table><tr><th></th><th>média</th><th>mediana</th><th>desvio-padrão</th><th>NMAD</th><th>RMSE</th><th>máx. |e|</th></tr>'
+      + [['dE', R.E], ['dN', R.N]].map(([n, d]) => '<tr><td>' + n + '</td><td>' + _af2(d.media) + '</td><td>' + _af2(d.mediana) + '</td><td>' + _af2(d.dp) + '</td><td>' + _af2(d.nmad) + '</td><td>' + _af2(d.rmse) + '</td><td>' + _af2(d.max) + '</td></tr>').join('')
+      + '<tr><td>r (resultante)</td><td>' + _af2(R.r.media) + '</td><td>' + _af2(R.r.mediana) + '</td><td>—</td><td>' + _af2(R.r.nmad) + '</td><td>' + _af2(R.r.rmse) + '</td><td>' + _af2(R.r.max) + '</td></tr></table>'
+      + '<p>CE90 = ' + _af2(R.r.ce90) + ' m · CE95 = ' + _af2(R.r.ce95) + ' m (percentis empíricos de r). Valores atípicos (|e − mediana|/NMAD &gt; 3; Höhle; Höhle, 2009): ' + (R.atipicos.length ? R.atipicos.map(esc).join(', ') : 'nenhum') + ' — mantidos no cálculo, para conferência.</p>'
+      + _svgDispersao(R)
+      + '<h2>3 Pressupostos</h2><h3>Normalidade (α = 5 %)</h3><table><tr><th></th><th>Shapiro-Wilk W</th><th>p</th><th>D\'Agostino-Pearson K²</th><th>p</th><th>assimetria</th><th>curtose</th></tr>'
+      + ['E', 'N'].map(c => { const a = R.norm[c].sw, b = R.norm[c].da; return '<tr><td>d' + c + '</td><td>' + (a ? a.W.toFixed(3).replace('.', ',') : '—') + '</td><td>' + _ap3(a && a.p) + '</td><td>' + (b ? _af2(b.K2) : 'n &lt; 8') + '</td><td>' + _ap3(b && b.p) + '</td><td>' + (b ? _af2(b.assimetria) : '—') + '</td><td>' + (b ? _af2(b.curtose) : '—') + '</td></tr>'; }).join('')
+      + '</table><p>' + (R.normal ? 'As duas componentes não rejeitam a normalidade.' : '<b>Ao menos uma componente rejeita a normalidade</b>: valem as medidas robustas (mediana, NMAD) e os percentis empíricos; o teste t e o χ² ficam como referência (Höhle; Höhle, 2009).') + '</p>'
+      + '<h3>Tendência</h3><table><tr><th></th><th>média (m)</th><th>t calculado</th><th>t tabelado (α = 10 %, ' + (R.n - 1) + ' gl)</th><th>p</th><th>Resultado</th></tr>'
+      + ['E', 'N'].map(c => { const t = R.t[c]; const tend = c === 'E' ? R.tendE : R.tendN; return '<tr><td>d' + c + '</td><td>' + _af2(R[c].media) + '</td><td>' + _af2(t && t.t) + '</td><td>' + _af2(R.t.tab) + '</td><td>' + _ap3(t && t.p) + '</td><td>' + (tend ? '<b>tendencioso</b>' : 'sem tendência') + '</td></tr>'; }).join('')
+      + '</table><p>Estatística circular dos vetores de erro (Santos et al., 2016): direção média ' + R.circ.azimute.toFixed(0) + '° (azimute), comprimento médio resultante R̄ = ' + _af2(R.circ.R) + ', variância circular = ' + _af2(R.circ.var_circular)
+      + '; teste de Rayleigh p = ' + _ap3(R.circ.p) + (R.circ.p < 0.05 ? ' — <b>os erros têm direção preferencial</b> (tendência).' : ' — sem direção preferencial.') + '</p>'
+      + '<p>Vetor de tendência (medianas): ' + _af2(R.vies.mod) + ' m no azimute ' + R.vies.az.toFixed(0) + '°. ' + (R.tendE || R.tendN || R.circ.p < 0.05 ? 'Uma tendência sistemática é típica de deslocamento do georreferenciamento da imagem (datum ou apoio) e merece verificação antes da avaliação final.' : '') + '</p>';
+  } else h += '<p>Menos de 3 pontos de gabinete com PPP: sem estatística.</p>';
+  h += '<h2>4 Distribuição espacial dos pontos</h2>' + _svgMapa(R) + _htmlDist(R.distPrevia, 'Pontos da prévia (gabinete)') + _htmlDist(R.distTodos, 'Todos os pontos de checagem (gabinete + escolhidos em campo)')
+    + '<p><small>Vizinho mais próximo de ordem k: R = d observada/d esperada sob aleatoriedade completa, com teste Z (Clark; Evans, 1954; Santos et al., 2016). Função K de Ripley (Ripley, 1977) com L(h) = √(K/π) e envelope de 99 simulações '
+    + 'aleatórias dentro da própria extensão (o efeito de borda entra igual na observação e nas simulações). Quadrantes: divisão da caixa da extensão pelo centro.</small></p>'
+    + '<h2>5 Pontos</h2><table><tr><th>Ponto</th>' + (MODO_PLAN ? '<th>Equipe</th>' : '') + '<th>Opção ligada</th><th>Opção ocupada</th><th>Órbita</th><th>σ PPP (m)</th><th>dE</th><th>dN</th><th>r</th><th>Situação</th></tr>'
+    + R.linhas.map(r => '<tr><td>' + esc(r.id) + '</td>' + (MODO_PLAN ? '<td>' + esc(r.equipe) + '</td>' : '') + '<td>' + esc(r.lig || '—') + '</td><td>' + esc(r.op === 'campo' ? 'escolhido em campo' : r.op || '—') + '</td><td>' + esc(r.orbita || '—')
+      + '</td><td>' + _af2(r.sxy) + '</td><td>' + _af2(r.dE) + '</td><td>' + _af2(r.dN) + '</td><td>' + _af2(r.r) + '</td><td>' + sit(r) + (r.conf && r.r > AVAL_LIM ? ' (confirmado)' : '') + '</td></tr>').join('') + '</table>'
+    + '<h2>6 Próximo passo: PlugIBGE</h2><p>No QGIS, painel <b>Verificação Planialtimétrica</b> do PlugIBGE: carregue a imagem avaliada em <i>Ortoimagem</i>, deixe o MDT vazio (só planimetria) e, em <i>Pontos de checagem</i>, escolha a fonte '
+    + '<b>Avaliação da folha de coleta (GGC)</b> com o arquivo <code>…_avaliacao_pontos_checagem.csv</code>. Modo <b>Manual</b>: marque na imagem a feição de cada ponto '
+    + (R.nCampo ? '— os <b>' + R.nCampo + ' escolhidos em campo</b> não têm leitura de gabinete e só entram na avaliação por aí' : '') + '. A marcação no plugin é cega (sem a posição de gabinete na tela), para não herdar a leitura do analista. '
+    + 'O GeoPackage <code>…_AVALIACAO_PLANIMETRICA.gpkg</code> traz as camadas dos pontos de campo, das posições de gabinete, dos vetores de erro e da extensão do produto.</p>'
+    + '<h2>Referências</h2><small><p>BRASIL. Decreto nº 89.817, de 20 de junho de 1984. Estabelece as Instruções Reguladoras das Normas Técnicas da Cartografia Nacional. <i>Diário Oficial da União</i>, Brasília, DF, 22 jun. 1984.</p>'
+    + '<p>CLARK, P. J.; EVANS, F. C. Distance to nearest neighbor as a measure of spatial relationships in populations. <i>Ecology</i>, v. 35, n. 4, p. 445-453, 1954.</p>'
+    + '<p>D\'AGOSTINO, R. B.; BELANGER, A.; D\'AGOSTINO JR., R. B. A suggestion for using powerful and informative tests of normality. <i>The American Statistician</i>, v. 44, n. 4, p. 316-321, 1990.</p>'
+    + '<p>DIRETORIA DE SERVIÇO GEOGRÁFICO (Brasil). <i>Especificação técnica para controle de qualidade de dados geoespaciais (ET-CQDG)</i>. Brasília, DF: DSG, 2016.</p>'
+    + '<p>GALO, M.; CAMARGO, P. O. Utilização do GPS no controle de qualidade de carta. In: CONGRESSO BRASILEIRO DE CADASTRO TÉCNICO MULTIFINALITÁRIO, 1., 1994, Florianópolis. <i>Anais</i> [...]. Florianópolis: UFSC, 1994. t. 2, p. 41-48.</p>'
+    + '<p>HÖHLE, J.; HÖHLE, M. Accuracy assessment of digital elevation models by means of robust statistical methods. <i>ISPRS Journal of Photogrammetry and Remote Sensing</i>, v. 64, n. 4, p. 398-406, 2009.</p>'
+    + '<p>MERCHANT, D. C. Spatial accuracy standards for large scale line maps. In: AMERICAN CONGRESS ON SURVEYING AND MAPPING. <i>Technical papers</i>. Denver: ACSM, 1982. p. 222-231.</p>'
+    + '<p>RIPLEY, B. D. Modelling spatial patterns. <i>Journal of the Royal Statistical Society: Series B</i>, v. 39, n. 2, p. 172-212, 1977.</p>'
+    + '<p>ROYSTON, P. Remark AS R94: a remark on algorithm AS 181: the W-test for normality. <i>Journal of the Royal Statistical Society: Series C (Applied Statistics)</i>, v. 44, n. 4, p. 547-551, 1995.</p>'
+    + '<p>SANTOS, A. de P. dos. <i>Software GeoPEC</i>: versão 3.4. Viçosa, MG, 2017.</p>'
+    + '<p>SANTOS, A. de P. dos; RODRIGUES, D. D.; SANTOS, N. T.; GRIPP JUNIOR, J. Avaliação da acurácia posicional em dados espaciais utilizando técnicas de estatística espacial: proposta de método e exemplo utilizando a norma brasileira. <i>Boletim de Ciências Geodésicas</i>, v. 22, n. 4, p. 630-650, 2016. DOI: 10.1590/S1982-21702016000400036.</p>'
+    + '<p>ZAR, J. H. <i>Biostatistical analysis</i>. 5. ed. Upper Saddle River: Prentice Hall, 2010.</p></small>'
+    + '<p><small>Gerado pela folha de coleta de pontos (GGC/SES-CE). Desenvolvimento assistido por IA, empregada como ferramenta, sob revisão e responsabilidade técnica do autor.</small></p></bo' + 'dy></html>';
+  return h;
+}
+/* ---- produto: GeoPackage + tabelas (formato do .bat) + relatório ---- */
+/* tabela no formato EXATO do GERA_TABELA_PONTOS_PPP_TEMPO.bat (TSV UTF-8 sem BOM, sem a unidade " m",
+   TEMPO = FIM − INICIO), mais as colunas da avaliação: o painel do PlugIBGE a lê como "CSV do fluxo IBGE" */
+function _avalTempo(a, b){
+  const d = t => { const m = String(t || '').match(/(\d{4})[\/-](\d{2})[\/-](\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)) : null; };
+  const x = d(a), y = d(b); if (x == null || y == null || y < x) return '';
+  const s = Math.round((y - x) / 1000), p = n => String(n).padStart(2, '0');
+  return p(Math.floor(s / 3600)) + ':' + p(Math.floor(s % 3600 / 60)) + ':' + p(s % 60);
+}
+function _avalTSV(L){
+  const cab = AVAL_CAMPOS_BAT.concat(AVAL_EXTRAS), limpa = v => String(v == null ? '' : v).replace(/[\t\r\n]+/g, ' ').replace(/^(.*?)\s+m\s*$/, '$1').trim();
+  return [cab.join('\t')].concat(L.map(r => { const c = Object.assign({}, r.campos || {});
+    c.PASTA = c.PASTA || String(r.id || '').replace(/[^A-Za-z0-9_-]+/g, '_'); c.TEMPO = c.TEMPO || _avalTempo(c.INICIO, c.FIM);
+    const ex = {ID_PONTO: r.id, EQUIPE: r.equipe || '', OPCAO_LIGADA: r.lig || '', OPCAO_OCUPADA: r.op || '', SITUACAO: r.sit,
+      LAT_GABINETE: r.gab ? r.gab.lat.toFixed(8) : '', LON_GABINETE: r.gab ? r.gab.lon.toFixed(8) : ''};
+    return AVAL_CAMPOS_BAT.map(k => limpa(c[k])).concat(AVAL_EXTRAS.map(k => ex[k])).join('\t'); })).join('\r\n') + '\r\n';
+}
+function avalBase(){
+  const lc = (F.campanha.ptcon_lc || 'CAMPANHA').replace(/[^A-Za-z0-9_-]/g, '');
+  const iEq = !MODO_PLAN && F.config && F.config.equipePlano != null ? +F.config.equipePlano : -1;
+  return lc + (iEq >= 0 ? '_EQ' + (iEq + 1) : '');
+}
+async function avalProdutos(R, pasta){
+  const base = avalBase(), pre = pasta || '';
+  const comPPP = R.linhas.filter(r => r.campos && r.lat != null && r.sit !== 'excluido');
+  const campos = [['ID_PONTO', 'C', 40], ['EQUIPE', 'C', 40], ['OPCAO_LIG', 'C', 12], ['OPCAO_OCUP', 'C', 20], ['SITUACAO', 'C', 12], ['AVALIACAO', 'C', 60],
+    ['SIGMA_XY', 'N', 10, 3], ['DE', 'N', 12, 3], ['DN', 'N', 12, 3], ['R', 'N', 12, 3]].concat(AVAL_CAMPOS_BAT.map(k => [k, 'C', 60]));
+  const aval = r => r.sit === 'gabinete' ? 'prévia de gabinete (marcar de novo no PlugIBGE)' : r.sit === 'campo' ? 'marcação manual no PlugIBGE' : 'conferir a opção ocupada';
+  const cam = [
+    {nome: 'CHECAGEM_PPP', tipo: 'POINT', descricao: 'Pontos de checagem: coordenada IBGE-PPP (SIRGAS 2000)', campos: campos,
+      feicoes: comPPP.map(r => ({g: [r.lon, r.lat], a: [r.id, r.equipe, r.lig, r.op === 'campo' ? 'escolhido em campo' : r.op, r.sit, aval(r), r.sxy, r.dE, r.dN, r.r]
+        .concat(AVAL_CAMPOS_BAT.map(k => (r.campos || {})[k] || ''))}))},
+    {nome: 'POSICAO_GABINETE', tipo: 'POINT', descricao: 'Posição de gabinete (leitura na imagem) da opção ocupada', campos: [['ID_PONTO', 'C', 40], ['OPCAO', 'C', 12]],
+      feicoes: comPPP.filter(r => r.gab).map(r => ({g: [r.gab.lon, r.gab.lat], a: [r.id, r.gab.id]}))},
+    {nome: 'VETORES_ERRO', tipo: 'LINESTRING', descricao: 'Do PPP à posição de gabinete (erro = imagem − campo)', campos: [['ID_PONTO', 'C', 40], ['R', 'N', 12, 3], ['SITUACAO', 'C', 12]],
+      feicoes: comPPP.filter(r => r.gab).map(r => ({g: [[r.lon, r.lat], [r.gab.lon, r.gab.lat]], a: [r.id, r.r, r.sit]}))}];
+  if (R.ext) cam.push({nome: 'EXTENSAO_PRODUTO', tipo: 'POLYGON', descricao: 'Extensão do produto avaliado (' + R.ext.arquivo + ')', campos: [['ARQUIVO', 'C', 120], ['ORIGEM', 'C', 120]],
+    feicoes: R.ext.aneis.map(a => ({g: a, a: [R.ext.arquivo, R.ext.tipo]}))});
+  const itens = [
+    {nome: pre + base + '_AVALIACAO_PLANIMETRICA.gpkg', dados: gpkgDe(cam, 4674)},
+    {nome: pre + base + '_avaliacao_pontos_checagem.csv', dados: _avalTSV(comPPP)},
+    {nome: pre + base + '_escolhidos_em_campo.csv', dados: _avalTSV(comPPP.filter(r => r.sit === 'campo' || r.sit === 'confira'))},
+    {nome: pre + base + '_avaliacao_planimetrica_previa.html', dados: avalRelatorio(R)}];
+  return {nomeZip: base + '_AVALIACAO_PLANIMETRICA.zip', itens: itens};
+}
+
 /* uma vez por dia, ao abrir a folha: o aviso na barra de estado */
 function avisaPPP(){
   if (MODO_PLAN) return;
@@ -19695,6 +20379,7 @@ $('#f_ppp_pacotes').addEventListener('change', async e => {
   if (L.length) await lePPPLote(L).catch(err => marca('IBGE-PPP: ' + err.message));
 });
 function abreEntrega(){
+  try { if ($('#cart_aval') && $('#cart_aval').open) pintaAval(); } catch (e){}
   if (ETAPA.el && ETAPA.oculta){ ETAPA.el.hidden = false; ETAPA.oculta = false; _etapaBotao(); return; }
   const t = document.querySelector('.abas button[data-aba="fechar"]'); if (t) t.click();
   pintaEntrega();
@@ -19806,6 +20491,8 @@ function montaPlanejador(){
     pai.style.display = 'none';
     const l = $('label[for=' + i + ']'); if (l) l.style.display = 'none';
   });
+  const ca = $('#cart_aval'); if (ca){ k.after(ca);
+    ca.querySelector('.leg').insertAdjacentHTML('beforeend', ' No planejador, junte as tabelas <code>…_avaliacao_pontos_checagem.csv</code> das equipes para a avaliação da campanha inteira.'); }
   const ab = document.querySelector('[data-aba=campanha]'); if (ab) ab.click();
 }
 function pintaKits(){

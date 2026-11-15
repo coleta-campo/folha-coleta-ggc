@@ -7930,7 +7930,8 @@ async function testaAparelho(){
     ok(cv >= 100 ? 1 : 0, 'Chrome', cv ? 'versão ' + cv + (cv >= 100 ? '' : ' — atualize o Chrome') : 'não é o Chrome — use o Chrome');
   }
   ok(window.isSecureContext ? 1 : 0, 'Página segura', window.isSecureContext ? 'sim' : 'não — o GNSS fica bloqueado');
-  if (!ios) ok(ABERTA_CONTENT ? 0 : 1, 'Forma de abrir', ABERTA_CONTENT ? 'pelo app de arquivos (content://) — o Chrome bloqueia a localização; abra pelo endereço https'
+  if (!ios) ok(ABERTA_CONTENT || abertaProvisoria() ? 0 : 1, 'Forma de abrir', ABERTA_CONTENT ? 'pelo app de arquivos (content://) — o Chrome bloqueia a localização; abra pelo endereço https'
+     : abertaProvisoria() ? 'pelo app de arquivos (127.0.0.1) — some ao recarregar; toque em Passar a folha para o app'
      : location.protocol === 'https:' ? 'endereço https' : location.protocol.replace(':', ''));
   // localização: uma posição com precisão
   const P = await new Promise(r => navigator.geolocation ? navigator.geolocation.getCurrentPosition(
@@ -19483,6 +19484,201 @@ async function etapaPacoteLC(){
   try { await exportaLC(); etapaFim(true, 'O pacote da campanha foi gerado e baixado.', [], proximoPassoEntrega()); }
   catch (e){ etapaFim(false, 'O pacote não saiu: ' + esc(e.message), [], {rotulo: 'Tentar de novo', acao: etapaPacoteLC}); }
 }
+/* ---------- folha aberta pelo app de arquivos → app da folha (15/11/2026) ----------
+   No Android, o arquivo .html aberto pelo gerenciador de arquivos fica num endereço provisório:
+   http://127.0.0.1:<porta>/… (servidor do próprio app de arquivos) ou content://. Quando o app de
+   arquivos sai da memória, o Chrome não consegue recarregar a aba ("Não é possível acessar esse
+   site", ERR_CONNECTION_REFUSED) e é preciso reabrir pelo arquivo. O endereço fixo é o da folha
+   publicada (https), que se instala na tela inicial e abre sem internet (service worker).
+   A passagem leva TUDO o que a folha guarda neste endereço — registro, fotos, arquivos do receptor,
+   trilhas, mapa da área, PIN — tal como está (ainda criptografado pelo cofre), de janela para
+   janela (postMessage), sem passar por servidor nenhum. No app, o mesmo PIN abre a folha. */
+const MIGRA_SITE = new URL(URL_SITE).origin;
+const MIGRA_LOJAS = [['folha_pontos_cofre', 'c'], [IDB_NOME, IDB_LOJA], [IDB_MAPA, 'mapa'], [IDB_TRAJ, 't'], [IDB_BLOCOS, 'b']];
+const MIGRA_DE = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/;
+const _MIG_K = CHAVE + '_passada_ao_app', _MIG_V = CHAVE + '_veio_do_arquivo';
+function abertaProvisoria(){
+  if (MODO_PLAN) return '';
+  if (location.protocol === 'content:') return 'content';
+  if (location.protocol === 'http:' && /^(127\.0\.0\.1|localhost)$/.test(location.hostname) && location.port) return 'local';
+  return '';
+}
+function _idbAbre(nome, loja){
+  return new Promise((ok, falha) => { const r = indexedDB.open(nome, 1);
+    r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains(loja)) r.result.createObjectStore(loja); };
+    r.onsuccess = () => ok(r.result); r.onerror = () => falha(r.error); });
+}
+const _idbReq = r => new Promise((ok, falha) => { r.onsuccess = () => ok(r.result); r.onerror = () => falha(r.error); });
+/* aviso no alto da folha aberta pelo arquivo */
+function pintaAvisoProvisoria(){
+  const tipo = abertaProvisoria(); if (!tipo) return;
+  let el = $('#aviso_prov'); if (el) el.remove();
+  let ja = null; try { ja = JSON.parse(localStorage.getItem(_MIG_K) || 'null'); } catch (e){}
+  el = document.createElement('div'); el.id = 'aviso_prov'; el.className = 'naoimprime';
+  el.style.cssText = 'margin:10px 0;padding:12px 14px;border:2px solid ' + (ja ? '#B91C1C;background:#FEF2F2' : '#B45309;background:#FFFBEB') + ';border-radius:10px';
+  el.innerHTML = ja
+    ? '<b style="color:#B91C1C">Esta folha já foi passada para o app em ' + esc(new Date(ja.quando).toLocaleString('pt-BR').slice(0, 17).replace(',', '')) + '.</b> '
+      + 'O que se coletar aqui <b>não vai para o app</b>. Use o app da folha (ícone na tela inicial). '
+      + 'Chegou uma folha nova da coordenação? No app: <i>Abrir a folha nova da equipe</i> e escolha o arquivo.'
+      + '<div class="acoes"><button type="button" class="btn" id="b_prov_app">Abrir o app da folha</button></div>'
+    : '<b>A folha está aberta pelo app de arquivos</b> (' + (tipo === 'local' ? 'endereço provisório 127.0.0.1' : 'endereço content://') + '). '
+      + 'Por isso, quando o celular fecha o app de arquivos, o Chrome mostra <i>Não é possível acessar esse site</i> e é preciso reabrir pelo arquivo'
+      + (tipo === 'content' ? ', e a localização fica bloqueada' : '') + '. '
+      + '<b>Passe a folha para o app, uma vez só:</b> ela vai para o endereço fixo da folha, instala na tela inicial e abre sem internet. '
+      + 'Vão junto os pontos, as fotos, os arquivos do receptor, as trilhas, o mapa da área e o PIN.'
+      + '<div class="acoes"><button type="button" class="btn" id="b_prov_passa">Passar a folha para o app (precisa de internet agora)</button></div>';
+  const ab = document.querySelector('.abas');
+  if (ab) ab.parentNode.insertBefore(el, ab); else document.body.insertBefore(el, document.body.firstChild);
+  const bp = $('#b_prov_passa'); if (bp) bp.onclick = () => passaAoApp();
+  const ba = $('#b_prov_app'); if (ba) ba.onclick = () => { location.href = URL_SITE + (document.documentElement.dataset.dispositivo === 'notebook' ? '?notebook' : ''); };
+}
+/* lado do arquivo: abre o app numa aba nova e entrega o que está guardado aqui */
+async function passaAoApp(){
+  if (!navigator.onLine) return marca('sem internet: a primeira abertura do app precisa de rede — tente com Wi-Fi ou dados');
+  if (abertaProvisoria() === 'content'){
+    // content:// não guarda nada entre aberturas: basta abrir o app e, nele, a folha da equipe
+    location.href = URL_SITE; return;
+  }
+  try { gravaRegistroJa(); } catch (e){}
+  try { guardaTrilha(true); } catch (e){}
+  const alvo = URL_SITE + (document.documentElement.dataset.dispositivo === 'notebook' ? '?notebook' : '') + '#migrar';
+  const w = window.open(alvo, '_blank');
+  if (!w) return marca('o navegador bloqueou a aba nova: permita pop-ups para este endereço e toque de novo');
+  etapaAbre('Passar a folha para o app', ['Abrir o app da folha (endereço fixo)', 'Entregar os dados guardados neste endereço', 'Conferir no app']);
+  ETAPA.el.querySelector('#et_aviso').innerHTML = 'Uma aba nova abriu com o app da folha. <b>Não feche nenhuma das duas abas</b> nem apague a tela até o fim; o progresso aparece nas duas.';
+  let fim = false;
+  const t0 = setTimeout(() => { if (!fim && ETAPA.rodando) etapaFim(false, 'O app não respondeu em 60 s. Confira a internet e toque de novo.', [], {rotulo: 'Tentar de novo', acao: passaAoApp}); }, 60000);
+  const espera = {};
+  const ouve = async e => {
+    if (e.source !== w || e.origin !== MIGRA_SITE) return;
+    const m = e.data || {};
+    if (m.t === 'ok' && espera[m.id]){ espera[m.id](m); delete espera[m.id]; return; }
+    if (m.t === 'recusa'){ fim = true; clearTimeout(t0); window.removeEventListener('message', ouve);
+      return etapaFim(false, 'O app já tinha uma folha e a substituição não foi confirmada. Nada mudou.', [], null); }
+    if (m.t === 'pronto'){
+      clearTimeout(t0); etapaPasso(1);
+      try {
+        let id = 0;
+        const manda = msg => new Promise((ok, falha) => { msg.id = ++id; espera[msg.id] = ok; w.postMessage(msg, MIGRA_SITE);
+          setTimeout(() => { if (espera[msg.id]){ delete espera[msg.id]; falha(new Error('o app parou de responder')); } }, 120000); });
+        const ls = []; for (let i = 0; i < localStorage.length; i++){ const k = localStorage.key(i); if (k !== _MIG_K) ls.push([k, localStorage.getItem(k)]); }
+        await manda({t: 'ls', itens: ls});
+        const cont = {ls: ls.length};
+        const tot = {}; let total = 0, feito = 0;
+        for (const [nome, loja] of MIGRA_LOJAS){
+          const db = await _idbAbre(nome, loja);
+          tot[nome] = await _idbReq(db.transaction(loja).objectStore(loja).getAllKeys()); total += tot[nome].length; db.close();
+        }
+        for (const [nome, loja] of MIGRA_LOJAS){
+          const ks = tot[nome], db = await _idbAbre(nome, loja);
+          await manda({t: 'limpa', nome: nome, loja: loja});
+          for (let i = 0; i < ks.length; i += 40){
+            const parte = ks.slice(i, i + 40), st = db.transaction(loja).objectStore(loja);
+            const vs = await Promise.all(parte.map(k => _idbReq(st.get(k))));
+            await manda({t: 'db', nome: nome, loja: loja, pares: parte.map((k, j) => [k, vs[j]])});
+            feito += parte.length; marca('passando para o app: ' + feito + ' de ' + total + ' itens guardados');
+          }
+          cont[nome] = ks.length; db.close();
+        }
+        etapaPasso(2, total + ' itens e ' + ls.length + ' anotações entregues');
+        const r = await manda({t: 'fim', cont: cont});
+        fim = true; window.removeEventListener('message', ouve);
+        if (!r.confere) return etapaFim(false, 'O app recebeu, mas a conferência não fechou: ' + esc(r.motivo || '') + '. Continue usando esta folha e me avise.', [], null);
+        try { localStorage.setItem(_MIG_K, JSON.stringify({quando: new Date().toISOString(), itens: total})); } catch (e){}
+        etapaFim(true, 'A folha está no app: ' + total + ' itens guardados (pontos, fotos, arquivos do receptor, trilhas, mapa) conferidos um a um.<br>'
+          + '<b>Daqui em diante, use só o app.</b> Na aba do app: digite o PIN de sempre e instale na tela inicial (o próprio app mostra como). '
+          + 'Esta aba pode ser fechada.', [], null);
+        pintaAvisoProvisoria();
+      } catch (err){
+        fim = true; window.removeEventListener('message', ouve);
+        etapaFim(false, 'A passagem parou: ' + esc(err.message) + '. Nada foi apagado aqui; tente de novo com a tela acesa.', [], {rotulo: 'Tentar de novo', acao: passaAoApp});
+      }
+    }
+  };
+  window.addEventListener('message', ouve);
+}
+/* lado do app: recebe, grava e confere; depois recarrega já com a folha */
+async function migracaoRecebe(){
+  if (MODO_PLAN || !/^#migrar/.test(location.hash) || !window.opener) return false;
+  const tem = !!(localStorage.getItem(CHAVE) || localStorage.getItem(COFRE.cfg));
+  etapaAbre('Receber a folha do app de arquivos', ['Esperar os dados da outra aba', 'Gravar neste app', 'Conferir']);
+  ETAPA.el.querySelector('#et_aviso').innerHTML = 'A folha está vindo da aba anterior (a aberta pelo arquivo). <b>Não feche nenhuma das duas abas</b> nem apague a tela até o fim.';
+  if (tem && !confirm('Este app já tem uma folha guardada neste celular.\n\nReceber a folha do arquivo SUBSTITUI a que está no app. Continuar?')){
+    window.opener.postMessage({t: 'recusa'}, '*');
+    etapaFim(false, 'Nada mudou: o app continua com a folha que já tinha.', [], null);
+    history.replaceState(null, '', location.pathname + location.search); return true;
+  }
+  const lojas = new Map(MIGRA_LOJAS), dbs = {};
+  let n = 0, ultima = Date.now(), acabou = false;
+  const vigia = setInterval(() => {
+    if (acabou || Date.now() - ultima < 45000) return;
+    acabou = true; clearInterval(vigia);
+    etapaFim(false, 'A aba da folha aberta pelo arquivo parou de mandar os dados (o Chrome pode tê-la fechado para economizar memória). '
+      + 'Nada foi perdido lá. Volte a ela (ou reabra pelo arquivo) e toque de novo em <i>Passar a folha para o app</i>.', [], null);
+  }, 5000);
+  await new Promise(pronto => {
+    window.addEventListener('message', async e => {
+      if (e.source !== window.opener || !MIGRA_DE.test(e.origin) || acabou) return;
+      ultima = Date.now();
+      const m = e.data || {}, resp = x => e.source.postMessage(Object.assign({t: 'ok', id: m.id}, x || {}), e.origin);
+      try {
+        if (m.t === 'ls'){
+          etapaPasso(1);
+          for (const [k, v] of m.itens || []) if (typeof k === 'string' && typeof v === 'string' && !/_passada_ao_app$/.test(k)) localStorage.setItem(k, v);
+          return resp();
+        }
+        if ((m.t === 'limpa' || m.t === 'db') && lojas.get(m.nome) === m.loja){
+          const db = dbs[m.nome] = dbs[m.nome] || await _idbAbre(m.nome, m.loja);
+          const tx = db.transaction(m.loja, 'readwrite'), st = tx.objectStore(m.loja);
+          if (m.t === 'limpa') st.clear();
+          else for (const [k, v] of m.pares || []){ st.put(v, k); n++; }
+          await new Promise((ok, falha) => { tx.oncomplete = ok; tx.onerror = () => falha(tx.error); tx.onabort = () => falha(tx.error); });
+          if (m.t === 'db') marca('recebendo: ' + n + ' itens gravados');
+          return resp();
+        }
+        if (m.t === 'fim'){
+          let confere = true, motivo = '';
+          for (const [nome, loja] of MIGRA_LOJAS){
+            const db = dbs[nome] || await _idbAbre(nome, loja);
+            const c = await _idbReq(db.transaction(loja).objectStore(loja).count());
+            if (c !== (m.cont || {})[nome]){ confere = false; motivo += nome + ': ' + c + ' de ' + (m.cont || {})[nome] + '; '; }
+          }
+          if (confere) localStorage.setItem(_MIG_V, JSON.stringify({quando: new Date().toISOString(), de: e.origin, itens: n}));
+          resp({confere: confere, motivo: motivo});
+          etapaPasso(2);
+          etapaFim(confere, confere ? 'Folha recebida e conferida: ' + n + ' itens. Abrindo a folha (digite o PIN de sempre)…' : 'A conferência não fechou: ' + esc(motivo), [], null);
+          Object.values(dbs).forEach(d => { try { d.close(); } catch (x){} });
+          acabou = true; clearInterval(vigia);
+          if (confere) setTimeout(() => { history.replaceState(null, '', location.pathname + location.search); location.reload(); }, 2500);
+          pronto();
+        }
+      } catch (err){ resp({erro: err.message}); }
+    });
+    window.opener.postMessage({t: 'pronto'}, '*');
+  });
+  return true;
+}
+/* no app, depois de receber: instalar na tela inicial */
+let _PEDE_INSTALAR = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); _PEDE_INSTALAR = e; try { pintaConviteInstalar(); } catch (x){} });
+function pintaConviteInstalar(){
+  if (MODO_PLAN || abertaProvisoria() || location.protocol !== 'https:') return;
+  const inst = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  let veio = null; try { veio = JSON.parse(localStorage.getItem(_MIG_V) || 'null'); } catch (e){}
+  let el = $('#aviso_instalar'); if (el) el.remove();
+  if (inst || !veio) return;
+  el = document.createElement('div'); el.id = 'aviso_instalar'; el.className = 'naoimprime';
+  el.style.cssText = 'margin:10px 0;padding:12px 14px;border:2px solid #15803D;background:#F0FDF4;border-radius:10px';
+  el.innerHTML = '<b>Folha recebida do arquivo em ' + esc(new Date(veio.quando).toLocaleString('pt-BR').slice(0, 17).replace(',', '')) + '.</b> '
+    + 'Instale na tela inicial para abrir sempre por aqui, mesmo sem internet. '
+    + (_PEDE_INSTALAR ? '' : 'No Chrome: menu <b>⋮</b> → <b>Instalar app</b> (ou <b>Adicionar à tela inicial</b>).')
+    + (_PEDE_INSTALAR ? '<div class="acoes"><button type="button" class="btn" id="b_instalar">Instalar na tela inicial</button></div>' : '');
+  const ab = document.querySelector('.abas');
+  if (ab) ab.parentNode.insertBefore(el, ab); else document.body.insertBefore(el, document.body.firstChild);
+  const b = $('#b_instalar'); if (b) b.onclick = async () => { const p = _PEDE_INSTALAR; _PEDE_INSTALAR = null; p.prompt();
+    try { const r = await p.userChoice; marca(r.outcome === 'accepted' ? 'folha instalada na tela inicial' : 'instalação adiada'); } catch (e){} pintaConviteInstalar(); };
+}
+window.addEventListener('appinstalled', () => { try { const el = $('#aviso_instalar'); if (el) el.remove(); } catch (e){} marca('folha instalada na tela inicial'); });
 /* uma vez por dia, ao abrir a folha: o aviso na barra de estado */
 function avisaPPP(){
   if (MODO_PLAN) return;
@@ -20029,6 +20225,7 @@ function vigiaAbas(){
   bc.postMessage({t: 'ola', de: eu});
 }
 async function inicia(){
+  if (await migracaoRecebe().catch(e => { marca('receber a folha: ' + e.message); return true; })) return;
   try { vigiaAbas(); } catch (e){}
   if (MODO_PLAN) montaPlanejador();
   if (COFRE.ativo){
@@ -20058,6 +20255,7 @@ async function inicia(){
   try { avisaPPP(); } catch (e){}
   aplicaKit().then(a => { aplicaModo(); if (a) pintaAlvos(); pintaConviteKit(); }).catch(e => marca('folha da equipe: ' + e.message));
   ligaCofreUI();
+  try { pintaAvisoProvisoria(); pintaConviteInstalar(); } catch (e){}
 }
 function ligaCofreUI(){
   const bt = $('#b_trancar'), box = $('#cofre_pin_box');

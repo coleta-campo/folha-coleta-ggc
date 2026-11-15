@@ -6337,12 +6337,20 @@ async function arrumaDiasMisturados(){
   setTimeout(() => marca('dia com pontos de mais de uma data separado por data: '
     + novos.map(n => _dataBr(n.data)).join(', ') + (volta && F.dia.data === hoje ? ' (o de hoje voltou à caderneta)' : '')), 1800);
 }
+/* 15/11/2026: a data que a folha preenche sozinha ao abrir (data_auto) não faz do dia um dia da campanha —
+   antes, abrir a folha num dia sem trabalho deixava esse dia "em aberto", com 0 pontos, na tabela. */
+function diaComConteudo(a){
+  const marcou = Object.keys(a.itens || {}).some(k => (a.itens[k] || {}).ok);
+  let oc = 0; try { oc = ocorrDe(a).length; } catch (e){}
+  // a trilha do dia aberto (no deslocamento, antes do primeiro ponto) faz parte do dia
+  let tr = (a.trilha_fontes || []).length || !!a.trilha_id; try { if (a === F.dia && TRILHA.length) tr = true; } catch (e){}
+  return !!(tr || (a.voos || []).length || (a.pontos || []).length || marcou || oc
+    || a.local || a.obs || a.ocorrencias || a.km_saida || a.km_volta || (a.data && !a.data_auto));
+}
 function diasDaCampanha(){
   const L = (F.dias || []).map(d => ({dia: d, aberto: false}));
   const a = F.dia;
-  const temAberto = (a.voos || []).length || (a.pontos || []).length
-                    || a.data || a.local || a.obs || a.ocorrencias || a.km_saida || a.km_volta;
-  if (temAberto) L.push({dia: a, aberto: true});
+  if (diaComConteudo(a)) L.push({dia: a, aberto: true});
   // em ordem de data (um dia separado volta ao arquivo fora da ordem); sem data, no fim
   const dt = e => e.dia.data || (datasDoDia(e.dia)[0] || {}).data || '9999';
   return L.sort((x, y) => String(dt(x)).localeCompare(String(dt(y))));
@@ -6475,7 +6483,9 @@ function pintaCampanha(){
           + '<td class="n">' + q.nCtrl + '</td>'
           + '<td class="n">' + q.nChk + '</td>'
           + '<td>' + (e.aberto ? 'em aberto' : 'arquivado') + '</td>'
-          + '<td>' + (e.aberto ? ''
+          + '<td>' + (e.aberto
+              ? ((e.dia.voos || []).length || (e.dia.pontos || []).length ? ''
+                 : '<button type="button" class="btn sec peq naoimprime" data-descarta="1">descartar</button>')
               : '<button type="button" class="btn sec peq naoimprime" data-arq="'
                 + i + '">remover</button>') + '</td></tr>';
       }).join('')
@@ -6496,6 +6506,25 @@ function pintaCampanha(){
     + '<p class="leg">O dia arquivado guarda os números, os textos e a '
     + 'conferência. As fotos e os relatórios de ponto prontos ficam no registro '
     + 'e no PDF daquele dia, exportados antes de arquivar.</p></div>';
+  /* dia aberto que não vai ser fechado: sem ponto nem voo, sai inteiro (data, local, hodômetro,
+     ocorrências, itens marcados); a trilha gravada fica guardada com a data dela, como no arquivar */
+  alvo.querySelectorAll('[data-descarta]').forEach(b => {
+    b.addEventListener('click', () => {
+      const d = F.dia; if ((d.voos || []).length || (d.pontos || []).length) return;
+      const nOc = (() => { try { return ocorrDe(d).length; } catch (e){ return 0; } })();
+      const sai = [d.local ? 'local' : null, d.obs ? 'observações' : null,
+                   d.ocorrencias || nOc ? 'ocorrências' + (nOc ? ' (' + nOc + ')' : '') : null,
+                   d.km_saida || d.km_volta ? 'hodômetro' : null,
+                   Object.keys(d.itens || {}).some(k => (d.itens[k] || {}).ok) ? 'itens marcados' : null]
+                  .filter(Boolean).join(', ');
+      if (!confirm('Descartar o dia aberto ' + _dataBr(d.data) + (d.local ? ' · ' + d.local : '') + '?\n'
+                   + 'Ele não tem ponto nem voo. ' + (sai ? 'Sai: ' + sai + '.\n' : '')
+                   + (TRILHA.length ? 'A trilha gravada fica guardada no aparelho, fora da campanha.\n' : '')
+                   + 'Não vai para a campanha. A caderneta fica limpa para o próximo dia de campo.')) return;
+      zeraCaderneta(); grava(); monta();
+      setTimeout(() => marca('dia aberto descartado — a campanha continua'), 700);
+    });
+  });
   alvo.querySelectorAll('[data-arq]').forEach(b => {
     b.addEventListener('click', () => {
       const i = +b.dataset.arq, d = F.dias[i];
@@ -8028,6 +8057,17 @@ $('#f_abrir').addEventListener('change', async e => {
 
    A confirmação diz o que se perde, contado, e avisa quando o registro completo
    ainda não saiu do aparelho depois da última alteração. */
+function zeraCaderneta(){
+  if (TRILHA.length) guardaTrilha(true);
+  F.dia = diaNovo(); TRILHA = []; pintaTrilha();
+  // um dia separado à espera de fechar volta para a caderneta
+  const pend = (F.dias || []).filter(x => x.separado).sort((a, b) => String(a.data).localeCompare(String(b.data)))[0];
+  if (pend){ F.dias.splice(F.dias.indexOf(pend), 1);
+    const r = Object.assign(diaNovo(), pend); delete r.arquivado; delete r.separado;
+    F.dia = r; DIA_VISTO = '';
+    setTimeout(() => marca('o dia ' + _dataBr(r.data) + ', separado antes, voltou para a caderneta'), 2600); }
+  return pend;
+}
 $('#b_limpa_dia').addEventListener('click', async () => {
   const LD = datasDoDia(F.dia);
   if (LD.length > 1){
@@ -8077,15 +8117,8 @@ $('#b_limpa_dia').addEventListener('click', async () => {
   }
   m += '\n\nContinuar?';
   if (!confirm(m)) return;
-  if (TRILHA.length) guardaTrilha(true);
   if (!vazio) F.dias.push(paraArquivo(F.dia));
-  F.dia = diaNovo(); TRILHA = []; pintaTrilha();
-  // um dia separado à espera de fechar volta para a caderneta
-  const pend = (F.dias || []).filter(x => x.separado).sort((a, b) => String(a.data).localeCompare(String(b.data)))[0];
-  if (pend){ F.dias.splice(F.dias.indexOf(pend), 1);
-    const r = Object.assign(diaNovo(), pend); delete r.arquivado; delete r.separado;
-    F.dia = r; DIA_VISTO = '';
-    setTimeout(() => marca('o dia ' + _dataBr(r.data) + ', separado antes, voltou para a caderneta'), 2600); }
+  const pend = zeraCaderneta();
   grava(); monta();                          // as fotos ficam: são da campanha
   // a gravação é adiada e escreve na mesma linha de estado: a confirmação vem
   // depois dela, senão o operador não chega a ler
@@ -21005,6 +21038,101 @@ function ligaCofreUI(){
     r.textContent = 'PIN trocado em ' + new Date().toLocaleString('pt-BR').slice(0, 17) + '. Avise a equipe.';
   }); }
 }
+/* ---------- tema escuro legível (15/11/2026) ----------
+   O tema escuro trocava só as variáveis (fundo, texto, linha). As cores escritas direto — faixas
+   claras de aviso (#F0FDF4, #FFFBEB…), textos em vermelho, verde e âmbar escuros, o azul das abas —
+   ficavam como no tema claro: texto claro sobre fundo claro, ou escuro sobre escuro.
+   Aqui, só na tela e só com o aparelho em modo escuro:
+   - cada regra da folha com fundo claro ganha um fundo escuro do mesmo matiz, e cada cor de texto
+     escura é clareada no mesmo matiz até o contraste de 4,5:1 (WCAG 2.1, critério 1.4.3);
+   - o mesmo vale para as cores escritas no próprio elemento (style=…), vigiadas enquanto a folha
+     monta e remonta a tela.
+   A troca vai por classe e variável, sem mexer no style do elemento: a impressão e o PDF ficam claros. */
+const _TE = {lig: false, cache: {}, ctx: null};
+function _teRgb(v){
+  const vv = /^\s*var\((--[\w-]+)\)\s*$/.exec(v || '');
+  if (vv) v = getComputedStyle(document.documentElement).getPropertyValue(vv[1]).trim();
+  if (!v || /var\(|transparent|inherit|initial|currentcolor|gradient|url\(/i.test(v)) return null;
+  const c = _TE.ctx || (_TE.ctx = document.createElement('canvas').getContext('2d'));
+  c.fillStyle = '#010203'; c.fillStyle = v; const s = c.fillStyle;
+  if (s === '#010203' && !/^#?010203$/i.test(v.trim())) return null;
+  let m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(s);
+  if (m) return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16), 1];
+  m = /rgba?\(([^)]+)\)/.exec(s); if (!m) return null;
+  const p = m[1].split(',').map(Number); return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1];
+}
+function _teLum(c){ const f = x => { x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); };
+  return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); }
+function _teHsl(c){ const r = c[0] / 255, g = c[1] / 255, b = c[2] / 255, M = Math.max(r, g, b), m = Math.min(r, g, b), l = (M + m) / 2;
+  if (M === m) return [0, 0, l]; const d = M - m, s = l > 0.5 ? d / (2 - M - m) : d / (M + m);
+  const h = M === r ? (g - b) / d + (g < b ? 6 : 0) : M === g ? (b - r) / d + 2 : (r - g) / d + 4; return [h * 60, s, l]; }
+function _teDeHsl(h, s, l){ const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255), 1]; }
+const _teHex = c => '#' + c.slice(0, 3).map(x => x.toString(16).padStart(2, '0')).join('');
+/* fundo claro → o mesmo matiz, escuro (luminosidade 15 %); cinza fica cinza-azulado como os cartões */
+function _teFundo(v){
+  const k = 'b' + v; if (k in _TE.cache) return _TE.cache[k];
+  const c = _teRgb(v); let r = null;
+  if (c && c[3] >= 0.5 && _teLum(c) > 0.45){ const h = _teHsl(c);
+    r = h[1] < 0.08 ? '#1E272C' : _teHex(_teDeHsl(h[0], Math.min(h[1], 0.5), 0.15)); }
+  return (_TE.cache[k] = r);
+}
+/* texto escuro → o mesmo matiz, clareado até 4,5:1 sobre o fundo mais claro que o tema usa (as faixas tingidas, até #243E2E) */
+function _teTexto(v){
+  const k = 't' + v; if (k in _TE.cache) return _TE.cache[k];
+  const c = _teRgb(v); let r = null; const ref = _teLum([36, 62, 46]);
+  const cr = x => (Math.max(_teLum(x), ref) + 0.05) / (Math.min(_teLum(x), ref) + 0.05);
+  if (c && c[3] >= 0.5 && cr(c) < 4.5){ const h = _teHsl(c); let l = Math.max(h[1] < 0.08 ? 0.6 : 0.55, h[2]), x;
+    do { x = _teDeHsl(h[0], Math.min(h[1], 0.85), l); l += 0.02; } while (cr(x) < 4.5 && l < 0.96);
+    r = _teHex(x); }
+  return (_TE.cache[k] = r);
+}
+function _teElemento(el){
+  if (!el.style || el.closest('svg')) return;
+  const b = _teFundo(el.style.backgroundColor), t = _teTexto(el.style.color);
+  if (b){ if (el.style.getPropertyValue('--te-b') !== b) el.style.setProperty('--te-b', b); el.classList.add('teb'); }
+  else if (el.classList.contains('teb')) el.classList.remove('teb');
+  if (t){ if (el.style.getPropertyValue('--te-t') !== t) el.style.setProperty('--te-t', t); el.classList.add('tet'); }
+  else if (el.classList.contains('tet')) el.classList.remove('tet');
+}
+function _teRegras(){
+  const out = [];
+  const anda = (regras, fora) => { for (const r of regras){
+    if (r.type === 4){ const m = r.media.mediaText; if (/print|prefers-color-scheme/i.test(m)) continue; anda(r.cssRules, m); continue; }
+    if (r.type !== 1 || !r.style) continue;
+    const b = _teFundo(r.style.backgroundColor), t = _teTexto(r.style.color);
+    if (!b && !t) continue;
+    const d = (b ? 'background-color:' + b + ';' : '') + (t ? 'color:' + t + ';' : '');
+    out.push(fora ? '@media ' + fora + '{' + r.selectorText + '{' + d + '}}' : r.selectorText + '{' + d + '}');
+  } };
+  for (const s of document.styleSheets){ try { anda(s.cssRules, ''); } catch (e){} }
+  return out;
+}
+function temaEscuro(){
+  const mq = matchMedia('(prefers-color-scheme: dark)');
+  if (!mq.matches || document.documentElement.dataset.tema === 'claro'){
+    mq.addEventListener && mq.addEventListener('change', () => { if (mq.matches && !_TE.lig) temaEscuro(); }, {once: true});
+    return;
+  }
+  if (_TE.lig) return; _TE.lig = true;
+  const st = document.createElement('style'); st.id = 'tema_escuro';
+  st.textContent = '@media screen and (prefers-color-scheme: dark){:root:not([data-tema="claro"]){'
+    + _teRegras().join('\n')
+    + '\n:root{color-scheme:dark} a{color:#8AB4F8} a:visited{color:#C58AF9}'
+    + '\n.abas button:not(.on){color:#8AB4F8}'
+    + '\n.teb{background-color:var(--te-b)!important} .tet{color:var(--te-t)!important}}}';
+  document.head.appendChild(st);
+  // as regras de cima acompanham a ordem da folha: a de estado (.on, :hover) continua valendo depois
+  const passa = raiz => { if (raiz.nodeType !== 1) return; if (raiz.hasAttribute('style')) _teElemento(raiz);
+    raiz.querySelectorAll('[style]').forEach(_teElemento); };
+  passa(document.body);
+  new MutationObserver(L => { for (const m of L){
+    if (m.type === 'attributes') _teElemento(m.target);
+    else m.addedNodes.forEach(passa);
+  } }).observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ['style']});
+}
+try { temaEscuro(); } catch (e){ console.error(e); }
 inicia().catch(e => marca('abertura da folha: ' + e.message));
 </script>
 <!-- geotiff.js 2.1.3 (MIT, https://github.com/geotiffjs/geotiff.js): só o notebook carrega, ao abrir um GeoTIFF -->

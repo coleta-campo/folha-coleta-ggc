@@ -751,10 +751,12 @@ você cabe o que nenhum arquivo registra.</p>
         <p>Sem rede, a navegação desenha os pontos e a sua posição em escala, sem
         imagem de fundo. Para ter imagem, o mapa da área se prepara <b>no
         escritório</b>, como um conjunto de imagens, cada uma com o seu world file de
-        mesmo nome (<code>.jpg</code> + <code>.jgw</code>, ou <code>.png</code> +
-        <code>.pgw</code>): uma <b>visão geral</b> da área, com <code>geral</code> no
+        mesmo nome (<code>.webp</code> + <code>.wld</code>, <code>.png</code> +
+        <code>.pgw</code> ou <code>.jpg</code> + <code>.jgw</code>): uma <b>visão geral</b> da área, com <code>geral</code> no
         nome, para o deslocamento, e um <b>recorte por ponto planejado</b>, na
-        resolução original da imagem, para a chegada. Uma imagem só não basta: o
+        resolução original da imagem, para a chegada. A imagem é guardada como veio,
+        sem nova compressão: em WebP sem perda ou PNG, o pixel do aparelho é o pixel
+        do produto. Uma imagem só não basta: o
         celular desenha no máximo 4096 px de lado, o que cobre 2,5 km a 60 cm de
         pixel. As imagens podem estar em geográficas (SIRGAS 2000), em UTM — o fuso
         se informa uma vez para o conjunto — ou em Pseudo-Mercator, sem rotação.
@@ -778,7 +780,7 @@ você cabe o que nenhum arquivo registra.</p>
   <input type="file" id="f_alvos" accept=".csv,.txt,.geojson,.json,.kml,.gpx" class="oculto">
   <input type="file" id="f_traj" accept=".geojson,.json,.gpx" class="oculto">
   <input type="file" id="f_xyz" webkitdirectory multiple class="oculto">
-  <input type="file" id="f_area" accept="image/*,.pgw,.jgw,.wld,.pngw,.jpgw,.tfw,.prj,.zip,.geojson,.json" multiple class="oculto">
+  <input type="file" id="f_area" accept="image/*,.webp,.pgw,.jgw,.wld,.wpw,.pngw,.jpgw,.tfw,.prj,.zip,.geojson,.json" multiple class="oculto">
 
   <div class="cart naoimprime" id="cart_dias"></div>
   <div id="blocos_dia"></div>
@@ -2776,6 +2778,13 @@ async function idbLimpa(){
   });
 }
 
+/* O arquivo de imagem como data URL, byte a byte (o tipo vem da extensão: o ZIP não traz MIME). */
+async function _dataURLImagem(f){
+  const t = /\.webp$/i.test(f.name) ? 'image/webp' : /\.png$/i.test(f.name) ? 'image/png' : 'image/jpeg';
+  const u8 = new Uint8Array(await f.arrayBuffer());
+  let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return 'data:' + t + ';base64,' + btoa(s);
+}
 function reduz(file, lado, q){
   return new Promise((ok, erro) => {
     const u = URL.createObjectURL(file);
@@ -2786,7 +2795,7 @@ function reduz(file, lado, q){
       c.width = Math.round(im.width * e); c.height = Math.round(im.height * e);
       c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
       URL.revokeObjectURL(u);
-      ok(c.toDataURL('image/jpeg', q));
+      ok(q === 'png' ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', q));
     };
     im.onerror = () => { URL.revokeObjectURL(u); erro(new Error('imagem ilegível')); };
     im.src = u;
@@ -4422,7 +4431,7 @@ async function montaRelatorio(p){
   x.strokeRect(M, y1, larg, hm);
   alvoNoMapa(x, M + larg/2, y1 + hm/2);
   rosaEescala(x, M, y1, larg, hm, p.lat, zP, p.lon, dataDoPontoRef(p));
-  _tarjaQuadro(x, f, M, y1, pxyz ? 'CROQUI · PROJETO QGIS' : pgp ? 'CROQUI · IMAGEM ORIGINAL (' + pgp.curto.toUpperCase() + ')' : proj ? 'CROQUI · IMAGEM DO PROJETO' : 'CROQUI · ESRI (SEM IMAGEM DO PROJETO AQUI)');
+  _tarjaQuadro(x, f, M, y1, pxyz ? 'CROQUI · PROJETO QGIS' : pgp ? 'CROQUI · IMAGEM ORIGINAL (' + pgp.curto.toUpperCase() + ')' : proj ? 'CROQUI · IMAGEM DO PROJETO' : 'CROQUI · ESRI — FORA DA IMAGEM DO PROJETO, NÃO É O PRODUTO');
 
   /* Quadros de detalhe na DIAGONAL do croqui: o primeiro da lista no alto à
      esquerda, logo abaixo da tarja, e o segundo embaixo à direita. São dois
@@ -5079,13 +5088,13 @@ async function quadroDetalhe(x, f, url, lat, lon, ladoM, px, py, lado){
   x.fillText('DETALHE  ' + _numBR(ladoM) + ' × ' + _numBR(ladoM) + ' m',
              px + 8, py + lado - hf + 14);
   f(11); x.fillStyle = C.CZ;
-  x.fillText('nível ' + z + ' · ' + _numBR(g * 100, 1) + ' cm/pixel · '
+  x.fillText('ESRI, não o produto · ' + _numBR(g * 100, 0) + ' cm/pixel · '
              + (amp >= 1 ? 'ampliado ' : 'reduzido ')
              + _numBR(amp >= 1 ? amp : 1/amp, 1) + '×',
              px + 8, py + lado - hf + 28);
 
   return 'Quadro de ' + _numBR(ladoM) + ' × ' + _numBR(ladoM)
-    + ' m centrado no ponto: nível ' + z + ' do serviço, ' + _numBR(g * 100, 1)
+    + ' m centrado no ponto, sobre a imagem Esri (fora da imagem do projeto: não é o produto avaliado): nível ' + z + ' do serviço, ' + _numBR(g * 100, 1)
     + ' cm por pixel, ' + (amp >= 1 ? 'ampliado ' : 'reduzido ')
     + _numBR(amp >= 1 ? amp : 1/amp, 1) + '× sem suavização.';
 }
@@ -9049,10 +9058,10 @@ async function carregaAreaArquivos(files){
   };
   const prjs = {};
   for (const f of L.filter(f => /\.prj$/i.test(f.name))) prjs[_base(f.name)] = zonaDoPrj(await f.text());
-  if (!L.some(f => /\.(png|jpe?g)$/i.test(f.name)) && viasF.length){ await poeVias(); await carregaArea(); return; }
-  const imgs = L.filter(f => /\.(png|jpe?g)$/i.test(f.name));
+  if (!L.some(f => /\.(png|jpe?g|webp)$/i.test(f.name)) && viasF.length){ await poeVias(); await carregaArea(); return; }
+  const imgs = L.filter(f => /\.(png|jpe?g|webp)$/i.test(f.name));
   const wlds = {};
-  L.filter(f => /\.(pgw|jgw|wld|pngw|jpgw|jpegw)$/i.test(f.name))
+  L.filter(f => /\.(pgw|jgw|wld|pngw|jpgw|jpegw|wpw|webpw)$/i.test(f.name))
    .forEach(f => { wlds[_base(f.name)] = f; });
   const pares = imgs.map(f => [f, wlds[_base(f.name)]]);
   const sem = pares.filter(p => !p[1]).map(p => p[0].name);
@@ -9099,9 +9108,12 @@ async function carregaAreaArquivos(files){
       crs = 'Pseudo-Mercator';
       g0 = merc3857Geo(x0, y0); g1 = merc3857Geo(x1, y1);
     } else { avisos.push(fi.name + ': coordenadas do world file fora do esperado'); continue; }
-    const dados = await reduz(fi, 4096, 0.85);
-    if (Math.max(orig.w, orig.h) > 4096)
-      avisos.push(fi.name + ': reduzida a 4096 px (a resolução cai na mesma proporção)');
+    /* 16/11/2026: a imagem entra como veio, sem nova compressão (antes, toda imagem era
+       regravada em JPEG 85, uma segunda perda sobre a do arquivo). Só a maior que 4096 px
+       é reduzida, e a reduzida vai em PNG: perde resolução, não ganha artefato. */
+    const grande = Math.max(orig.w, orig.h) > 4096;
+    const dados = grande ? await reduz(fi, 4096, 'png') : await _dataURLImagem(fi);
+    if (grande) avisos.push(fi.name + ': reduzida a 4096 px (a resolução cai na mesma proporção)');
     lidos.push({chave: 'area:' + fi.name, dados: dados, nome: fi.name, crs: crs,
       n: Math.max(g0.lat, g1.lat), s: Math.min(g0.lat, g1.lat),
       o: Math.min(g0.lon, g1.lon), l: Math.max(g0.lon, g1.lon),
@@ -17572,7 +17584,14 @@ async function recorteLC(p, num){
   const x = c.getContext('2d'); x.fillStyle = '#000'; x.fillRect(0, 0, L, L);
   let fonte = '';
   const mlat = 111320, mlon = 111320 * Math.cos(cp.lat * Math.PI / 180);
-  const cand = AREAS.filter(a => cp.lat + lado / 2 / mlat <= a.n && cp.lat - lado / 2 / mlat >= a.s
+  /* 16/11/2026: no notebook com a imagem original do projeto aberta, o recorte sai dela (vale
+     também para o ponto escolhido em campo, longe dos recortes do mapa da área). */
+  if (typeof camadasNB === 'function' && camadasNB().some(c => c.tipo === 'gr' && c.vis)){
+    const z = Math.log2(156543.03392 * Math.cos(cp.lat * Math.PI / 180) / (lado / L));
+    const r = await mosaicoGPKG(x, cp.lat, cp.lon, z, L, L, 0, 0).catch(() => null);
+    if (r) fonte = 'imagem original (' + r.nomes.join(' + ') + ')';
+  }
+  const cand = fonte ? [] : AREAS.filter(a => cp.lat + lado / 2 / mlat <= a.n && cp.lat - lado / 2 / mlat >= a.s
                               && cp.lon - lado / 2 / mlon >= a.o && cp.lon + lado / 2 / mlon <= a.l)
     .sort((u, v) => (u.n - u.s) * (u.l - u.o) - (v.n - v.s) * (v.l - v.o));
   if (cand.length){

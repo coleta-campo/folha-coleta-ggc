@@ -20304,9 +20304,10 @@ function pintaAval(){
       + 'Para parte de município ou trecho rodoviário, informe o polígono da área (GeoJSON, KML ou GeoPackage) ou o próprio produto (GeoTIFF): '
       + 'num trecho rodoviário, use a faixa do levantamento, não o município.</p>'));
   if (ext){ const M = F.campanha.aval_mancha;
-    h.push('<p class="leg" style="margin:2px 0">Mancha urbana ao fundo do mapa: ' + (M ? 'OpenStreetMap, ' + M.n + ' área(s), de ' + _dataBr(String(M.quando).slice(0, 10))
-      : 'ainda não carregada (precisa de internet)') + ' <button type="button" class="btn sec peq" id="b_aval_mancha">' + (M ? 'atualizar' : 'buscar') + '</button></p>');
-    if (!M && navigator.onLine && _MANCHA_TENTOU !== ext.arquivo) setTimeout(() => avalAtualizaMancha(true), 300); }
+    const ok = M && /IBGE/.test(M.fonte || '');
+    h.push('<p class="leg" style="margin:2px 0">Mancha urbana ao fundo do mapa: ' + (ok ? esc(M.fonte) + ', ' + M.n + ' polígono(s), buscada em ' + _dataBr(String(M.quando).slice(0, 10))
+      : 'ainda não carregada (precisa de internet)') + ' <button type="button" class="btn sec peq" id="b_aval_mancha">' + (ok ? 'atualizar' : 'buscar') + '</button></p>');
+    if (!ok && navigator.onLine && _MANCHA_TENTOU !== ext.arquivo) setTimeout(() => avalAtualizaMancha(true), 300); }
   if (!L.length){
     h.push('<p class="leg">' + (MODO_PLAN ? 'Junte aqui as tabelas <code>…_avaliacao_pontos_checagem.csv</code> das equipes (vão ao Drive com o envio de cada folha, na pasta <code>_registros/avaliacao_planimetrica</code> de cada equipe).' : 'Nenhum ponto rastreado ainda.') + '</p>'
       + (MODO_PLAN ? '<div class="acoes"><button type="button" class="btn sec peq" id="b_aval_junta">Juntar tabelas das equipes (.csv)</button></div><input type="file" id="f_aval_junta" class="oculto" multiple accept=".csv,.tsv,.txt">' : ''));
@@ -20374,12 +20375,12 @@ function _avalLiga(){
         const K = [...box.querySelectorAll('[data-mun]:checked')].map(x => x.dataset.mun), nomes = {}; M.forEach(m => nomes[m.cod] = m.nome);
         if (!K.length) return marca('marque ao menos um município');
         marca('buscando o limite municipal na malha do IBGE…');
-        try { F.campanha.aval_ext = await avalExtensaoMunicipal(K, nomes); F.campanha.aval_mancha = null; grava(); marca('extensão: ' + F.campanha.aval_ext.arquivo); pintaAval(); avalAtualizaMancha(true); }
+        try { F.campanha.aval_ext = await avalExtensaoMunicipal(K, nomes); F.campanha.aval_mancha = null; grava(); marca('extensão: ' + F.campanha.aval_ext.arquivo); pintaAval(); }
         catch (err){ marca('limite municipal: ' + err.message); } };
     } catch (err){ marca('limite municipal: ' + err.message); }
     bm.disabled = false; };
   const fe = $('#f_aval_ext'); if (fe) fe.onchange = async e => { const fs = Array.from(e.target.files); e.target.value = '';
-    try { F.campanha.aval_ext = await avalLeExtensao(fs); F.campanha.aval_mancha = null; grava(); marca('extensão do produto avaliado: ' + F.campanha.aval_ext.arquivo); pintaAval(); avalAtualizaMancha(true); }
+    try { F.campanha.aval_ext = await avalLeExtensao(fs); F.campanha.aval_mancha = null; grava(); marca('extensão do produto avaliado: ' + F.campanha.aval_ext.arquivo); pintaAval(); }
     catch (err){ marca('extensão do produto: ' + err.message); } };
   const br = $('#b_aval_rel'); if (br) br.onclick = () => { const w = window.open('', '_blank'); if (!w) return marca('o navegador bloqueou a janela do relatório');
     w.document.open(); w.document.write(avalRelatorio(_AVAL)); w.document.close(); };
@@ -20413,11 +20414,12 @@ function _avalLeTSV(t){
 }
 
 /* ---- relatório da prévia (HTML autossuficiente, com figuras em SVG) ---- */
-/* ---- mancha urbana do OpenStreetMap ao fundo do mapa da distribuição (16/11/2026) ----
-   Só contexto visual, discreto: áreas com landuse residential, commercial, industrial ou retail do OSM, pedidas ao Overpass
-   dentro da extensão do produto (filtro poly), uma vez, e guardadas na campanha (vão nas folhas das equipes). Não entra em
-   nenhuma conta. Teste de 16/11/2026: São Gonçalo do Amarante, 108 feições (3.406 vértices); Nísia Floresta, 66 (1.090).
-   Dados © colaboradores do OpenStreetMap, licença ODbL — a atribuição sai no mapa. */
+/* ---- mancha urbana ao fundo do mapa da distribuição (16/11/2026) ----
+   Só contexto visual, discreto; não entra em nenhuma conta. Fonte: IBGE, Áreas Urbanizadas do Brasil 2022 (geoserviço WFS do
+   IBGE, camada CGEO:AU_2026_AreasUrbanizadas2022_Brasil; imagens de 2022), pedida dentro da extensão do produto (filtro
+   INTERSECTS) e guardada na campanha (vai nas folhas das equipes). A primeira versão usava o OpenStreetMap (Overpass): cobertura
+   incompleta na região e respostas 502 — trocada pela base oficial do IBGE a pedido do Fábio.
+   Teste de 16/11/2026: Nísia Floresta, 73 feições (urbanizada densa 33, pouco densa 29, loteamento vazio 9, outras 2). */
 const _osmIgual = (a, b) => Math.abs(a[0] - b[0]) < 1e-7 && Math.abs(a[1] - b[1]) < 1e-7;
 function _osmJunta(segs){
   segs = segs.filter(x => x.length > 1).map(x => x.slice()); const out = [];
@@ -20450,51 +20452,69 @@ function _osmSimpl(a, tol){                       // Douglas-Peucker em graus, l
     if (im > 0 && dm > tol * tol){ m[im] = 1; pilha.push([i, im], [im, j]); } }
   const r = a.filter((_, i) => m[i]); return r.length >= 4 ? r : a;
 }
-function avalManchaDeOSM(j){
+function avalManchaDeAU(gj){
   const F2 = [], arred = r => r.map(c => [+c[0].toFixed(5), +c[1].toFixed(5)]);
-  for (const e of (j.elements || [])){
-    const t = (e.tags || {}).landuse || '';
-    let ext = [], int = [];
-    if (e.type === 'way' && e.geometry) ext = _osmJunta([e.geometry.map(p => [p.lon, p.lat])]);
-    else if (e.type === 'relation' && e.members){
-      const pega = papel => e.members.filter(m => m.type === 'way' && m.geometry && (m.role || 'outer') === papel).map(m => m.geometry.map(p => [p.lon, p.lat]));
-      ext = _osmJunta(pega('outer')); int = _osmJunta(pega('inner'));
-    }
-    const aneis = ext.concat(int).map(r => arred(_osmSimpl(r, 0.00004))).filter(r => r.length >= 4);
-    if (ext.length && aneis.length) F2.push({t: t, a: aneis});
+  for (const f of (gj.features || [])){
+    const g = f.geometry, pr = f.properties || {}; if (!g) continue;
+    const P = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+    const aneis = P.flat().map(r => arred(_osmSimpl(r, 0.00004))).filter(r => r.length >= 4);
+    if (aneis.length) F2.push({t: pr.Tipo || '', d: pr.Densidade || '', a: aneis});
   }
   return F2;
 }
 let _MANCHA_TENTOU = '';
+const AU_CAMADAS = [['CGEO:AU_2026_AreasUrbanizadas2022_Brasil', 'Áreas Urbanizadas do Brasil 2022'],
+                    ['CGEO:AU_2026_AreasUrbanizadas2019_Brasil_Revisado', 'Áreas Urbanizadas do Brasil 2019 (revisado)']];
 async function avalBuscaMancha(ext){
   if (!ext || !ext.aneis || !ext.aneis.length) throw new Error('informe antes a extensão do produto');
-  const filtro = ext.aneis.map(a => { const st = Math.max(1, Math.floor(a.length / 150));
-    return '(poly:"' + a.filter((_, i) => i % st === 0).map(c => c[1].toFixed(5) + ' ' + c[0].toFixed(5)).join(' ') + '")'; });
-  const lu = '["landuse"~"^(residential|commercial|industrial|retail)$"]';
-  const q = '[out:json][timeout:90];(' + filtro.map(f => 'way' + lu + f + ';relation' + lu + f + ';').join('') + ');out geom qt;';
-  const corta = new AbortController(), t = setTimeout(() => corta.abort(), 120000);
-  try {
-    const r = await fetch('https://overpass-api.de/api/interpreter', {method: 'POST', signal: corta.signal,
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'data=' + encodeURIComponent(q)});
-    if (!r.ok) throw new Error('o Overpass (OpenStreetMap) respondeu ' + r.status);
-    const P = avalManchaDeOSM(await r.json());
-    return {fonte: 'OpenStreetMap (Overpass), landuse residential/commercial/industrial/retail', quando: new Date().toISOString(),
-      ext: ext.arquivo, n: P.length, poli: P};
-  } catch (e){ throw new Error(e.name === 'AbortError' ? 'o Overpass não respondeu a tempo' : /Overpass/.test(e.message) ? e.message : 'sem conexão com o Overpass (OpenStreetMap)'); }
-  finally { clearTimeout(t); }
+  const P = [], vistos = new Set(); let ultimo = '', nome = '';
+  for (const [camada, titulo] of AU_CAMADAS){
+    P.length = 0; vistos.clear(); ultimo = '';
+    for (const a of ext.aneis){
+      // filtro INTERSECTS com o anel reduzido: o pedido vai por GET e o endereço não pode passar de ~2.000 caracteres
+      let u = '';
+      for (let nv = 80; nv >= 12; nv = Math.floor(nv * 0.8)){
+        const st = Math.max(1, Math.ceil(a.length / nv)), R = a.filter((_, i) => i % st === 0); R.push(R[0]);
+        const wkt = 'POLYGON((' + R.map(c => c[0].toFixed(4) + ' ' + c[1].toFixed(4)).join(',') + '))';   // x y = lon lat
+        u = WFS_IBGE + '?service=WFS&version=1.0.0&request=GetFeature&typeName=' + encodeURIComponent(camada)
+          + '&outputFormat=application/json&srsName=EPSG:4674&propertyName=geom,Densidade,Tipo,DataImagem&CQL_FILTER='
+          + encodeURIComponent('INTERSECTS(geom,' + wkt + ')');
+        if (u.length < 1900) break;
+      }
+      const corta = new AbortController(), t = setTimeout(() => corta.abort(), 60000);
+      try {
+        const r = await fetch(u, {signal: corta.signal});
+        if (!r.ok){ ultimo = 'o geoserviço do IBGE respondeu ' + r.status; break; }
+        const j = await r.json();
+        (j.features || []).forEach(f => { const k = f.id || JSON.stringify(f.geometry).slice(0, 80); if (!vistos.has(k)){ vistos.add(k); P.push(f); } });
+      } catch (e){ ultimo = e.name === 'AbortError' ? 'o geoserviço do IBGE não respondeu a tempo' : 'sem conexão com o geoserviço do IBGE'; break; }
+      finally { clearTimeout(t); }
+    }
+    if (!ultimo){ nome = titulo; break; }
+  }
+  if (ultimo) throw new Error(ultimo);
+  const M = avalManchaDeAU({features: P});
+  return {fonte: 'IBGE, ' + nome, quando: new Date().toISOString(), ext: ext.arquivo, n: M.length, poli: M};
 }
+let _MANCHA_BUSCA = null;
 async function avalAtualizaMancha(silencio){
   const ext = F.campanha.aval_ext; if (!ext) return;
+  if (_MANCHA_BUSCA) return _MANCHA_BUSCA;          // um pedido de cada vez
   _MANCHA_TENTOU = ext.arquivo;
-  try { if (!silencio) marca('buscando a mancha urbana no OpenStreetMap…');
+  return (_MANCHA_BUSCA = _avalAtualizaMancha(ext, silencio).finally(() => { _MANCHA_BUSCA = null; }));
+}
+async function _avalAtualizaMancha(ext, silencio){
+  try { if (!silencio) marca('buscando as áreas urbanizadas no geoserviço do IBGE…');
     F.campanha.aval_mancha = await avalBuscaMancha(ext); grava();
-    marca('mancha urbana (OpenStreetMap): ' + F.campanha.aval_mancha.n + ' área(s)'); pintaAval(); }
+    marca('áreas urbanizadas (IBGE): ' + F.campanha.aval_mancha.n + ' polígono(s)'); pintaAval(); }
   catch (e){ if (!silencio) marca('mancha urbana: ' + e.message); }
 }
 function _svgMancha(fuso, X, Y){
-  const M = F.campanha.aval_mancha; if (!M || !M.poli || !M.poli.length) return '';
-  return '<g fill="#94A3B8" fill-opacity=".38" fill-rule="evenodd" stroke="none" clip-path="url(#corte_mapa)">'
-    + M.poli.map(p => '<path d="' + p.a.map(r => 'M' + r.map(c => { const u = utmFuso(c[1], c[0], fuso); return X(u.E).toFixed(1) + ',' + Y(u.N).toFixed(1); }).join('L') + 'Z').join('') + '"/>').join('')
+  const M = F.campanha.aval_mancha; if (!M || !M.poli || !M.poli.length || !/IBGE/.test(M.fonte || '')) return '';
+  // urbanizada densa um pouco mais escura; pouco densa, loteamento vazio, vazio intraurbano e equipamentos, mais clara
+  const op = p => /densa/i.test(p.d) && !/pouco/i.test(p.d) && /urbanizada/i.test(p.t) ? '.45' : '.22';
+  return '<g fill="#94A3B8" fill-rule="evenodd" stroke="none" clip-path="url(#corte_mapa)">'
+    + M.poli.map(p => '<path fill-opacity="' + op(p) + '" d="' + p.a.map(r => 'M' + r.map(c => { const u = utmFuso(c[1], c[0], fuso); return X(u.E).toFixed(1) + ',' + Y(u.N).toFixed(1); }).join('L') + 'Z').join('') + '"/>').join('')
     + '</g>';
 }
 function _svgMapa(R){
@@ -20532,10 +20552,11 @@ function _svgMapa(R){
   lg.forEach(([c, t]) => { ly += 22; s += '<circle cx="' + (W + 20) + '" cy="' + (ly - 4) + '" r="5" fill="' + c + '"/><text x="' + (W + 32) + '" y="' + ly + '">' + t.replace(' (', '</text><text x="' + (W + 32) + '" y="' + (ly += 14) + '">(') + '</text>'; });
   ly += 24; s += '<line x1="' + (W + 14) + '" y1="' + (ly - 4) + '" x2="' + (W + 28) + '" y2="' + (ly - 4) + '" stroke="#7C3AED" stroke-width="2"/><text x="' + (W + 32) + '" y="' + ly + '">erro imagem − campo,</text><text x="' + (W + 32) + '" y="' + (ly += 14) + '">ampliado ' + amp + '×</text>';
   if (ext){ ly += 24; s += '<rect x="' + (W + 14) + '" y="' + (ly - 11) + '" width="14" height="10" fill="#EEF4FA" stroke="#0A2E52"/><text x="' + (W + 32) + '" y="' + ly + '">extensão do produto</text>'; }
-  if (mancha){ ly += 22; s += '<rect x="' + (W + 14) + '" y="' + (ly - 11) + '" width="14" height="10" fill="#94A3B8" fill-opacity=".38"/><text x="' + (W + 32) + '" y="' + ly + '">área urbana (OpenStreetMap)</text>'; }
+  if (mancha){ ly += 22; s += '<rect x="' + (W + 14) + '" y="' + (ly - 11) + '" width="14" height="10" fill="#94A3B8" fill-opacity=".45"/><text x="' + (W + 32) + '" y="' + ly + '">área urbanizada densa</text>';
+    ly += 18; s += '<rect x="' + (W + 14) + '" y="' + (ly - 11) + '" width="14" height="10" fill="#94A3B8" fill-opacity=".22"/><text x="' + (W + 32) + '" y="' + ly + '">pouco densa, loteamento</text><text x="' + (W + 32) + '" y="' + (ly += 14) + '">vazio e outros (IBGE)</text>'; }
   if (D && D.centro){ ly += 22; s += '<line x1="' + (W + 14) + '" y1="' + (ly - 4) + '" x2="' + (W + 28) + '" y2="' + (ly - 4) + '" stroke="#64748B" stroke-dasharray="4 3"/><text x="' + (W + 32) + '" y="' + ly + '">divisão em quadrantes</text>'; }
   ly += 22; s += '<text x="' + (W + 14) + '" y="' + ly + '">UTM ' + R.fuso + 'S, SIRGAS 2000</text>';
-  if (mancha) s += '<text x="' + (W - 6) + '" y="' + (Hm - 6) + '" text-anchor="end" font-size="9" fill="#475569">área urbana: © colaboradores do OpenStreetMap (ODbL)</text>';
+  if (mancha) s += '<text x="' + (W - 6) + '" y="' + (Hm - 6) + '" text-anchor="end" font-size="9" fill="#475569">áreas urbanizadas: ' + esc(F.campanha.aval_mancha.fonte || 'IBGE') + '</text>';
   return s + '</svg>';
 }
 function _svgDispersao(R){

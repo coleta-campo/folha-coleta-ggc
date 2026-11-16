@@ -7002,8 +7002,8 @@ function htmlAvalCampanha(){
     + '<p class="ocor" style="color:inherit">Diferença entre a posição escolhida em gabinete sobre a imagem (a opção ocupada) e a coordenada do IBGE-PPP, '
     + 'em UTM SIRGAS 2000, fuso ' + R.fuso + 'S (EPSG:' + R.epsg + '). Δ = gabinete − campo. Só planimetria (não há MDT). É uma <b>prévia</b>: soma o erro da imagem '
     + 'e o de identificação da feição. A avaliação final é a do PlugIBGE, com o GeoPackage da folha.</p>';
-  if (G.length) h += '<table><tr><th>ponto</th><th>opção</th><th>E gabinete</th><th>N gabinete</th><th>E campo</th><th>N campo</th><th>ΔE (m)</th><th>ΔN (m)</th><th>distância (m)</th><th>situação</th></tr>'
-    + G.map(r => '<tr><td>' + esc(r.id) + '</td><td>' + esc(r.op) + (r.lig && r.lig !== r.op ? '<br><span class="ocor">ligada: ' + esc(r.lig) + '</span>' : '') + '</td>'
+  if (G.length) h += '<table><tr><th>ponto</th>' + (R.munis ? '<th>município</th>' : '') + '<th>opção</th><th>E gabinete</th><th>N gabinete</th><th>E campo</th><th>N campo</th><th>ΔE (m)</th><th>ΔN (m)</th><th>distância (m)</th><th>situação</th></tr>'
+    + G.map(r => '<tr><td>' + esc(r.id) + '</td>' + (R.munis ? '<td>' + (r.mun ? esc(r.mun.nome.split('/')[0]) : '—') + '</td>' : '') + '<td>' + esc(r.op) + (r.lig && r.lig !== r.op ? '<br><span class="ocor">ligada: ' + esc(r.lig) + '</span>' : '') + '</td>'
       + '<td class="n">' + _avalUTM(r.Eg) + '</td><td class="n">' + _avalUTM(r.Ng) + '</td><td class="n">' + _avalUTM(r.E) + '</td><td class="n">' + _avalUTM(r.N) + '</td>'
       + '<td class="n">' + _avalM(r.dE) + '</td><td class="n">' + _avalM(r.dN) + '</td><td class="n"><b>' + _af2(r.r) + '</b></td>'
       + '<td' + (r.sit === 'confira' ? ' style="color:#B91C1C"><b>a conferir</b>' : '>' + (/FINAL/i.test(r.orbita) ? 'órbita final' : 'órbita rápida')) + '</td></tr>').join('')
@@ -7014,16 +7014,26 @@ function htmlAvalCampanha(){
   if (longe) nota.push('<b style="color:#B91C1C">Longe da opção ligada</b> (mais de ' + LONGE + ' m: outro lugar, provavelmente escolhido em campo; marque em Fechar o dia ▸ Avaliação planimétrica): ' + longe + '.');
   if (outros('excluido')) nota.push('Excluídos pelo operador: ' + outros('excluido') + '.');
   if (outros('sem_ppp')) nota.push('Sem coordenada do IBGE-PPP: ' + outros('sem_ppp') + '.');
+  const resumo = (Rx, rot) => {
+    if (Rx.n < 3){ nota.push((rot ? '<b>' + rot + '</b>: ' : '') + Rx.n + ' ponto(s) de gabinete — sem resumo estatístico (mínimo 3).'); return; }
+    const T = Rx.trans, d = Rx.distPrevia;
+    nota.push('<b>' + (rot ? rot + '</b> — ' + Rx.n + ' pontos de gabinete' : 'Resumo dos ' + Rx.n + ' pontos de gabinete</b>') + ': tendência (média) ΔE ' + _avalM(Rx.E.media) + ' m' + (Rx.tendE ? ' (significativa)' : '')
+      + ' · ΔN ' + _avalM(Rx.N.media) + ' m' + (Rx.tendN ? ' (significativa)' : '') + ' (t de Student, α = 10 %) · RMSE<sub>r</sub> ' + _af2(Rx.r.rmse) + ' m · CE90 ' + _af2(Rx.r.ce90) + ' m. '
+      + 'PEC do Decreto nº 89.817/1984: Classe A a partir de <b>' + avalFmtEsc(Rx.pec.A) + '</b>' + (avalEscPadrao(Rx.pec.A) ? ' (escala-padrão ' + avalFmtEsc(avalEscPadrao(Rx.pec.A)) + ')' : '')
+      + '; B a partir de ' + avalFmtEsc(Rx.pec.B) + '; C a partir de ' + avalFmtEsc(Rx.pec.C) + '.'
+      + (T && T.sig ? ' Com translação pela média: RMSE<sub>r</sub> ' + _af2(T.rmse) + ' m, CE90 ' + _af2(T.ce90) + ' m, Classe A a partir de ' + avalFmtEsc(T.pec.A) + ' (produto corrigido; o PEC acima é o do produto entregue).' : '')
+      + (d && !d.semExtensao ? ' Distribuição: ' + d.quadOcup + '/4 quadrantes' + ((d.vmp || [])[0] ? ', vizinho mais próximo R = ' + _af2(d.vmp[0].R) + ' (' + d.vmp[0].padrao + ')' : '')
+        + (d.ripley ? ', Ripley ' + _avalRipTxt(d.ripley) : '') + (d.fora ? '; ' + d.fora + ' ponto(s) do outro lado do limite, avaliados com o município' : '') + '.' : ''));
+  };
+  if (R.munis && R.munis.length){
+    R.munis.forEach(m => resumo(m, esc(m.nome) + ' (' + m.cod + ')' + (m.ext && m.ext.area_km2 ? ', ' + m.ext.area_km2.toLocaleString('pt-BR', {maximumFractionDigits: 1}) + ' km²' : '')));
+    if (R.semMun && R.semMun.length) nota.push('Sem município avaliado: ' + R.semMun.map(esc).join(', ') + '.');
+    if (R.n >= 3) nota.push('Conjunto da campanha (referência): ' + R.n + ' pontos, RMSE<sub>r</sub> ' + _af2(R.r.rmse) + ' m, CE90 ' + _af2(R.r.ce90) + ' m, Classe A a partir de ' + avalFmtEsc(R.pec.A) + '.');
+  } else if (R.n >= 3 || G.length) resumo(R, '');
   if (R.n >= 3){
-    const T = R.trans;
-    nota.push('<b>Resumo dos ' + R.n + ' pontos de gabinete</b>: tendência (média) ΔE ' + _avalM(R.E.media) + ' m' + (R.tendE ? ' (significativa)' : '')
-      + ' · ΔN ' + _avalM(R.N.media) + ' m' + (R.tendN ? ' (significativa)' : '') + ' (t de Student, α = 10 %) · RMSE<sub>r</sub> ' + _af2(R.r.rmse) + ' m · CE90 ' + _af2(R.r.ce90) + ' m.');
-    nota.push('PEC do Decreto nº 89.817/1984: Classe A a partir de <b>' + avalFmtEsc(R.pec.A) + '</b>' + (avalEscPadrao(R.pec.A) ? ' (escala-padrão ' + avalFmtEsc(avalEscPadrao(R.pec.A)) + ')' : '')
-      + '; B a partir de ' + avalFmtEsc(R.pec.B) + '; C a partir de ' + avalFmtEsc(R.pec.C) + '.'
-      + (T && T.sig ? ' Com translação pela média: RMSE<sub>r</sub> ' + _af2(T.rmse) + ' m, CE90 ' + _af2(T.ce90) + ' m, Classe A a partir de ' + avalFmtEsc(T.pec.A) + ' (produto corrigido; o PEC acima é o do produto entregue).' : ''));
-    if (R.n < 20) nota.push('n = ' + R.n + ' &lt; 20: resultado indicativo, não conclusivo (Merchant, 1982).');
+    if (R.n < 20 || (R.munis || []).some(m => m.n < 20)) nota.push('Com n &lt; 20 pontos (no conjunto ou no município), o resultado é indicativo, não conclusivo (Merchant, 1982).');
     if (R.nRapida) nota.push(R.nRapida + ' ponto(s) com órbita rápida: refazer quando a órbita final sair.');
-  } else if (G.length) nota.push('Menos de 3 pontos de gabinete confirmados: sem resumo estatístico.');
+  }
   if (!R.ext) nota.push('Extensão do produto avaliado não informada: a distribuição dos pontos não foi analisada.');
   return h + (nota.length ? '<ul>' + nota.map(t => '<li>' + t + '</li>').join('') + '</ul>' : '')
     + '<p class="ident">Estatística completa (normalidade, tendência circular, qui-quadrado, distribuição) no relatório da avaliação, em Fechar o dia ▸ '
@@ -19958,7 +19968,7 @@ function _gmsDec(s){
 const _numBR0 = s => { const x = parseFloat(String(s == null ? '' : s).replace(',', '.')); return isFinite(x) ? x : null; };
 const AVAL_CAMPOS_BAT = ['PASTA', 'PROCES', 'RINEX', 'MARCO', 'INICIO', 'FIM', 'TEMPO', 'MODO', 'ANTENA', 'ALTANT', 'INTERV', 'FREQ', 'OBSERV',
   'ORBITA', 'DATUM', 'LAT', 'LON', 'HGEO', 'SLAT', 'SLON', 'SHGEO', 'UTMN', 'UTME', 'MC', 'MODELO', 'FATCOR', 'INCERT', 'HNOR'];
-const AVAL_EXTRAS = ['ID_PONTO', 'EQUIPE', 'OPCAO_LIGADA', 'OPCAO_OCUPADA', 'SITUACAO', 'LAT_GABINETE', 'LON_GABINETE'];
+const AVAL_EXTRAS = ['ID_PONTO', 'EQUIPE', 'OPCAO_LIGADA', 'OPCAO_OCUPADA', 'SITUACAO', 'LAT_GABINETE', 'LON_GABINETE', 'CD_MUN_AVAL', 'MUNICIPIO_AVAL'];
 
 /* ---- uma linha por ponto rastreado ---- */
 function _circuloDe(p){
@@ -20049,11 +20059,11 @@ function avalDistribuicao(xy, aneis){
 }
 
 /* ---- avaliação completa ---- */
-function avalCalcula(L, ext){
+function avalCalcula(L, ext, fusoFixo){
   const ok = L.filter(r => r.sit === 'gabinete');
   const todos = L.filter(r => r.sit === 'gabinete' || r.sit === 'campo' || r.sit === 'confira');
   const lons = todos.map(r => r.lon).sort((a, b) => a - b);
-  const fuso = lons.length ? Math.floor((lons[Math.floor(lons.length / 2)] + 180) / 6) + 1 : 25;
+  const fuso = fusoFixo || (lons.length ? Math.floor((lons[Math.floor(lons.length / 2)] + 180) / 6) + 1 : 25);
   L.forEach(r => {
     if (r.lat == null) return;
     const u = utmFuso(r.lat, r.lon, fuso); r.E = u.E; r.N = u.N;
@@ -20174,9 +20184,10 @@ const AVAL_TIPO_MUN = 'limite municipal (malha do IBGE)';
 async function avalMunicipiosDosPontos(){
   const L = avalLinhas().filter(r => r.lat != null && r.sit !== 'excluido'), M = {};
   for (const r of L){
-    let c = r.p && r.p.cd_mun, nm = r.p && r.p.municipio ? r.p.municipio + (r.p.uf ? '/' + r.p.uf : '') : '';
-    if (!c){ const m = await municipioDe(r.lat, r.lon, 15); if (m){ c = m.cod; nm = m.nome + '/' + m.uf; } }
-    if (c && /^\d{7}$/.test(c)){ M[c] = M[c] || {cod: c, nome: nm || c, n: 0}; M[c].n++; }
+    let m = avalMunAval(r);
+    if (!m){ const g = await municipioDe(r.lat, r.lon, 15); if (g) m = {cod: String(g.cod), nome: g.nome + '/' + g.uf, origem: 'lugar'}; }
+    if (m && /^\d{7}$/.test(m.cod)){ M[m.cod] = M[m.cod] || {cod: m.cod, nome: m.nome, n: 0, fora: 0}; M[m.cod].n++;
+      if (r.p && r.p.cd_mun && String(r.p.cd_mun) !== m.cod) M[m.cod].fora++; }
   }
   return Object.values(M).sort((a, b) => b.n - a.n);
 }
@@ -20185,6 +20196,7 @@ async function avalExtensaoMunicipal(K, nomes){
   if (!K.length) throw new Error('nenhum município escolhido');
   // a API v3 aceita um município por pedido (vários códigos juntos dão 400): um pedido por município
   const aneis = [];
+  const porMun = {};
   for (const c of K){
     const corta = new AbortController(), t = setTimeout(() => corta.abort(), 30000);
     try {
@@ -20193,11 +20205,13 @@ async function avalExtensaoMunicipal(K, nomes){
       const A = _aneisGeoJSON(await q.json()).filter(a => a.length >= 4);
       if (!A.length) throw new Error('a API de malhas do IBGE não devolveu o polígono de ' + c);
       A.forEach(a => aneis.push(a));
+      let ar = null; try { const fz = Math.floor((A[0][0][0] + 180) / 6) + 1; ar = A.reduce((t, a) => t + _areaAnel(_anelUTM(a, fz)), 0) / 1e6; } catch (e){}
+      porMun[c] = {nome: nomes[c] || c, aneis: A, area_km2: ar};
     } catch (e){ throw new Error(e.name === 'AbortError' ? 'a API de malhas do IBGE não respondeu a tempo' : /API de malhas/.test(e.message) ? e.message : 'sem conexão com a API de malhas do IBGE'); }
     finally { clearTimeout(t); }
   }
   let area = null; try { const fz = Math.floor((aneis[0][0][0] + 180) / 6) + 1; area = aneis.reduce((s, a) => s + _areaAnel(_anelUTM(a, fz)), 0) / 1e6; } catch (e){}
-  return {arquivo: K.map(c => (nomes[c] || c) + ' (' + c + ')').join(', '), tipo: AVAL_TIPO_MUN, aneis: aneis, gsd: null, cods: K,
+  return {arquivo: K.map(c => (nomes[c] || c) + ' (' + c + ')').join(', '), tipo: AVAL_TIPO_MUN, aneis: aneis, gsd: null, cods: K, porMun: porMun,
     area_km2: area, fonte: 'IBGE, API de malhas v3, qualidade máxima', quando: new Date().toISOString()};
 }
 
@@ -20213,10 +20227,56 @@ function avalLinhas(){
   }
   return avalLinhasDaFolha();
 }
-function avalAtualiza(){ _AVAL = avalCalcula(avalLinhas(), F.campanha.aval_ext); return _AVAL; }
+/* município da AVALIAÇÃO (15/11/2026): o do plano, não o do lugar. O ponto planejado traz o município a que pertence
+   (atributo municipio do alvo, da opção ocupada, da ligada ou de outra opção do círculo); ponto perto da divisa, que caiu
+   no município vizinho, continua na avaliação do município do plano. Sem plano, vale o município do lugar (cd_mun). */
+function avalMunAval(r){
+  const A = F.campanha.alvos || [], uf = (r.p && r.p.uf) || F.campanha.uf || '';
+  let a = [r.op, r.lig].filter(x => x && x !== 'campo' && x !== 'excluir').map(id => A.find(x => x.id === id)).find(x => x && x.municipio);
+  if (!a && r.circ) a = A.find(x => String(x.id).replace(/[A-Z]$/i, '') === r.circ && x.municipio);
+  if (a){ const m = achaMunicipio(a.municipio, uf) || achaMunicipio(a.municipio, ''); if (m) return {cod: String(m.cod), nome: m.nome + '/' + m.uf, origem: 'plano'}; }
+  if (r.x && /^\d{7}$/.test(r.x.CD_MUN_AVAL || '')) return {cod: r.x.CD_MUN_AVAL, nome: r.x.MUNICIPIO_AVAL || r.x.CD_MUN_AVAL, origem: 'tabela'};
+  if (r.p && r.p.cd_mun) return {cod: String(r.p.cd_mun), nome: (r.p.municipio || r.p.cd_mun) + (r.p.uf ? '/' + r.p.uf : ''), origem: 'lugar'};
+  return null;
+}
+/* com a extensão municipal, a avaliação é POR MUNICÍPIO: cada município com os seus pontos e o seu limite. O conjunto da
+   campanha segue calculado, como referência. Cada linha guarda os resíduos da translação do seu município. */
+function avalAtualiza(){
+  const L = avalLinhas(), ext = F.campanha.aval_ext;
+  L.forEach(r => { r.mun = avalMunAval(r); });
+  _AVAL = avalCalcula(L, ext);
+  if (ext && ext.porMun){
+    _AVAL.munis = Object.keys(ext.porMun).map(cod => {
+      const M = ext.porMun[cod], sub = L.filter(r => r.mun && r.mun.cod === cod);
+      const Rm = avalCalcula(sub, {arquivo: M.nome + ' (' + cod + ')', tipo: AVAL_TIPO_MUN, aneis: M.aneis, area_km2: M.area_km2, fonte: ext.fonte}, _AVAL.fuso);
+      Rm.cod = cod; Rm.nome = M.nome; Rm.fora = (Rm.distTodos && Rm.distTodos.fora) || 0; return Rm; });
+    _AVAL.semMun = L.filter(r => r.lat != null && ['gabinete', 'campo', 'confira'].includes(r.sit) && !(r.mun && ext.porMun[r.mun.cod])).map(r => r.id);
+  }
+  return _AVAL;
+}
 const _af2 = v => v == null || !isFinite(v) ? '—' : v.toFixed(2).replace('.', ',');
 const _ap3 = v => v == null || !isFinite(v) ? '—' : v < 0.001 ? '< 0,001' : v.toFixed(3).replace('.', ',');
 const AVAL_SIT = {gabinete: ['prévia', '#15803D'], campo: ['manual no PlugIBGE', '#B45309'], confira: ['a conferir', '#B91C1C'], sem_ppp: ['sem PPP', '#6B7280'], excluido: ['excluído', '#6B7280']};
+function _avalResumoHTML(R, titulo){
+  if (R.n < 3) return '<p class="leg">' + (titulo ? '<b>' + titulo + '</b>: ' : '') + R.n + ' ponto(s) de gabinete com PPP — a prévia precisa de pelo menos 3.</p>';
+    const cA = R.pec.A, cB = R.pec.B, cC = R.pec.C;
+    return '<div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:8px 10px;margin:6px 0">'
+      + (titulo ? '<b style="font-size:1.05em">' + titulo + '</b><br>' : '')
+      + '<b>Prévia com ' + R.n + ' ponto(s) de gabinete</b>' + (R.n < 20 ? ' <span style="color:#B45309">(n &lt; 20: indicativa — Merchant, 1982)</span>' : '') + '<br>'
+      + 'Tendência (mediana): E ' + _af2(R.vies.E) + ' m · N ' + _af2(R.vies.N) + ' m' + (R.tendE || R.tendN ? ' <b style="color:#B45309">significativa (t, α = 10 %)</b>' : ' — não significativa') + '<br>'
+      + 'RMSE<sub>r</sub> ' + _af2(R.r.rmse) + ' m · CE90 ' + _af2(R.r.ce90) + ' m · NMAD<sub>r</sub> ' + _af2(R.r.nmad) + ' m<br>'
+      + '<b>PEC (Decreto 89.817/1984):</b> Classe A a partir de ' + avalFmtEsc(cA) + ' (escala-padrão ' + (avalEscPadrao(cA) ? avalFmtEsc(avalEscPadrao(cA)) : '—') + ') · '
+      + 'B a partir de ' + avalFmtEsc(cB) + ' · C a partir de ' + avalFmtEsc(cC)
+      + (R.trans ? '<br><b>Com translação pela média</b> (E ' + _af2(R.trans.E) + ' ± ' + _af2(R.trans.icE) + ' m · N ' + _af2(R.trans.N) + ' ± ' + _af2(R.trans.icN)
+        + ' m, IC 90 %): RMSE<sub>r</sub> ' + _af2(R.trans.rmse) + ' m · CE90 ' + _af2(R.trans.ce90) + ' m · Classe A a partir de ' + avalFmtEsc(R.trans.pec.A)
+        + ' <small>(produto corrigido pelo deslocamento; o PEC acima é o do produto entregue)</small>' : '')
+      + (R.distPrevia.semExtensao ? '' : '<br>Distribuição: ' + R.distPrevia.quadOcup + '/4 quadrantes · vizinho mais próximo R = ' + _af2((R.distPrevia.vmp || [])[0] && R.distPrevia.vmp[0].R)
+        + ' (' + ((R.distPrevia.vmp || [])[0] ? R.distPrevia.vmp[0].padrao : '—') + ')'
+        + (R.distPrevia.ripley ? ' · Ripley: ' + _avalRipTxt(R.distPrevia.ripley) : '')
+        + (R.distPrevia.fora ? ' · ' + R.distPrevia.fora + ' ponto(s) do outro lado do limite' + (R.ext && R.ext.tipo === AVAL_TIPO_MUN ? ' (avaliados com o município)' : '') : ''))
+      + '</div>';
+}
+const _avalRipTxt = rp => rp.agrupado ? 'agrupado em ' + rp.agrupado + ' de ' + rp.h.length + ' distâncias' : rp.disperso ? 'disperso em ' + rp.disperso + ' de ' + rp.h.length + ' distâncias' : 'aleatório em todas as distâncias';
 function pintaAval(){
   const el = $('#aval_plan'); if (!el) return;
   const R = avalAtualiza(), L = R.linhas, ext = F.campanha.aval_ext;
@@ -20237,33 +20297,26 @@ function pintaAval(){
       + (MODO_PLAN ? '<div class="acoes"><button type="button" class="btn sec peq" id="b_aval_junta">Juntar tabelas das equipes (.csv)</button></div><input type="file" id="f_aval_junta" class="oculto" multiple accept=".csv,.tsv,.txt">' : ''));
     el.innerHTML = h.join(''); _avalLiga(); return;
   }
-  if (R.n >= 3){
-    const cA = R.pec.A, cB = R.pec.B, cC = R.pec.C;
-    h.push('<div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:8px 10px;margin:6px 0">'
-      + '<b>Prévia com ' + R.n + ' ponto(s) de gabinete</b>' + (R.n < 20 ? ' <span style="color:#B45309">(n &lt; 20: indicativa — Merchant, 1982)</span>' : '') + '<br>'
-      + 'Tendência (mediana): E ' + _af2(R.vies.E) + ' m · N ' + _af2(R.vies.N) + ' m' + (R.tendE || R.tendN ? ' <b style="color:#B45309">significativa (t, α = 10 %)</b>' : ' — não significativa') + '<br>'
-      + 'RMSE<sub>r</sub> ' + _af2(R.r.rmse) + ' m · CE90 ' + _af2(R.r.ce90) + ' m · NMAD<sub>r</sub> ' + _af2(R.r.nmad) + ' m<br>'
-      + '<b>PEC (Decreto 89.817/1984):</b> Classe A a partir de ' + avalFmtEsc(cA) + ' (escala-padrão ' + (avalEscPadrao(cA) ? avalFmtEsc(avalEscPadrao(cA)) : '—') + ') · '
-      + 'B a partir de ' + avalFmtEsc(cB) + ' · C a partir de ' + avalFmtEsc(cC)
-      + (R.trans ? '<br><b>Com translação pela média</b> (E ' + _af2(R.trans.E) + ' ± ' + _af2(R.trans.icE) + ' m · N ' + _af2(R.trans.N) + ' ± ' + _af2(R.trans.icN)
-        + ' m, IC 90 %): RMSE<sub>r</sub> ' + _af2(R.trans.rmse) + ' m · CE90 ' + _af2(R.trans.ce90) + ' m · Classe A a partir de ' + avalFmtEsc(R.trans.pec.A)
-        + ' <small>(produto corrigido pelo deslocamento; o PEC acima é o do produto entregue)</small>' : '')
-      + (R.distPrevia.semExtensao ? '' : '<br>Distribuição: ' + R.distPrevia.quadOcup + '/4 quadrantes · vizinho mais próximo R = ' + _af2((R.distPrevia.vmp || [])[0] && R.distPrevia.vmp[0].R)
-        + ' (' + ((R.distPrevia.vmp || [])[0] ? R.distPrevia.vmp[0].padrao : '—') + ')')
-      + '</div>');
-  } else h.push('<p class="leg">A prévia precisa de pelo menos 3 pontos de gabinete com PPP.</p>');
+  if (R.munis && R.munis.length){
+    h.push('<p style="margin:6px 0 2px"><b>Avaliação por município</b> — cada município com os seus pontos (os do plano, mesmo do outro lado da divisa) e o seu limite.</p>');
+    R.munis.forEach(Rm => h.push(_avalResumoHTML(Rm, esc(Rm.nome) + ' (' + Rm.cod + ')' + (Rm.ext && Rm.ext.area_km2 ? ' · ' + Rm.ext.area_km2.toLocaleString('pt-BR', {maximumFractionDigits: 1}) + ' km²' : ''))));
+    if (R.semMun && R.semMun.length) h.push('<p class="leg" style="color:#B91C1C">Sem município avaliado (fora dos marcados): ' + R.semMun.map(esc).join(', ') + '.</p>');
+    h.push('<details><summary class="leg">Conjunto da campanha (todos os municípios juntos, referência)</summary>' + _avalResumoHTML(R, '') + '</details>');
+  } else h.push(_avalResumoHTML(R, ''));
   const cont = s => L.filter(r => r.sit === s).length;
   h.push('<p class="leg" style="margin:4px 0">' + Object.keys(AVAL_SIT).map(s => cont(s) ? '<b style="color:' + AVAL_SIT[s][1] + '">' + cont(s) + ' ' + AVAL_SIT[s][0] + '</b>' : '').filter(Boolean).join(' · ')
     + '. Compara-se só com a <b>opção ocupada</b>; acima de ' + AVAL_LIM + ' m o ponto fica <i>a conferir</i> até a opção ser confirmada.</p>');
   h.push('<div style="overflow:auto;max-height:52vh"><table class="tab" style="font-size:.88em;width:100%"><tr><th>Ponto</th>' + (MODO_PLAN ? '<th>Eq.</th>' : '')
-    + '<th>Ligada</th><th>Ocupada</th><th>Órbita</th><th>dE</th><th>dN</th><th>r</th><th>Situação</th></tr>'
+    + (R.munis ? '<th>Município</th>' : '') + '<th>Ligada</th><th>Ocupada</th><th>Órbita</th><th>dE</th><th>dN</th><th>r</th><th>Situação</th></tr>'
     + L.map((r, i) => {
       const ops = avalOpcoesDoCirculo(r.circ, F.campanha.alvos);
       if (r.op && !['campo', 'excluir'].includes(r.op) && !ops.includes(r.op)) ops.push(r.op);
       const sel = '<select data-avalop="' + i + '" style="min-width:6.5em;max-width:10em">' + ops.map(o => '<option value="' + esc(o) + '"' + (o === r.op ? ' selected' : '') + '>' + esc(o) + '</option>').join('')
         + '<option value="campo"' + (r.op === 'campo' ? ' selected' : '') + '>escolhido em campo</option><option value="excluir"' + (r.op === 'excluir' ? ' selected' : '') + '>excluir</option></select>';
       const s = AVAL_SIT[r.sit] || ['', '#000'];
-      return '<tr><td>' + esc(r.id) + '</td>' + (MODO_PLAN ? '<td>' + esc(r.equipe) + '</td>' : '') + '<td>' + esc(r.lig || '—') + '</td><td>' + sel + '</td><td>' + esc((r.orbita || '').slice(0, 6)) + '</td>'
+      return '<tr><td>' + esc(r.id) + '</td>' + (MODO_PLAN ? '<td>' + esc(r.equipe) + '</td>' : '')
+        + (R.munis ? '<td style="font-size:.85em;line-height:1.15">' + (r.mun ? esc(r.mun.nome.split('/')[0]) + (r.p && r.p.cd_mun && String(r.p.cd_mun) !== r.mun.cod ? ' <small title="ponto do outro lado da divisa">(divisa)</small>' : '') : '—') + '</td>' : '')
+        + '<td>' + esc(r.lig || '—') + '</td><td>' + sel + '</td><td>' + esc((r.orbita || '').slice(0, 6)) + '</td>'
         + '<td>' + _af2(r.dE) + '</td><td>' + _af2(r.dN) + '</td><td>' + _af2(r.r) + '</td><td style="color:' + s[1] + '">' + s[0]
         + (r.sit === 'confira' ? ' <button type="button" class="btn sec peq" data-avalconf="' + i + '">confirmar</button>' : '')
         + (r.sit === 'gabinete' && r.conf && r.r > AVAL_LIM ? ' (confirmado)' : '') + (R.atipicos && R.atipicos.includes(r.id) ? ' · <b>atípico</b>' : '') + '</td></tr>'; }).join('') + '</table></div>');
@@ -20294,12 +20347,12 @@ function _avalLiga(){
       let M = await avalMunicipiosDosPontos();
       if (!M.length && F.campanha.cod_mun) M = [{cod: F.campanha.cod_mun, nome: (F.campanha.municipio || '') + (F.campanha.uf ? '/' + F.campanha.uf : ''), n: 0}];
       if (!M.length) throw new Error('nenhum ponto com o código do município' + (MUN_ERRO ? ' (' + MUN_ERRO + ')' : '') + '; informe a extensão por arquivo');
-      const tot = M.reduce((t, m) => t + m.n, 0), ja = (F.campanha.aval_ext && F.campanha.aval_ext.cods) || null;
+      const ja = (F.campanha.aval_ext && F.campanha.aval_ext.cods) || null;
       let box = $('#aval_mun_esc'); if (!box){ box = document.createElement('div'); box.id = 'aval_mun_esc'; box.className = 'cart'; bm.closest('p').after(box); }
-      box.innerHTML = '<b>Municípios do levantamento</b><p class="leg" style="margin:2px 0">Marque os municípios levantados. Os pontos de um município não marcado '
-        + '(perto da divisa) ficam fora da extensão e aparecem como "fora" na distribuição.</p>'
-        + M.map(m => '<label style="display:block;margin:3px 0"><input type="checkbox" data-mun="' + m.cod + '"' + ((ja ? ja.includes(m.cod) : m.n >= Math.max(3, 0.15 * tot)) ? ' checked' : '')
-          + '> ' + esc(m.nome) + ' <span class="leg">(' + m.cod + ' · ' + m.n + ' ponto(s))</span></label>').join('')
+      box.innerHTML = '<b>Municípios do levantamento</b><p class="leg" style="margin:2px 0">A avaliação sai por município. Cada ponto conta no município do plano '
+        + '(o do ponto planejado), mesmo que tenha caído do outro lado da divisa; sem plano, no município onde está. Marque os municípios a avaliar.</p>'
+        + M.map(m => '<label style="display:block;margin:3px 0"><input type="checkbox" data-mun="' + m.cod + '"' + ((ja ? ja.includes(m.cod) : true) ? ' checked' : '')
+          + '> ' + esc(m.nome) + ' <span class="leg">(' + m.cod + ' · ' + m.n + ' ponto(s)' + (m.fora ? ', ' + m.fora + ' do outro lado da divisa' : '') + ')</span></label>').join('')
         + '<button type="button" class="btn peq" id="b_aval_mun_ok">Buscar o limite na malha do IBGE</button>';
       $('#b_aval_mun_ok').onclick = async () => {
         const K = [...box.querySelectorAll('[data-mun]:checked')].map(x => x.dataset.mun), nomes = {}; M.forEach(m => nomes[m.cod] = m.nome);
@@ -20434,7 +20487,32 @@ function _htmlDist(D, tit){
     + D.ripley.aleatorio + ' aleatórias, ' + D.ripley.agrupado + ' agrupadas e ' + D.ripley.disperso + ' dispersas.</p>' + _svgRipley(D);
   return h;
 }
+/* por município (15/11/2026): um relatório completo por município, com o quadro-resumo no início; o conjunto vai no fim,
+   como referência. Referências bibliográficas e próximo passo, uma vez só. */
 function avalRelatorio(R){
+  if (!R.munis || !R.munis.length) return _avalRelatorioUm(R);
+  const corpo = (doc, titulo, ultimo) => { let b = doc.slice(doc.indexOf('<bo' + 'dy>') + 6, doc.lastIndexOf('</bo' + 'dy>'));
+    b = b.replace(/<h1>[\s\S]*?<\/h1>/, '<h1 style="break-before:page;margin-top:40px">' + titulo + '</h1>');
+    if (!ultimo){ const k = b.indexOf('<h2>6 Próximo passo'); if (k > 0) b = b.slice(0, k); }
+    return b; };
+  const um = _avalRelatorioUm(R), cab = um.slice(0, um.indexOf('<bo' + 'dy>') + 6);
+  const q = '<h1>Avaliação planimétrica preliminar da imagem — por município</h1>'
+    + '<p>Posição de gabinete × PPP de campo. Cada município é avaliado com os seus pontos — os do plano, inclusive os que caíram do outro lado '
+    + 'da divisa — e com o seu limite (IBGE, API de malhas v3). Erro = gabinete − PPP, em UTM ' + R.fuso + 'S (EPSG:' + R.epsg + ').</p>'
+    + '<table><tr><th>Município</th><th>n</th><th>tendência E (m)</th><th>tendência N (m)</th><th>RMSE<sub>r</sub> (m)</th><th>CE90 (m)</th><th>PEC A a partir de</th>'
+    + '<th>escala-padrão A</th><th>com translação, A a partir de</th><th>quadrantes</th><th>vizinho mais próximo R</th><th>do outro lado do limite</th></tr>'
+    + R.munis.map(m => '<tr><td>' + esc(m.nome) + ' (' + m.cod + ')</td><td>' + m.n + '</td>'
+      + (m.n >= 3 ? '<td>' + _af2(m.E.media) + (m.tendE ? '*' : '') + '</td><td>' + _af2(m.N.media) + (m.tendN ? '*' : '') + '</td><td>' + _af2(m.r.rmse) + '</td><td>' + _af2(m.r.ce90) + '</td><td>'
+        + avalFmtEsc(m.pec.A) + '</td><td>' + (avalEscPadrao(m.pec.A) ? avalFmtEsc(avalEscPadrao(m.pec.A)) : '—') + '</td><td>' + (m.trans ? avalFmtEsc(m.trans.pec.A) : '—') + '</td>'
+        : '<td colspan="7">menos de 3 pontos de gabinete</td>')
+      + '<td>' + (m.distPrevia.semExtensao ? '—' : m.distPrevia.quadOcup + '/4') + '</td><td>' + ((m.distPrevia.vmp || [])[0] ? _af2(m.distPrevia.vmp[0].R) + ' (' + m.distPrevia.vmp[0].padrao + ')' : '—') + '</td>'
+      + '<td>' + (m.distPrevia.fora || 0) + '</td></tr>').join('')
+    + '</table><small>* tendência significativa (t de Student, α = 10 %). PEC do Decreto nº 89.817/1984. Com n &lt; 20, resultado indicativo (Merchant, 1982).'
+    + (R.semMun && R.semMun.length ? ' Sem município avaliado: ' + R.semMun.map(esc).join(', ') + '.' : '') + '</small>';
+  return cab + q + R.munis.map(m => corpo(_avalRelatorioUm(m), 'Município: ' + esc(m.nome) + ' (' + m.cod + ')', false)).join('')
+    + corpo(um, 'Conjunto da campanha (todos os municípios, referência)', true) + '</bo' + 'dy></html>';
+}
+function _avalRelatorioUm(R){
   const S = R.linhas.filter(r => r.sit === 'gabinete'), lc = F.campanha.ptcon_lc || '', camp = F.campanha.nome || '';
   const ext = R.ext, quando = new Date().toLocaleString('pt-BR').slice(0, 17).replace(',', '');
   const sit = r => (AVAL_SIT[r.sit] || [''])[0];
@@ -20540,7 +20618,8 @@ function _avalTSV(L){
   return [cab.join('\t')].concat(L.map(r => { const c = Object.assign({}, r.campos || {});
     c.PASTA = c.PASTA || String(r.id || '').replace(/[^A-Za-z0-9_-]+/g, '_'); c.TEMPO = c.TEMPO || _avalTempo(c.INICIO, c.FIM);
     const ex = {ID_PONTO: r.id, EQUIPE: r.equipe || '', OPCAO_LIGADA: r.lig || '', OPCAO_OCUPADA: r.op || '', SITUACAO: r.sit,
-      LAT_GABINETE: r.gab ? r.gab.lat.toFixed(8) : '', LON_GABINETE: r.gab ? r.gab.lon.toFixed(8) : ''};
+      LAT_GABINETE: r.gab ? r.gab.lat.toFixed(8) : '', LON_GABINETE: r.gab ? r.gab.lon.toFixed(8) : '',
+      CD_MUN_AVAL: r.mun ? r.mun.cod : '', MUNICIPIO_AVAL: r.mun ? r.mun.nome : ''};
     return AVAL_CAMPOS_BAT.map(k => limpa(c[k])).concat(AVAL_EXTRAS.map(k => ex[k])).join('\t'); })).join('\r\n') + '\r\n';
 }
 function avalBase(){
@@ -20552,18 +20631,19 @@ async function avalProdutos(R, pasta){
   const base = avalBase(), pre = pasta || '';
   const comPPP = R.linhas.filter(r => r.campos && r.lat != null && r.sit !== 'excluido');
   const campos = [['ID_PONTO', 'C', 40], ['EQUIPE', 'C', 40], ['OPCAO_LIG', 'C', 12], ['OPCAO_OCUP', 'C', 20], ['SITUACAO', 'C', 12], ['AVALIACAO', 'C', 60],
-    ['SIGMA_XY', 'N', 10, 3], ['DE', 'N', 12, 3], ['DN', 'N', 12, 3], ['R', 'N', 12, 3], ['DE_TRANSL', 'N', 12, 3], ['DN_TRANSL', 'N', 12, 3], ['R_TRANSL', 'N', 12, 3]].concat(AVAL_CAMPOS_BAT.map(k => [k, 'C', 60]));
+    ['MUN_AVAL', 'C', 80], ['SIGMA_XY', 'N', 10, 3], ['DE', 'N', 12, 3], ['DN', 'N', 12, 3], ['R', 'N', 12, 3], ['DE_TRANSL', 'N', 12, 3], ['DN_TRANSL', 'N', 12, 3], ['R_TRANSL', 'N', 12, 3]].concat(AVAL_CAMPOS_BAT.map(k => [k, 'C', 60]));
   const aval = r => r.sit === 'gabinete' ? 'prévia de gabinete (marcar de novo no PlugIBGE)' : r.sit === 'campo' ? 'marcação manual no PlugIBGE' : 'conferir a opção ocupada';
   const cam = [
     {nome: 'CHECAGEM_PPP', tipo: 'POINT', descricao: 'Pontos de checagem: coordenada IBGE-PPP (SIRGAS 2000)', campos: campos,
-      feicoes: comPPP.map(r => ({g: [r.lon, r.lat], a: [r.id, r.equipe, r.lig, r.op === 'campo' ? 'escolhido em campo' : r.op, r.sit, aval(r), r.sxy, r.dE, r.dN, r.r, r.sit === 'gabinete' ? r.dEt : null, r.sit === 'gabinete' ? r.dNt : null, r.sit === 'gabinete' ? r.rt : null]
+      feicoes: comPPP.map(r => ({g: [r.lon, r.lat], a: [r.id, r.equipe, r.lig, r.op === 'campo' ? 'escolhido em campo' : r.op, r.sit, aval(r), r.mun ? r.mun.nome + ' (' + r.mun.cod + ')' : '', r.sxy, r.dE, r.dN, r.r, r.sit === 'gabinete' ? r.dEt : null, r.sit === 'gabinete' ? r.dNt : null, r.sit === 'gabinete' ? r.rt : null]
         .concat(AVAL_CAMPOS_BAT.map(k => (r.campos || {})[k] || ''))}))},
     {nome: 'POSICAO_GABINETE', tipo: 'POINT', descricao: 'Posição de gabinete (leitura na imagem) da opção ocupada', campos: [['ID_PONTO', 'C', 40], ['OPCAO', 'C', 12]],
       feicoes: comPPP.filter(r => r.gab).map(r => ({g: [r.gab.lon, r.gab.lat], a: [r.id, r.gab.id]}))},
     {nome: 'VETORES_ERRO', tipo: 'LINESTRING', descricao: 'Do PPP à posição de gabinete (erro = imagem − campo)', campos: [['ID_PONTO', 'C', 40], ['R', 'N', 12, 3], ['SITUACAO', 'C', 12]],
       feicoes: comPPP.filter(r => r.gab).map(r => ({g: [[r.lon, r.lat], [r.gab.lon, r.gab.lat]], a: [r.id, r.r, r.sit]}))}];
   if (R.ext) cam.push({nome: 'EXTENSAO_PRODUTO', tipo: 'POLYGON', descricao: 'Extensão do produto avaliado (' + R.ext.arquivo + ')', campos: [['ARQUIVO', 'C', 120], ['ORIGEM', 'C', 120]],
-    feicoes: R.ext.aneis.map(a => ({g: a, a: [R.ext.arquivo, R.ext.tipo]}))});
+    feicoes: R.ext.porMun ? Object.keys(R.ext.porMun).flatMap(c => R.ext.porMun[c].aneis.map(a => ({g: a, a: [R.ext.porMun[c].nome + ' (' + c + ')', R.ext.tipo]})))
+      : R.ext.aneis.map(a => ({g: a, a: [R.ext.arquivo, R.ext.tipo]}))});
   const itens = [
     {nome: pre + base + '_AVALIACAO_PLANIMETRICA.gpkg', dados: gpkgDe(cam, 4674)},
     {nome: pre + base + '_avaliacao_pontos_checagem.csv', dados: _avalTSV(comPPP)},

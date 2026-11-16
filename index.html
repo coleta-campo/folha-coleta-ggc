@@ -6941,6 +6941,7 @@ function textoAltitude(c, p){
   return ' · h ' + _numBR(c.h, 1) + ' m (aproximada)';
 }
 function _tabelaPontos(pontos, comDia){
+  let RA = null; try { if (pontos.some(e => (e.p || e).ppp_coord)) RA = avalAtualiza(); } catch (e){}
   return '<table><tr>' + (comDia ? '<th>dia</th>' : '')
     + '<th>ponto</th><th>tipo</th><th>planejado</th><th>receptor</th>'
     + '<th>antena</th><th>altura</th><th>rastreio</th><th>dur.</th><th>PPP</th></tr>'
@@ -6962,9 +6963,71 @@ function _tabelaPontos(pontos, comDia){
               + (c ? 'Coordenada: <b>' + gms(c.lat, 'lat') + '  ' + gms(c.lon, 'lon') + '</b>'
                    + textoAltitude(c, p) + ' — ' + esc(c.rotulo)
                    : 'Coordenada: nenhuma') + '</td></tr>'; })()
+        + _avalLinhaPonto(p, RA, comDia ? 10 : 9)
         + (p.obs ? '<tr><td colspan="' + (comDia ? 10 : 9) + '" class="ocor">'
            + esc(p.obs) + '</td></tr>' : ''); }).join('')
     + '</table>';
+}
+/* 15/11/2026: gabinete × campo no relatório, ponto a ponto. Com a coordenada do IBGE-PPP, a diferença entre a posição
+   escolhida em gabinete (a opção ocupada, lida na imagem) e a medida em campo, em UTM SIRGAS 2000 do fuso da campanha.
+   Δ = gabinete − campo, a mesma convenção da avaliação planimétrica (erro da imagem). */
+const _avalM = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(2).replace('.', ',');
+const _avalUTM = v => v == null || !isFinite(v) ? '—' : v.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+function _avalLinhaPonto(p, RA, nc){
+  if (!RA || !p.ppp_coord) return '';
+  const r = RA.linhas.find(x => x.p === p || x.id === p.id); if (!r) return '';
+  const ab = '<tr><td colspan="' + nc + '" class="ocor" style="color:';
+  if (r.sit === 'campo') return ab + '#B45309">Gabinete × campo: <b>ponto escolhido em campo</b> — sem posição de gabinete; vai à marcação manual no PlugIBGE.</td></tr>';
+  if (r.sit === 'excluido') return ab + '#6B7280">Gabinete × campo: excluído da avaliação pelo operador.</td></tr>';
+  if (r.dE == null) return '';
+  const t = 'Gabinete (' + esc(r.op) + ') × campo (IBGE-PPP), UTM ' + RA.fuso + 'S: ΔE <b>' + _avalM(r.dE) + ' m</b> · ΔN <b>' + _avalM(r.dN)
+    + ' m</b> · distância <b>' + _af2(r.r) + ' m</b>';
+  if (r.sit === 'confira' && r.r > 100) return ab + '#B91C1C">Gabinete × campo: <b>' + _metros(r.r) + ' da opção ' + esc(r.op)
+    + '</b> — outro lugar, provavelmente escolhido em campo; marque em Fechar o dia ▸ Avaliação planimétrica.</td></tr>';
+  return r.sit === 'confira'
+    ? ab + '#B91C1C">' + t + ' — <b>a conferir</b>: mais de ' + AVAL_LIM + ' m da opção; confirme a opção ocupada em Fechar o dia.</td></tr>'
+    : ab + '#0A2E52">' + t + (/FINAL/i.test(r.orbita) ? '' : ' · órbita rápida') + '</td></tr>';
+}
+/* a mesma comparação, consolidada, no relatório da campanha */
+function htmlAvalCampanha(){
+  let R; try { R = avalAtualiza(); } catch (e){ return ''; }
+  const L = R.linhas.filter(r => r.lat != null);
+  if (!L.length) return '';
+  // a mais de 100 m da opção, a diferença não é erro da imagem: é outro lugar (quase sempre escolhido em campo sem marcar)
+  const LONGE = 100;
+  const G = L.filter(r => r.dE != null && (r.sit === 'gabinete' || (r.sit === 'confira' && r.r <= LONGE))).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const outros = s => L.filter(r => r.sit === s && !(s === 'confira' && r.r > LONGE)).map(r => esc(r.id)).join(', ');
+  const longe = L.filter(r => r.sit === 'confira' && r.r > LONGE).map(r => esc(r.id) + ' (' + _metros(r.r) + ' de ' + esc(r.op) + ')').join(', ');
+  let h = '<h2>Gabinete × campo: posição planimétrica</h2>'
+    + '<p class="ocor" style="color:inherit">Diferença entre a posição escolhida em gabinete sobre a imagem (a opção ocupada) e a coordenada do IBGE-PPP, '
+    + 'em UTM SIRGAS 2000, fuso ' + R.fuso + 'S (EPSG:' + R.epsg + '). Δ = gabinete − campo. Só planimetria (não há MDT). É uma <b>prévia</b>: soma o erro da imagem '
+    + 'e o de identificação da feição. A avaliação final é a do PlugIBGE, com o GeoPackage da folha.</p>';
+  if (G.length) h += '<table><tr><th>ponto</th><th>opção</th><th>E gabinete</th><th>N gabinete</th><th>E campo</th><th>N campo</th><th>ΔE (m)</th><th>ΔN (m)</th><th>distância (m)</th><th>situação</th></tr>'
+    + G.map(r => '<tr><td>' + esc(r.id) + '</td><td>' + esc(r.op) + (r.lig && r.lig !== r.op ? '<br><span class="ocor">ligada: ' + esc(r.lig) + '</span>' : '') + '</td>'
+      + '<td class="n">' + _avalUTM(r.Eg) + '</td><td class="n">' + _avalUTM(r.Ng) + '</td><td class="n">' + _avalUTM(r.E) + '</td><td class="n">' + _avalUTM(r.N) + '</td>'
+      + '<td class="n">' + _avalM(r.dE) + '</td><td class="n">' + _avalM(r.dN) + '</td><td class="n"><b>' + _af2(r.r) + '</b></td>'
+      + '<td' + (r.sit === 'confira' ? ' style="color:#B91C1C"><b>a conferir</b>' : '>' + (/FINAL/i.test(r.orbita) ? 'órbita final' : 'órbita rápida')) + '</td></tr>').join('')
+    + '</table>';
+  const nota = [];
+  if (outros('campo')) nota.push('<b>Escolhidos em campo</b> (sem posição de gabinete; marcação manual no PlugIBGE): ' + outros('campo') + '.');
+  if (outros('confira')) nota.push('<b style="color:#B91C1C">A conferir</b> (mais de ' + AVAL_LIM + ' m da opção; fora do resumo até confirmar em Fechar o dia): ' + outros('confira') + '.');
+  if (longe) nota.push('<b style="color:#B91C1C">Longe da opção ligada</b> (mais de ' + LONGE + ' m: outro lugar, provavelmente escolhido em campo; marque em Fechar o dia ▸ Avaliação planimétrica): ' + longe + '.');
+  if (outros('excluido')) nota.push('Excluídos pelo operador: ' + outros('excluido') + '.');
+  if (outros('sem_ppp')) nota.push('Sem coordenada do IBGE-PPP: ' + outros('sem_ppp') + '.');
+  if (R.n >= 3){
+    const T = R.trans;
+    nota.push('<b>Resumo dos ' + R.n + ' pontos de gabinete</b>: tendência (média) ΔE ' + _avalM(R.E.media) + ' m' + (R.tendE ? ' (significativa)' : '')
+      + ' · ΔN ' + _avalM(R.N.media) + ' m' + (R.tendN ? ' (significativa)' : '') + ' (t de Student, α = 10 %) · RMSE<sub>r</sub> ' + _af2(R.r.rmse) + ' m · CE90 ' + _af2(R.r.ce90) + ' m.');
+    nota.push('PEC do Decreto nº 89.817/1984: Classe A a partir de <b>' + avalFmtEsc(R.pec.A) + '</b>' + (avalEscPadrao(R.pec.A) ? ' (escala-padrão ' + avalFmtEsc(avalEscPadrao(R.pec.A)) + ')' : '')
+      + '; B a partir de ' + avalFmtEsc(R.pec.B) + '; C a partir de ' + avalFmtEsc(R.pec.C) + '.'
+      + (T && T.sig ? ' Com translação pela média: RMSE<sub>r</sub> ' + _af2(T.rmse) + ' m, CE90 ' + _af2(T.ce90) + ' m, Classe A a partir de ' + avalFmtEsc(T.pec.A) + ' (produto corrigido; o PEC acima é o do produto entregue).' : ''));
+    if (R.n < 20) nota.push('n = ' + R.n + ' &lt; 20: resultado indicativo, não conclusivo (Merchant, 1982).');
+    if (R.nRapida) nota.push(R.nRapida + ' ponto(s) com órbita rápida: refazer quando a órbita final sair.');
+  } else if (G.length) nota.push('Menos de 3 pontos de gabinete confirmados: sem resumo estatístico.');
+  if (!R.ext) nota.push('Extensão do produto avaliado não informada: a distribuição dos pontos não foi analisada.');
+  return h + (nota.length ? '<ul>' + nota.map(t => '<li>' + t + '</li>').join('') + '</ul>' : '')
+    + '<p class="ident">Estatística completa (normalidade, tendência circular, qui-quadrado, distribuição) no relatório da avaliação, em Fechar o dia ▸ '
+    + 'Avaliação planimétrica preliminar, e no Drive da campanha, em _registros/avaliacao_planimetrica.</p>';
 }
 
 const NOTA_COORD = '<p class="ident" style="margin-top:14px">Receptor, antena, '
@@ -7348,6 +7411,7 @@ function montaImpressaoCampanha(fotos, tempos, fig){
     + htmlPlanejadoExecutado(todos)
     + '<h2>Os pontos da campanha</h2>'
     + (todos.length ? _tabelaPontos(todos, true) : '<p>nenhum ponto registrado</p>')
+    + htmlAvalCampanha()
     + '<h2>A campanha em números</h2><table>' + nums + '</table>'
     + htmlFiguraTrechosCampanha(fig)
     + htmlTemposCampanha(tempos)

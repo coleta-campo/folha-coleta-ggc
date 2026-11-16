@@ -20164,6 +20164,43 @@ async function avalLeExtensao(files){
   return {arquivo: f.name, tipo: tipo, aneis: aneis, gsd: gsd, quando: new Date().toISOString()};
 }
 
+/* ---- recorte municipal: o levantamento é do município inteiro (15/11/2026) ----
+   Cada ponto já guarda o código IBGE do município (cd_mun, pela Malha Municipal Digital, no WFS do IBGE). O limite vem da
+   API de malhas do IBGE, versão 3, em qualidade máxima, um pedido por município (a API não aceita vários códigos juntos) —
+   os vários anéis valem como união (os municípios são vizinhos, não se sobrepõem). O operador marca os municípios do levantamento. Conferido em 15/11/2026: São Gonçalo do Amarante/RN (2412005) dá
+   249,7 km² pelo polígono, contra 249,8 km² nos metadados da mesma API.
+   IBGE. API de malhas geográficas, v3. Disponível em: https://servicodados.ibge.gov.br/api/docs/malhas?versao=3. */
+const AVAL_TIPO_MUN = 'limite municipal (malha do IBGE)';
+async function avalMunicipiosDosPontos(){
+  const L = avalLinhas().filter(r => r.lat != null && r.sit !== 'excluido'), M = {};
+  for (const r of L){
+    let c = r.p && r.p.cd_mun, nm = r.p && r.p.municipio ? r.p.municipio + (r.p.uf ? '/' + r.p.uf : '') : '';
+    if (!c){ const m = await municipioDe(r.lat, r.lon, 15); if (m){ c = m.cod; nm = m.nome + '/' + m.uf; } }
+    if (c && /^\d{7}$/.test(c)){ M[c] = M[c] || {cod: c, nome: nm || c, n: 0}; M[c].n++; }
+  }
+  return Object.values(M).sort((a, b) => b.n - a.n);
+}
+async function avalExtensaoMunicipal(K, nomes){
+  K = (K || []).filter(c => /^\d{7}$/.test(c)).sort(); nomes = nomes || {};
+  if (!K.length) throw new Error('nenhum município escolhido');
+  // a API v3 aceita um município por pedido (vários códigos juntos dão 400): um pedido por município
+  const aneis = [];
+  for (const c of K){
+    const corta = new AbortController(), t = setTimeout(() => corta.abort(), 30000);
+    try {
+      const q = await fetch('https://servicodados.ibge.gov.br/api/v3/malhas/municipios/' + c + '?formato=application/vnd.geo%2Bjson&qualidade=maxima', {signal: corta.signal});
+      if (!q.ok) throw new Error('a API de malhas do IBGE respondeu ' + q.status + ' para ' + c);
+      const A = _aneisGeoJSON(await q.json()).filter(a => a.length >= 4);
+      if (!A.length) throw new Error('a API de malhas do IBGE não devolveu o polígono de ' + c);
+      A.forEach(a => aneis.push(a));
+    } catch (e){ throw new Error(e.name === 'AbortError' ? 'a API de malhas do IBGE não respondeu a tempo' : /API de malhas/.test(e.message) ? e.message : 'sem conexão com a API de malhas do IBGE'); }
+    finally { clearTimeout(t); }
+  }
+  let area = null; try { const fz = Math.floor((aneis[0][0][0] + 180) / 6) + 1; area = aneis.reduce((s, a) => s + _areaAnel(_anelUTM(a, fz)), 0) / 1e6; } catch (e){}
+  return {arquivo: K.map(c => (nomes[c] || c) + ' (' + c + ')').join(', '), tipo: AVAL_TIPO_MUN, aneis: aneis, gsd: null, cods: K,
+    area_km2: area, fonte: 'IBGE, API de malhas v3, qualidade máxima', quando: new Date().toISOString()};
+}
+
 /* ---- estado e quadro na folha / no planejador ---- */
 let _AVAL = null;
 function avalLinhas(){
@@ -20185,9 +20222,16 @@ function pintaAval(){
   const R = avalAtualiza(), L = R.linhas, ext = F.campanha.aval_ext;
   const h = [];
   h.push('<p style="margin:4px 0"><b>Extensão do produto avaliado:</b> ' + (ext ? esc(ext.arquivo) + ' — ' + esc(ext.tipo)
-    + (ext.gsd ? ' · pixel ' + _af2(ext.gsd) + ' m' : '') + ' <button type="button" class="btn sec peq" id="b_aval_ext">trocar</button>'
-    : '<b style="color:#B91C1C">não informada</b> — sem ela não há análise de distribuição. <button type="button" class="btn peq" id="b_aval_ext">Informar a extensão do produto</button>')
-    + '<input type="file" id="f_aval_ext" class="oculto" multiple accept=".tif,.tiff,.tfw,.prj,.gpkg,.geojson,.json,.kml"></p>');
+    + (ext.gsd ? ' · pixel ' + _af2(ext.gsd) + ' m' : '') + (ext.area_km2 ? ' · ' + ext.area_km2.toLocaleString('pt-BR', {maximumFractionDigits: 1}) + ' km²' : '')
+    + ' <button type="button" class="btn sec peq" id="b_aval_mun">usar o limite municipal</button> <button type="button" class="btn sec peq" id="b_aval_ext">usar um arquivo</button>'
+    + '<input type="file" id="f_aval_ext" class="oculto" multiple accept=".tif,.tiff,.tfw,.prj,.gpkg,.geojson,.json,.kml"></p>'
+    : '<b style="color:#B91C1C">não informada</b> — sem ela não há análise de distribuição. Qual é o recorte do levantamento?'
+    + '<br><button type="button" class="btn peq" id="b_aval_mun">Municipal: limite do(s) município(s) dos pontos (malha do IBGE)</button>'
+    + ' <button type="button" class="btn sec peq" id="b_aval_ext">Parte de município, trecho rodoviário ou outra área: arquivo</button>'
+    + '<input type="file" id="f_aval_ext" class="oculto" multiple accept=".tif,.tiff,.tfw,.prj,.gpkg,.geojson,.json,.kml"></p>')
+    + (ext ? '' : '<p class="leg" style="margin:2px 0">No recorte municipal, a folha busca o limite oficial pelo código IBGE do município de cada ponto (precisa de internet uma vez; o limite fica guardado na campanha). '
+      + 'Para parte de município ou trecho rodoviário, informe o polígono da área (GeoJSON, KML ou GeoPackage) ou o próprio produto (GeoTIFF): '
+      + 'num trecho rodoviário, use a faixa do levantamento, não o município.</p>'));
   if (!L.length){
     h.push('<p class="leg">' + (MODO_PLAN ? 'Junte aqui as tabelas <code>…_avaliacao_pontos_checagem.csv</code> das equipes (vão ao Drive com o envio de cada folha, na pasta <code>_registros/avaliacao_planimetrica</code> de cada equipe).' : 'Nenhum ponto rastreado ainda.') + '</p>'
       + (MODO_PLAN ? '<div class="acoes"><button type="button" class="btn sec peq" id="b_aval_junta">Juntar tabelas das equipes (.csv)</button></div><input type="file" id="f_aval_junta" class="oculto" multiple accept=".csv,.tsv,.txt">' : ''));
@@ -20243,6 +20287,28 @@ function _avalLiga(){
     if (MODO_PLAN && r.x) r.x._conf = true; else if (r.p) r.p.aval_conf = true;
     grava(); pintaAval(); });
   const be = $('#b_aval_ext'); if (be) be.onclick = () => $('#f_aval_ext').click();
+  /* recorte municipal: a folha lista os municípios dos pontos e o operador marca os do levantamento — ponto em município
+     vizinho (perto da divisa) não traz o município inteiro para a extensão; fica como "fora" na distribuição */
+  const bm = $('#b_aval_mun'); if (bm) bm.onclick = async () => { bm.disabled = true;
+    try {
+      let M = await avalMunicipiosDosPontos();
+      if (!M.length && F.campanha.cod_mun) M = [{cod: F.campanha.cod_mun, nome: (F.campanha.municipio || '') + (F.campanha.uf ? '/' + F.campanha.uf : ''), n: 0}];
+      if (!M.length) throw new Error('nenhum ponto com o código do município' + (MUN_ERRO ? ' (' + MUN_ERRO + ')' : '') + '; informe a extensão por arquivo');
+      const tot = M.reduce((t, m) => t + m.n, 0), ja = (F.campanha.aval_ext && F.campanha.aval_ext.cods) || null;
+      let box = $('#aval_mun_esc'); if (!box){ box = document.createElement('div'); box.id = 'aval_mun_esc'; box.className = 'cart'; bm.closest('p').after(box); }
+      box.innerHTML = '<b>Municípios do levantamento</b><p class="leg" style="margin:2px 0">Marque os municípios levantados. Os pontos de um município não marcado '
+        + '(perto da divisa) ficam fora da extensão e aparecem como "fora" na distribuição.</p>'
+        + M.map(m => '<label style="display:block;margin:3px 0"><input type="checkbox" data-mun="' + m.cod + '"' + ((ja ? ja.includes(m.cod) : m.n >= Math.max(3, 0.15 * tot)) ? ' checked' : '')
+          + '> ' + esc(m.nome) + ' <span class="leg">(' + m.cod + ' · ' + m.n + ' ponto(s))</span></label>').join('')
+        + '<button type="button" class="btn peq" id="b_aval_mun_ok">Buscar o limite na malha do IBGE</button>';
+      $('#b_aval_mun_ok').onclick = async () => {
+        const K = [...box.querySelectorAll('[data-mun]:checked')].map(x => x.dataset.mun), nomes = {}; M.forEach(m => nomes[m.cod] = m.nome);
+        if (!K.length) return marca('marque ao menos um município');
+        marca('buscando o limite municipal na malha do IBGE…');
+        try { F.campanha.aval_ext = await avalExtensaoMunicipal(K, nomes); grava(); marca('extensão: ' + F.campanha.aval_ext.arquivo); pintaAval(); }
+        catch (err){ marca('limite municipal: ' + err.message); } };
+    } catch (err){ marca('limite municipal: ' + err.message); }
+    bm.disabled = false; };
   const fe = $('#f_aval_ext'); if (fe) fe.onchange = async e => { const fs = Array.from(e.target.files); e.target.value = '';
     try { F.campanha.aval_ext = await avalLeExtensao(fs); grava(); marca('extensão do produto avaliado: ' + F.campanha.aval_ext.arquivo); pintaAval(); }
     catch (err){ marca('extensão do produto: ' + err.message); } };

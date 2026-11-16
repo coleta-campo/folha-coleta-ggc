@@ -719,6 +719,7 @@ você cabe o que nenhum arquivo registra.</p>
       </div>
       <p class="leg" id="traj_estado"></p>
       <p class="leg" id="area_estado"></p>
+      <p class="leg" id="loc_estado"></p>
       <div class="acoes"><button type="button" class="btn sec peq" id="b_xyz">Camadas do projeto QGIS (notebook)</button></div>
       <p class="leg" id="xyz_estado"></p>
       <details class="ajuda">
@@ -8783,6 +8784,10 @@ function _expandeImp(ids){                                    // a opção não 
 }
 function alvosAtivos(){ const d = desprezados(); return (F.campanha.alvos || []).filter(a => !d.has(a.id)); }
 function pintaAlvos(){
+  try { pintaLocEstado(); const A0 = (F.campanha.alvos || []).filter(a => a.lat != null), L0 = F.campanha.localidades;
+    // sem localidades, ou pontos fora da área guardada: busca uma vez, com internet
+    const fora = L0 && L0.bb && A0.some(a => +a.lon < L0.bb[0] + 0.05 || +a.lon > L0.bb[2] - 0.05 || +a.lat < L0.bb[1] + 0.05 || +a.lat > L0.bb[3] - 0.05);
+    if (A0.length && (!L0 || fora) && navigator.onLine && !_LOC_TENTOU){ _LOC_TENTOU = true; setTimeout(() => carregaLocalidades(true), 1500); } } catch (e){ console.error(e); }
   try { pintaHoje(); } catch (e){ console.error(e); }
   try { pintaPlanoCampanha(); } catch (e){ console.error(e); }
   try { pintaPlano(); } catch (e){}
@@ -9225,6 +9230,107 @@ async function carregaTrajArquivo(file){
 
 /* Situação no trajeto: vértice mais próximo da posição, distância até a linha
    (aproximada pelos vértices) e o que falta percorrer dali até o fim. */
+/* ---------- localidades do IBGE (Censo Demográfico 2022) ao longo do trajeto (16/11/2026) ----------
+   Base: IBGE, Censo Demográfico 2022 — Localidades do Brasil (divulgada em 24/11/2025): 87.362 localidades,
+   "todo lugar do Território Nacional onde há um aglomerado permanente de habitantes" — cidade, vila, núcleo
+   urbano, povoado, lugarejo, núcleo rural, agrovila de PA, localidade indígena, localidade quilombola e outras
+   localidades —, com nome, categoria, coordenada (SIRGAS 2000) e município. O IBGE a distribui só em arquivo
+   (geoftp, GPKG/SHP/KML), sem geoserviço; a folha publica a mesma base, por UF e sem alteração além de juntar as
+   categorias da mesma localidade (o arquivo repete a localidade que é, p. ex., povoado e localidade indígena),
+   em localidades/2022/<UF>.json, ao lado da folha. A campanha guarda só as da área dos pontos (margem de ~25 km),
+   e elas vão nas folhas das equipes: no campo, sem internet, aparecem no mapa de navegação e na lista do que vem
+   pelo caminho. */
+const LOC_URL = 'https://coleta-campo.github.io/folha-coleta-ggc/localidades/2022/';
+const LOC_MARGEM = 0.25;                           // graus em torno dos pontos planejados
+const LOC_CLASSE = c => /Cidade|Administrativas|Noronha/.test(c) ? 0 : /Vila|Núcleo Urbano/.test(c) ? 1
+  : /Povoado|Agrovila|Núcleo Rural/.test(c) ? 2 : 3;      // 0 maior … 3 menor
+function locLista(){ const L = F.campanha.localidades; return L && L.d ? L.d : []; }
+let _LOC_TENTOU = false;
+async function carregaLocalidades(silencio){
+  const A = (F.campanha.alvos || []).filter(a => a.lat != null);
+  if (!A.length){ if (!silencio) marca('localidades: carregue antes os pontos planejados'); return; }
+  _LOC_TENTOU = true;
+  const la = A.map(a => +a.lat), lo = A.map(a => +a.lon);
+  const bb = [Math.min(...lo) - LOC_MARGEM, Math.min(...la) - LOC_MARGEM, Math.max(...lo) + LOC_MARGEM, Math.max(...la) + LOC_MARGEM];
+  // as UF da área: a da campanha e as dos pontos já medidos; a caixa da área pode cruzar a divisa — as vizinhas
+  // entram pela tabela de caixas das UF (índice publicado junto)
+  const ufs = new Set([F.campanha.uf].concat(pontosDaCampanha().map(p => p.uf)).filter(Boolean).map(u => String(u).toUpperCase()));
+  try {
+    if (!silencio) marca('baixando as localidades do IBGE (Censo 2022)…');
+    const ix = await (await fetch(LOC_URL + 'index.json', {cache: 'no-cache'})).json();
+    for (const [u, v] of Object.entries(ix.ufs || {})) if (v.bb && !(v.bb[0] > bb[2] || v.bb[2] < bb[0] || v.bb[1] > bb[3] || v.bb[3] < bb[1])) ufs.add(u);
+    if (!ufs.size) throw new Error('UF da campanha não informada');
+    const D = [], falhou = [];
+    for (const u of ufs){
+      try { const r = await fetch(LOC_URL + u + '.json'); if (!r.ok) throw new Error(r.status);
+        const j = await r.json();
+        j.d.forEach(x => { if (x[5] >= bb[0] && x[5] <= bb[2] && x[4] >= bb[1] && x[4] <= bb[3]) D.push(x); }); }
+      catch (e){ falhou.push(u); }
+    }
+    if (falhou.length === ufs.size) throw new Error('não deu para baixar (' + falhou.join(', ') + ')');
+    F.campanha.localidades = {fonte: 'IBGE, Censo Demográfico 2022 — Localidades do Brasil', ufs: [...ufs], bb: bb, quando: new Date().toISOString(),
+      campos: ['cod', 'nome', 'categoria', 'subcategoria', 'lat', 'lon', 'cd_mun', 'municipio'], d: D};
+    _LOC_CACHE.clear(); grava(); pintaLocEstado();
+    marca('localidades do IBGE (Censo 2022): ' + D.length + ' na área da campanha' + (falhou.length ? ' (sem ' + falhou.join(', ') + ')' : ''));
+  } catch (e){ if (!silencio) marca('localidades: ' + (e.message === 'Failed to fetch' ? 'sem internet' : e.message)); pintaLocEstado(); }
+}
+function pintaLocEstado(){
+  const el = $('#loc_estado'); if (!el) return;
+  const L = F.campanha.localidades, A = F.campanha.alvos || [];
+  if (!A.length){ el.innerHTML = ''; return; }
+  const n = L && L.d ? L.d.length : 0, cont = {};
+  if (n) L.d.forEach(x => { const c = LOC_CLASSE(x[2]); cont[c] = (cont[c] || 0) + 1; });
+  el.innerHTML = '<b>Localidades (IBGE, Censo 2022):</b> ' + (n ? n + ' na área dos pontos — ' + [[0, 'cidades'], [1, 'vilas e núcleos urbanos'], [2, 'povoados, núcleos rurais e agrovilas'], [3, 'lugarejos, localidades indígenas, quilombolas e outras']]
+      .filter(([c]) => cont[c]).map(([c, t]) => cont[c] + ' ' + t).join(', ') + '. Aparecem no mapa de navegação e na lista do que vem pelo caminho, também sem internet. '
+      : 'ainda não carregadas (precisa de internet uma vez). ')
+    + '<button type="button" class="btn sec peq" id="b_loc">' + (n ? 'Atualizar' : 'Carregar') + ' as localidades</button>';
+  const b = $('#b_loc'); if (b) b.onclick = () => carregaLocalidades(false);
+}
+/* Localidades ao longo de um trajeto: as que ficam a até 1,5 km da linha, com a distância pelo trajeto. */
+const _LOC_CACHE = new Map();
+function locNoTrajeto(t, raio){
+  raio = raio || 1500;
+  const L = locLista(); if (!L.length || !t || !t.g || t.g.length < 2) return [];
+  const chave = (t.id || '') + '|' + (t.o || '') + '|' + t.g.length + '|' + t.g[0] + '|' + t.g[t.g.length - 1] + '|' + L.length;
+  if (_LOC_CACHE.has(chave)) return _LOC_CACHE.get(chave);
+  const g = t.g, acc = [0], guarda = !t.reta;
+  for (let k = 1; k < g.length; k++) acc.push(acc[k - 1] + _dPlano(g[k - 1][1], g[k - 1][0], g[k][1], g[k][0]));
+  let o = 180, l = -180, s = 90, n = -90; g.forEach(c => { o = Math.min(o, c[0]); l = Math.max(l, c[0]); s = Math.min(s, c[1]); n = Math.max(n, c[1]); });
+  const m = raio / 111000 * 1.6, out = [];
+  for (const x of L){
+    if (x[5] < o - m || x[5] > l + m || x[4] < s - m || x[4] > n + m) continue;
+    let best = Infinity, sb = 0;
+    const kx = Math.cos(x[4] * Math.PI / 180) * 111320, ky = 110574;
+    for (let k = 1; k < g.length; k++){
+      const ax = (g[k - 1][0] - x[5]) * kx, ay = (g[k - 1][1] - x[4]) * ky, bx = (g[k][0] - x[5]) * kx, by = (g[k][1] - x[4]) * ky;
+      const dx = bx - ax, dy = by - ay, LL = dx * dx + dy * dy, u = LL ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / LL)) : 0;
+      const d = Math.hypot(ax + u * dx, ay + u * dy);
+      if (d < best){ best = d; sb = acc[k - 1] + u * (acc[k] - acc[k - 1]); }
+    }
+    if (best <= raio) out.push({x: x, d: best, s: sb});
+  }
+  out.sort((u, v) => u.s - v.s);
+  if (guarda){ if (_LOC_CACHE.size > 60) _LOC_CACHE.clear(); _LOC_CACHE.set(chave, out); }
+  return out;
+}
+function _sNoTrajeto(t, P){             // distância pelo trajeto até a projeção da posição
+  const g = t.g; let best = Infinity, sb = 0, acc = 0;
+  const kx = Math.cos(P.lat * Math.PI / 180) * 111320, ky = 110574;
+  for (let k = 1; k < g.length; k++){
+    const seg = _dPlano(g[k - 1][1], g[k - 1][0], g[k][1], g[k][0]);
+    const ax = (g[k - 1][0] - P.lon) * kx, ay = (g[k - 1][1] - P.lat) * ky, bx = (g[k][0] - P.lon) * kx, by = (g[k][1] - P.lat) * ky;
+    const dx = bx - ax, dy = by - ay, LL = dx * dx + dy * dy, u = LL ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / LL)) : 0;
+    const d = Math.hypot(ax + u * dx, ay + u * dy);
+    if (d < best){ best = d; sb = acc + u * seg; }
+    acc += seg;
+  }
+  return sb;
+}
+function locPeloCaminho(t, P, max){
+  const L = locNoTrajeto(t); if (!L.length) return [];
+  const s0 = P ? _sNoTrajeto(t, P) : 0;
+  return L.filter(e => e.s >= s0 - 200).slice(0, max || 4).map(e => ({x: e.x, falta: Math.max(0, e.s - s0), d: e.d}));
+}
 function noTrajeto(t, P){
   let k0 = 0, d0 = Infinity;
   for (let k = 0; k < t.g.length; k++){
@@ -10060,6 +10166,9 @@ function pintaPlano(){
       return '<li><b>' + esc(x.id) + '</b>' + (cheg[k] != null && cheg.every(c => c != null) ? ' <small>chegada ~' + _hora(cheg[k]) + '</small>' : '') + (x.remedir ? '<span class="tag">remedir</span>' : '') + ' — ' + _numBR(x.km, 1) + ' km' + (x.min != null ? ' · ~' + x.min + ' min' : '')
         + ' desde ' + (k === 0 ? 'a partida' : esc(x.de)) + (x.g ? (x.op ? ' <small>(' + x.op.length + ' caminhos)</small>' : '') : ' <small>(sem rota guardada)</small>')
         + (oc[x.id] ? ' · <span class="feito">ocupado</span>' : '')
+        + (function(){ if (!x.g || x.g.length < 2) return ''; const V = locNoTrajeto({g: x.g, id: 'plano' + x.id, o: x.de}, 1000), nomes = [];
+            V.forEach(v => { if (!nomes.includes(v.x[1])) nomes.push(v.x[1]); });
+            return nomes.length ? '<br><small>passa por (IBGE, Censo 2022): ' + nomes.slice(0, 8).map(esc).join(' → ') + (nomes.length > 8 ? ' …' : '') + '</small>' : ''; })()
         + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 8px">' + (i >= 0 ? '<button type="button" class="btn sec peq" data-navega="' + i + '">Navegar</button>' : '')
         + '<button type="button" class="btn sec peq" data-pdia="sobe" data-pid="' + esc(x.id) + '"' + (k ? '' : ' disabled') + ' title="subir">↑</button>'
         + '<button type="button" class="btn sec peq" data-pdia="desce" data-pid="' + esc(x.id) + '"' + (k < p.paradas.length - 1 ? '' : ' disabled') + ' title="descer">↓</button>'
@@ -12964,7 +13073,11 @@ function desenhaNav(){
           + (bloqT ? '<br><b style="color:var(--mau)">Este caminho passa por um ponto marcado sem passagem'
              + (bloqT.nota ? ' (' + esc(bloqT.nota) + ')' : '') + ': toque em "Nova rota daqui" (com internet), "Outra rota, sem internet" ou troque o trajeto.</b>' : '')
           + (st ? (st.fora > 60 ? ' · <b style="color:var(--mau)">fora do trajeto (' + _metros(st.fora) + ')</b>'
-                               : ' · faltam <b>' + _metros(st.resta) + '</b> pelo trajeto') : '') : '')
+                               : ' · faltam <b>' + _metros(st.resta) + '</b> pelo trajeto') : '')
+          + (function(){ const V = locPeloCaminho(T, P, 4); return V.length ? '<br>Pelo caminho (IBGE, Censo 2022): '
+              + V.map(v => '<b>' + esc(v.x[1]) + '</b> <span style="opacity:.75">' + esc(v.x[2].split(',')[0].toLowerCase()) + (v.falta > 150 ? ', ' + _metros(v.falta) : ', aqui') + '</span>').join(' · ') : ''; })()
+          : (function(){ const V = locPeloCaminho({g: [[P.lon, P.lat], [a.lon, a.lat]], reta: true}, P, 4); return V.length ? '<br>Na direção do ponto, em linha reta (IBGE, Censo 2022): '
+              + V.map(v => '<b>' + esc(v.x[1]) + '</b> <span style="opacity:.75">' + esc(v.x[2].split(',')[0].toLowerCase()) + ', ' + _metros(v.falta) + '</span>').join(' · ') : ''; })())
     : 'Destino: ' + gms(a.lat, 'lat') + '<br>' + gms(a.lon, 'lon')
       + (T ? '<br>' + nomeT(T) : '');
   const msg = q('msg');
@@ -13204,6 +13317,21 @@ function desenhaNav(){
     x.strokeStyle = 'rgba(11,111,164,.85)';
     x.beginPath(); x.moveTo(p0.x, p0.y); x.lineTo(p1.x, p1.y); x.stroke(); x.restore();
   }
+  // localidades do IBGE (Censo 2022): os símbolos por baixo dos pontos planejados; quanto maior a localidade, mais
+  // de longe aparece (cidade sempre; vila e núcleo urbano a partir do nível 10; povoado, 12; as demais, 13)
+  const LOCV = (function(){ const LL = locLista(); if (!LL.length) return [];
+    const zmin = [0, 10, 12, 13];
+    return LL.filter(v => z >= zmin[LOC_CLASSE(v[2])]).map(v => ({x: v, c: LOC_CLASSE(v[2]), p: tela(v[4], v[5])}))
+      .filter(e => e.p.x > -30 && e.p.y > -30 && e.p.x < W + 30 && e.p.y < H + 30).sort((u, v) => u.c - v.c); })();
+  for (const e of LOCV){
+    const p = e.p, r = [5.5, 4.5, 3.5, 2.8][e.c];
+    x.save();
+    if (e.c <= 1){ x.fillStyle = e.c ? '#fff' : '#334155'; x.strokeStyle = e.c ? '#334155' : '#fff'; x.lineWidth = 1.8;
+      x.fillRect(p.x - r, p.y - r, 2 * r, 2 * r); x.strokeRect(p.x - r, p.y - r, 2 * r, 2 * r); }
+    else { x.beginPath(); x.arc(p.x, p.y, r, 0, 2 * Math.PI); x.fillStyle = e.c === 2 ? '#fff' : '#475569'; x.fill();
+      x.lineWidth = 1.6; x.strokeStyle = e.c === 2 ? '#334155' : '#fff'; x.stroke(); }
+    x.restore();
+  }
   // todos os planejados; o destino maior. Rótulo que encostaria em outro já
   // escrito não sai — o do destino é escrito primeiro e sempre aparece
   const despr = desprezados();
@@ -13243,6 +13371,24 @@ function desenhaNav(){
     x.strokeText(b.id, p.x + rl + 4, p.y + (vazado && alvo ? -10 : 5));
     x.fillStyle = '#0A3D56'; x.fillText(b.id, p.x + rl + 4, p.y + (vazado && alvo ? -10 : 5));
   });
+  // localidades do IBGE (Censo 2022): os nomes depois dos rótulos dos pontos planejados, que têm a vez;
+  // fora dos cantos do norte, da escala e do crédito
+  if (LOCV.length){
+    caixas.push({x0: W - 52, y0: 8, x1: W, y1: 74}, {x0: 0, y0: H - 46, x1: 150, y1: H}, {x0: W - 260, y0: H - 20, x1: W, y1: H});
+    for (const e of LOCV){
+      const p = e.p, r = [5.5, 4.5, 3.5, 2.8][e.c], nome = e.x[1], fs = [14, 12.5, 11.5, 10.5][e.c];
+      x.save();
+      x.font = (e.c === 0 ? '700 ' : e.c === 1 ? '600 ' : 'italic 500 ') + fs + 'px "IBM Plex Sans", system-ui, sans-serif';
+      const tw = x.measureText(nome).width, cx = {x0: p.x + r + 2, y0: p.y - fs / 2 - 2, x1: p.x + r + 6 + tw, y1: p.y + fs / 2 + 3};
+      if (!caixas.some(c => cx.x0 < c.x1 && cx.x1 > c.x0 && cx.y0 < c.y1 && cx.y1 > c.y0)){
+        caixas.push(cx);
+        x.lineWidth = 3.2; x.lineJoin = 'round'; x.strokeStyle = 'rgba(255,255,255,.88)'; x.strokeText(nome, p.x + r + 4, p.y + fs / 2 - 1);
+        x.fillStyle = '#1E293B'; x.fillText(nome, p.x + r + 4, p.y + fs / 2 - 1);
+      }
+      x.restore();
+    }
+    if (!/IBGE/.test(credito)) credito = (credito ? credito + ' · ' : '') + 'localidades: IBGE, Censo 2022';
+  }
   // a hospedagem, na volta: um quadrado
   if (NAV.volta){ const p = tela(a.lat, a.lon);
     x.fillStyle = '#0A3D56'; x.fillRect(p.x - 9, p.y - 9, 18, 18); x.lineWidth = 3; x.strokeStyle = '#fff'; x.strokeRect(p.x - 9, p.y - 9, 18, 18); }

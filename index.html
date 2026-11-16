@@ -17014,8 +17014,9 @@ async function _listaEnvio(){
     if (T && T.length) itens.push({nome: '_registros/' + idAparelho() + '/trilha_' + (d.dia.data || d.dia.trilha_id) + '.json', dados: JSON.stringify(T)});
   }
   /* 15/11/2026: a avaliação planimétrica preliminar vai ao Drive fora do pacote LC (o pacote segue só o padrão LC),
-     para o planejador juntar as tabelas das equipes */
-  try { const RA = avalAtualiza(); if (RA.linhas.some(r => r.campos)) (await avalProdutos(RA, '_avaliacao_planimetrica/')).itens.forEach(x => itens.push(x)); }
+     para o planejador juntar as tabelas das equipes. O receptor só aceita caminho que comece pelo LC ou por _registros
+     (a primeira versão mandava em _avaliacao_planimetrica/ e o servidor recusava): fica em _registros/avaliacao_planimetrica/ */
+  try { const RA = avalAtualiza(); if (RA.linhas.some(r => r.campos)) (await avalProdutos(RA, '_registros/avaliacao_planimetrica/')).itens.forEach(x => itens.push(x)); }
   catch (e){ falhas0.push('avaliação planimétrica: ' + e.message); }
   const L = [], falhas = falhas0, m = _enviados(), url = _srv().url.trim();
   for (const it of P.itens.concat(itens)){
@@ -20124,7 +20125,7 @@ function pintaAval(){
     : '<b style="color:#B91C1C">não informada</b> — sem ela não há análise de distribuição. <button type="button" class="btn peq" id="b_aval_ext">Informar a extensão do produto</button>')
     + '<input type="file" id="f_aval_ext" class="oculto" multiple accept=".tif,.tiff,.tfw,.prj,.gpkg,.geojson,.json,.kml"></p>');
   if (!L.length){
-    h.push('<p class="leg">' + (MODO_PLAN ? 'Junte aqui as tabelas <code>…_avaliacao_pontos_checagem.csv</code> das equipes (vão ao Drive com o envio de cada folha, na pasta <code>_avaliacao_planimetrica</code>).' : 'Nenhum ponto rastreado ainda.') + '</p>'
+    h.push('<p class="leg">' + (MODO_PLAN ? 'Junte aqui as tabelas <code>…_avaliacao_pontos_checagem.csv</code> das equipes (vão ao Drive com o envio de cada folha, na pasta <code>_registros/avaliacao_planimetrica</code> de cada equipe).' : 'Nenhum ponto rastreado ainda.') + '</p>'
       + (MODO_PLAN ? '<div class="acoes"><button type="button" class="btn sec peq" id="b_aval_junta">Juntar tabelas das equipes (.csv)</button></div><input type="file" id="f_aval_junta" class="oculto" multiple accept=".csv,.tsv,.txt">' : ''));
     el.innerHTML = h.join(''); _avalLiga(); return;
   }

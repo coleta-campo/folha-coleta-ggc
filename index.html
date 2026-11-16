@@ -17857,8 +17857,19 @@ function pdfDePaginas(pags){                  // [{jpeg: Uint8Array, W, H}]
   for (const b of partes){ s.set(b, o); o += b.length; }
   return s;
 }
+/* O PDF é papel: sai sempre no tema claro. A página A4 é uma imagem SVG desenhada com o CSS da folha, e dentro dela o
+   navegador também aplica (prefers-color-scheme: dark) — com o aparelho em modo escuro, títulos e textos saíam claros
+   sobre o branco (16/11/2026). As regras do tema escuro ficam fora. */
 function _cssDaFolha(){
-  return Array.from(document.querySelectorAll('style')).map(s => s.textContent).join('\n').replace(/\]\]>/g, '');
+  const out = [];
+  const anda = L => { for (const r of L){
+    if (r.type === 4 && /prefers-color-scheme/i.test(r.media.mediaText)) continue;
+    out.push(r.cssText); } };
+  for (const sh of document.styleSheets){
+    if (sh.ownerNode && sh.ownerNode.id === 'tema_escuro') continue;
+    try { anda(sh.cssRules); } catch (e){ if (sh.ownerNode) out.push(sh.ownerNode.textContent); }
+  }
+  return out.join('\n').replace(/\]\]>/g, '');
 }
 async function _paginaJpeg(nos, css){
   const ser = new XMLSerializer();
@@ -20322,7 +20333,8 @@ function pintaAval(){
         + (r.sit === 'gabinete' && r.conf && r.r > AVAL_LIM ? ' (confirmado)' : '') + (R.atipicos && R.atipicos.includes(r.id) ? ' · <b>atípico</b>' : '') + '</td></tr>'; }).join('') + '</table></div>');
   h.push('<div class="acoes">' + (MODO_PLAN ? '<button type="button" class="btn sec peq" id="b_aval_junta">Juntar tabelas das equipes (.csv)</button>' : '')
     + '<button type="button" class="btn peq" id="b_aval_rel"' + (R.n >= 3 ? '' : ' disabled') + '>Ver o relatório da prévia</button>'
-    + '<button type="button" class="btn sec peq" id="b_aval_baixa">Baixar o produto para o PlugIBGE (GPKG + CSV + relatório)</button></div>'
+    + '<button type="button" class="btn sec peq" id="b_aval_pdf"' + (R.n >= 3 ? '' : ' disabled') + '>Relatório da prévia (PDF A4)</button>'
+    + '<button type="button" class="btn sec peq" id="b_aval_baixa">Baixar o produto para o PlugIBGE (GPKG + CSV + relatório HTML e PDF)</button></div>'
     + (MODO_PLAN ? '<input type="file" id="f_aval_junta" class="oculto" multiple accept=".csv,.tsv,.txt">' : ''));
   el.innerHTML = h.join('');
   _avalLiga();
@@ -20367,6 +20379,11 @@ function _avalLiga(){
     catch (err){ marca('extensão do produto: ' + err.message); } };
   const br = $('#b_aval_rel'); if (br) br.onclick = () => { const w = window.open('', '_blank'); if (!w) return marca('o navegador bloqueou a janela do relatório');
     w.document.open(); w.document.write(avalRelatorio(_AVAL)); w.document.close(); };
+  const bp = $('#b_aval_pdf'); if (bp) bp.onclick = async () => { bp.disabled = true;
+    try { marca('montando o PDF da avaliação…'); const pdf = await avalPDF(avalAtualiza());
+      const nome = avalBase() + '_avaliacao_planimetrica_previa.pdf'; baixa(nome, new Blob([pdf], {type: 'application/pdf'})); marca('PDF da avaliação baixado: ' + nome); }
+    catch (err){ marca('PDF da avaliação: ' + err.message); }
+    bp.disabled = false; };
   const bb = $('#b_aval_baixa'); if (bb) bb.onclick = async () => {
     if (!F.campanha.aval_ext && confirm('A extensão do produto avaliado não foi informada: sem ela, o produto sai sem a análise de distribuição dos pontos.\n\nInformar agora? (OK = informar a extensão; Cancelar = baixar assim mesmo)')){ $('#f_aval_ext').click(); return; }
     try { const it = await avalProdutos(avalAtualiza()); baixa(it.nomeZip, zipGuarda(it.itens)); marca('produto da avaliação planimétrica baixado: ' + it.nomeZip); }
@@ -20499,15 +20516,17 @@ function avalRelatorio(R){
   const q = '<h1>Avaliação planimétrica preliminar da imagem — por município</h1>'
     + '<p>Posição de gabinete × PPP de campo. Cada município é avaliado com os seus pontos — os do plano, inclusive os que caíram do outro lado '
     + 'da divisa — e com o seu limite (IBGE, API de malhas v3). Erro = gabinete − PPP, em UTM ' + R.fuso + 'S (EPSG:' + R.epsg + ').</p>'
-    + '<table><tr><th>Município</th><th>n</th><th>tendência E (m)</th><th>tendência N (m)</th><th>RMSE<sub>r</sub> (m)</th><th>CE90 (m)</th><th>PEC A a partir de</th>'
-    + '<th>escala-padrão A</th><th>com translação, A a partir de</th><th>quadrantes</th><th>vizinho mais próximo R</th><th>do outro lado do limite</th></tr>'
+    + '<table><tr><th>Município</th><th>n</th><th>tend. E (m)</th><th>tend. N (m)</th><th>RMSE<sub>r</sub> (m)</th><th>CE90 (m)</th><th>PEC A a partir de</th>'
+    + '<th>escala A</th><th>A com translação</th><th>quadr.</th><th>vizinho R</th><th>divisa</th></tr>'
     + R.munis.map(m => '<tr><td>' + esc(m.nome) + ' (' + m.cod + ')</td><td>' + m.n + '</td>'
       + (m.n >= 3 ? '<td>' + _af2(m.E.media) + (m.tendE ? '*' : '') + '</td><td>' + _af2(m.N.media) + (m.tendN ? '*' : '') + '</td><td>' + _af2(m.r.rmse) + '</td><td>' + _af2(m.r.ce90) + '</td><td>'
         + avalFmtEsc(m.pec.A) + '</td><td>' + (avalEscPadrao(m.pec.A) ? avalFmtEsc(avalEscPadrao(m.pec.A)) : '—') + '</td><td>' + (m.trans ? avalFmtEsc(m.trans.pec.A) : '—') + '</td>'
         : '<td colspan="7">menos de 3 pontos de gabinete</td>')
       + '<td>' + (m.distPrevia.semExtensao ? '—' : m.distPrevia.quadOcup + '/4') + '</td><td>' + ((m.distPrevia.vmp || [])[0] ? _af2(m.distPrevia.vmp[0].R) + ' (' + m.distPrevia.vmp[0].padrao + ')' : '—') + '</td>'
       + '<td>' + (m.distPrevia.fora || 0) + '</td></tr>').join('')
-    + '</table><small>* tendência significativa (t de Student, α = 10 %). PEC do Decreto nº 89.817/1984. Com n &lt; 20, resultado indicativo (Merchant, 1982).'
+    + '</table><small>tend.: média de ΔE e ΔN; * significativa (t de Student, α = 10 %). PEC A: menor escala atendida na Classe A do Decreto nº 89.817/1984; escala A: escala-padrão; '
+    + 'A com translação: o mesmo, com o produto corrigido pela média. quadr.: quadrantes ocupados. vizinho R: razão do vizinho mais próximo (Clark; Evans, 1954). '
+    + 'divisa: pontos do outro lado do limite, avaliados com o município. Com n &lt; 20, resultado indicativo (Merchant, 1982).'
     + (R.semMun && R.semMun.length ? ' Sem município avaliado: ' + R.semMun.map(esc).join(', ') + '.' : '') + '</small>';
   return cab + q + R.munis.map(m => corpo(_avalRelatorioUm(m), 'Município: ' + esc(m.nome) + ' (' + m.cod + ')', false)).join('')
     + corpo(um, 'Conjunto da campanha (todos os municípios, referência)', true) + '</bo' + 'dy></html>';
@@ -20622,6 +20641,49 @@ function _avalTSV(L){
       CD_MUN_AVAL: r.mun ? r.mun.cod : '', MUNICIPIO_AVAL: r.mun ? r.mun.nome : ''};
     return AVAL_CAMPOS_BAT.map(k => limpa(c[k])).concat(AVAL_EXTRAS.map(k => ex[k])).join('\t'); })).join('\r\n') + '\r\n';
 }
+/* relatório da avaliação em PDF (16/11/2026): o mesmo HTML, diagramado em páginas A4 pelo motor dos PDFs da folha
+   (pdfDaImpressao: página = imagem, sem caixa de impressão do navegador — funciona igual no celular e no notebook).
+   O CSS do relatório vale só dentro de #impressao, e só enquanto o PDF é montado. Cada município começa página. */
+function _cssEscopo(css, pre){
+  let o = '', i = 0;
+  while (i < css.length){
+    const a = css.indexOf('{', i); if (a < 0) break;
+    const sel = css.slice(i, a).trim();
+    if (sel.startsWith('@')){ let d = 1, j = a + 1; while (j < css.length && d){ if (css[j] === '{') d++; else if (css[j] === '}') d--; j++; }
+      o += sel + '{' + _cssEscopo(css.slice(a + 1, j - 1), pre) + '}'; i = j; continue; }
+    const z = css.indexOf('}', a);
+    o += sel.split(',').map(x => x.trim() === 'body' ? pre : pre + ' ' + x.trim()).join(',') + '{' + css.slice(a + 1, z) + '}';
+    i = z + 1;
+  }
+  return o;
+}
+async function avalPDF(R){
+  const doc = avalRelatorio(R);
+  const css = (doc.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
+  const corpo = doc.slice(doc.indexOf('<bo' + 'dy>') + 6, doc.lastIndexOf('</bo' + 'dy>'));
+  const el = $('#impressao'), antes = el.innerHTML;
+  const st = document.createElement('style'); st.id = 'aval_rel_css';
+  st.textContent = _cssEscopo(css.replace(/max-width:960px;margin:24px auto;padding:0 16px;/, ''), '#impressao')
+    + '#impressao h1{font-size:18px;margin:0 0 6px}#impressao h2{font-size:15px;margin-top:14px}#impressao table{font-size:10px;max-width:100%}'
+    + '#impressao th{text-transform:none;letter-spacing:0;font-size:9.5px;padding:2px 4px}#impressao td{padding:2px 4px}#impressao svg{max-width:100%;height:auto}';
+  document.head.appendChild(st);
+  try {
+    el.innerHTML = corpo;
+    // a diagramação anda pelos filhos de #impressao: texto solto e SVG vão para dentro de um bloco
+    let bloco = null;
+    for (const n of Array.from(el.childNodes)){
+      const html = n.nodeType === 1 && n.namespaceURI === 'http://www.w3.org/1999/xhtml' && !/^(SPAN|B|I|SMALL|SUB|SUP|A|BR|CODE)$/.test(n.tagName);
+      if (html){ bloco = null; continue; }
+      if (n.nodeType === 3 && !n.textContent.trim()){ n.remove(); continue; }
+      if (n.nodeType === 8){ n.remove(); continue; }
+      if (!bloco){ bloco = document.createElement('div'); el.insertBefore(bloco, n); }
+      bloco.appendChild(n);
+    }
+    // município novo começa página
+    el.querySelectorAll(':scope > h1[style*="break-before"]').forEach(h => h.classList.add('croqui'));
+    return await pdfDaImpressao();
+  } finally { st.remove(); el.innerHTML = antes; }
+}
 function avalBase(){
   const lc = (F.campanha.ptcon_lc || 'CAMPANHA').replace(/[^A-Za-z0-9_-]/g, '');
   const iEq = !MODO_PLAN && F.config && F.config.equipePlano != null ? +F.config.equipePlano : -1;
@@ -20649,6 +20711,7 @@ async function avalProdutos(R, pasta){
     {nome: pre + base + '_avaliacao_pontos_checagem.csv', dados: _avalTSV(comPPP)},
     {nome: pre + base + '_escolhidos_em_campo.csv', dados: _avalTSV(comPPP.filter(r => r.sit === 'campo' || r.sit === 'confira'))},
     {nome: pre + base + '_avaliacao_planimetrica_previa.html', dados: avalRelatorio(R)}];
+  if (R.n >= 3) try { itens.push({nome: pre + base + '_avaliacao_planimetrica_previa.pdf', dados: await avalPDF(R)}); } catch (e){ console.error(e); }
   return {nomeZip: base + '_AVALIACAO_PLANIMETRICA.zip', itens: itens};
 }
 
@@ -21300,7 +21363,7 @@ function _teTexto(v){
   return (_TE.cache[k] = r);
 }
 function _teElemento(el){
-  if (!el.style || el.closest('svg')) return;
+  if (!el.style || el.closest('svg') || el.closest('#impressao')) return;
   const b = _teFundo(el.style.backgroundColor), t = _teTexto(el.style.color);
   if (b){ if (el.style.getPropertyValue('--te-b') !== b) el.style.setProperty('--te-b', b); el.classList.add('teb'); }
   else if (el.classList.contains('teb')) el.classList.remove('teb');
